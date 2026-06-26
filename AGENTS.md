@@ -2,9 +2,9 @@
 
 ## Project Structure & Module Organization
 
-This repository contains a Go code-review agent for GitLab merge requests. `cmd/7review/main.go` is the CLI entrypoint. `agent/app/` wires HTTP routes and dependencies. `agent/config/` loads environment settings, `agent/orchestrator/` handles model-role routing and fallbacks, `agent/llm/providers/` contains LLM clients, `agent/review/` stores per-MR review state, and `agent/pipeline/` coordinates the workflow. `orchestrator.yaml` maps semantic roles to provider/model fallback chains.
+This repository contains a Go code-review agent for GitLab merge requests. `cmd/7review/main.go` is the CLI entrypoint. `agent/app/` wires HTTP routes and dependencies. `agent/channels/` adapts webhooks into normalized review requests. `agent/pipeline/` coordinates the workflow, with support packages for `jobs`, `policy`, `validator`, `publisher`, `memory`, and `review` state. `agent/orchestrator/` handles model-role routing and fallbacks, while `agent/llm/providers/` contains concrete LLM clients.
 
-If you add new code, keep responsibilities separated by package intent: entrypoint code in `cmd/`, HTTP composition in `agent/app`, configuration in `agent/config`, model routing in `agent/orchestrator`, and provider integrations in `agent/llm/providers`. Place tests beside the code they cover using Go's `*_test.go` convention.
+If you add new code, keep responsibilities separated by package intent: entrypoint code in `cmd/`, HTTP composition in `agent/app`, external adapters in `agent/channels`, workflow state in `agent/jobs` and `agent/review`, deterministic gates in `agent/policy` and `agent/validator`, and provider integrations in `agent/llm/providers`. Place tests beside the code they cover using Go's `*_test.go` convention.
 
 ## Build, Test, and Development Commands
 

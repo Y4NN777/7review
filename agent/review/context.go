@@ -16,6 +16,8 @@ import (
 type Context struct {
 	mu sync.Mutex
 
+	Request Request
+
 	// ── Inputs (populated by Step 1) ─────────────────────────────────────
 	ProjectID string
 	MRIID     int
@@ -38,6 +40,7 @@ type Context struct {
 	// ── Review findings (populated by Step 5, thread-safe) ───────────────
 	// Each parallel batch appends its raw findings string here.
 	rawFindings []string
+	Findings    []Finding
 
 	// ── Report (populated by Step 6) ─────────────────────────────────────
 	DraftReport string
@@ -59,10 +62,11 @@ type Context struct {
 }
 
 // NewReviewContext initialises a context for one MR review run.
-func NewContext(projectID string, mrIID int) *Context {
+func NewContext(req Request) *Context {
 	return &Context{
-		ProjectID:     projectID,
-		MRIID:         mrIID,
+		Request:       req,
+		ProjectID:     req.ProjectID,
+		MRIID:         req.MRIID,
 		StepProviders: make(map[string]string),
 	}
 }

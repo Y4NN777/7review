@@ -1,4 +1,3 @@
-
 package skills
 
 // Loader loads repository-specific review skills from disk.

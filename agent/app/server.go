@@ -9,9 +9,15 @@ import (
 
 	"github.com/Y4NN777/7review/agent/channels"
 	"github.com/Y4NN777/7review/agent/config"
+	"github.com/Y4NN777/7review/agent/jobs"
+	"github.com/Y4NN777/7review/agent/memory"
 	"github.com/Y4NN777/7review/agent/orchestrator"
 	"github.com/Y4NN777/7review/agent/pipeline"
+	"github.com/Y4NN777/7review/agent/policy"
+	"github.com/Y4NN777/7review/agent/publisher"
+	"github.com/Y4NN777/7review/agent/review"
 	"github.com/Y4NN777/7review/agent/skills"
+	"github.com/Y4NN777/7review/agent/validator"
 )
 
 // Server wires HTTP routes to the review pipeline.
@@ -41,9 +47,14 @@ func NewServer() (*Server, error) {
 	s := &Server{
 		cfg: cfg,
 		pipeline: &pipeline.Pipeline{
-			Config:       cfg,
-			SkillLoader:  sl,
-			Orchestrator: modelOrchestrator,
+			Config:           cfg,
+			SkillLoader:      sl,
+			Orchestrator:     modelOrchestrator,
+			Jobs:             jobs.NewMemoryStore(),
+			Policy:           policy.DefaultFilter{},
+			FindingValidator: validator.DefaultFindingValidator{},
+			Publisher:        publisher.NoopPublisher{},
+			Memory:           memory.NoopStore{},
 		},
 		mux: http.NewServeMux(),
 	}
@@ -60,10 +71,10 @@ func (s *Server) ListenAndServe() error {
 func (s *Server) routes() {
 	s.mux.HandleFunc("/webhook", channels.GitLabWebhookHandler(
 		s.cfg.WebhookSecret,
-		func(projectID string, mrIID int) {
+		func(req review.Request) {
 			ctx := context.Background()
-			if err := s.pipeline.Run(ctx, projectID, mrIID); err != nil {
-				log.Printf("[server] pipeline error project=%s MR=!%d: %v", projectID, mrIID, err)
+			if err := s.pipeline.Run(ctx, req); err != nil {
+				log.Printf("[server] pipeline error project=%s MR=!%d: %v", req.ProjectID, req.MRIID, err)
 			}
 		},
 	))
