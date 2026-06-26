@@ -3,8 +3,9 @@ package review
 import (
 	"sync"
 
+	"github.com/Y4NN777/7review/agent/knowledge"
+	"github.com/Y4NN777/7review/agent/scm"
 	diffanalyzer "github.com/Y4NN777/7review/agent/subagents/diff_analyzer"
-	"github.com/Y4NN777/7review/agent/tools"
 )
 
 // ReviewContext is assembled once per MR and passed through every pipeline step.
@@ -24,7 +25,7 @@ type Context struct {
 	MRTitle   string
 	MRAuthor  string
 	WebURL    string
-	DiffRefs  tools.DiffRefs
+	DiffRefs  scm.DiffRefs
 
 	// ── Structured diff (populated by Step 2) ────────────────────────────
 	Diff *diffanalyzer.StructuredDiff
@@ -35,7 +36,7 @@ type Context struct {
 
 	// ── Contract sections (populated by Step 4) ──────────────────────────
 	// Keyed by section identifier (e.g. "architecture/controller_rules.md").
-	ContractSections []tools.ContractSection
+	ContractSections []knowledge.Section
 
 	// ── Review findings (populated by Step 5, thread-safe) ───────────────
 	// Each parallel batch appends its raw findings string here.

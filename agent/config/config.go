@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-
-	"github.com/Y4NN777/7review/agent/tools"
 )
 
 // Config holds all runtime settings, loaded from environment variables.
@@ -106,13 +104,6 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return c, nil
-}
-
-func (c *Config) ToToolConfig() *tools.Config {
-	return &tools.Config{
-		GitLabURL:   c.GitLabURL,
-		GitLabToken: c.GitLabToken,
-	}
 }
 
 func getEnv(key, fallback string) string {
