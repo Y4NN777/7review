@@ -1,0 +1,44 @@
+# orchestrator.yaml
+#
+# Maps semantic model roles to provider+model chains.
+# The orchestrator tries primary first, then walks fallbacks in order.
+#
+# Model spec format: "model-name@provider"
+# Supported providers: anthropic | openai | mistral | gemini | ollama | openai_compat
+#
+# Set ORCHESTRATOR_CONFIG=./orchestrator.yaml to activate this file.
+# Without it, the agent uses PROVIDER / REVIEW_MODEL / SMALL_MODEL env vars.
+
+roles:
+
+  # ── reasoner ─────────────────────────────────────────────────────────────
+  # Step 5: Review Agent — deep analysis, large context window.
+  # parallel: true allows file batches to fan out across providers concurrently.
+  reasoner:
+    primary: "claude-sonnet-4-6@anthropic"
+    fallbacks:
+      - "gpt-4o@openai"
+      - "mistral-large-latest@mistral"
+      - "qwen2.5-coder:32b@ollama"   # local fallback, no cost, air-gapped safe
+    max_tokens: 4096
+    parallel: true
+
+  # ── formatter ────────────────────────────────────────────────────────────
+  # Step 6: Report Generator — structured Markdown output, no creativity needed.
+  # Use the cheapest model that can produce clean structured output.
+  formatter:
+    primary: "claude-haiku-4-5-20251001@anthropic"
+    fallbacks:
+      - "mistral-small-latest@mistral"
+      - "llama3.2:3b@ollama"
+    max_tokens: 2048
+
+  # ── compactor ────────────────────────────────────────────────────────────
+  # Step 7: Memory Compactor — extraction and JSON output.
+  # Must return valid JSON. Small, cheap, fast.
+  compactor:
+    primary: "mistral-small-latest@mistral"
+    fallbacks:
+      - "claude-haiku-4-5-20251001@anthropic"
+      - "llama3.2:3b@ollama"
+    max_tokens: 1024
