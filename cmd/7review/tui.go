@@ -259,6 +259,7 @@ func toUIRunRows(runs []remoteRunRow) []ui.RunRow {
 			Error:       run.Error,
 			WebURL:      run.WebURL,
 			UpdatedAt:   run.UpdatedAt,
+			EventCount:  run.EventCount,
 			HILApproved: run.HILApproved,
 		})
 	}

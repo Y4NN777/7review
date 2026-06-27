@@ -31,11 +31,13 @@ agent's authenticated `/ready` endpoint and renders pipeline, orchestrator,
 run-store, queue, Headroom, and MemPalace readiness. Set `REVIEW_API_TOKEN`
 when the server requires operator auth.
 
-`tui` renders the operator console: active runs, selected run details,
-dependency state, queue state, configured providers, role routing, loaded
-skills, and tool count. It reads live agent endpoints only: `/ready`, `/tools`,
-and `/tools/execute` for `list_runs`, `get_run`, `list_provider_status`, and
-`list_skills`. With `--watch`, it refreshes in place until interrupted.
+`tui` renders the operator console as a terminal workspace: recent run activity
+on the left, the current run and exact follow-up commands below it, and a compact
+right rail for dependency state, queue state, provider routing, review progress,
+loaded skills, and tool count. It reads live agent endpoints only: `/ready`,
+`/tools`, and `/tools/execute` for `list_runs`, `get_run`,
+`list_provider_status`, and `list_skills`. With `--watch`, it refreshes in place
+until interrupted.
 
 `history` renders a run timeline from `/run?id=<run-id>`, including lifecycle
 events and persisted run-chat events. Use `--type` to filter one event type and

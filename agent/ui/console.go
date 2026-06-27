@@ -46,6 +46,7 @@ type RunRow struct {
 	Error       string
 	WebURL      string
 	UpdatedAt   time.Time
+	EventCount  int
 	HILApproved bool
 }
 
@@ -126,26 +127,13 @@ func renderConsoleMain(view ConsoleView) string {
 			"7review status --server "+view.Server,
 		)
 	} else {
-		lines = append(lines, "Runs")
-		for _, run := range firstRuns(view.Runs, 8) {
-			status := run.Status
-			if run.HILApproved {
-				status += " approved"
-			}
-			marker := " "
-			if view.ActiveRun != nil && run.ID == view.ActiveRun.ID {
-				marker = ">"
-			}
-			title := trimTo(firstNonEmpty(run.Title, run.ID), 34)
-			line := fmt.Sprintf("%s %-22s %-18s %-10s %s", marker, trimTo(run.ID, 22), trimTo(run.Provider, 18), trimTo(status, 10), title)
-			lines = append(lines, line)
-		}
+		lines = append(lines, renderActivityLines(view)...)
 		if len(view.Runs) > 8 {
 			lines = append(lines, fmt.Sprintf("%d more runs", len(view.Runs)-8))
 		}
 	}
 	if view.ActiveRun != nil {
-		lines = append(lines, "", "Active run")
+		lines = append(lines, "", "Current run")
 		lines = append(lines,
 			"run        "+view.ActiveRun.ID,
 			"status     "+view.ActiveRun.Status,
@@ -163,6 +151,13 @@ func renderConsoleMain(view ConsoleView) string {
 		if view.ActiveRun.Error != "" {
 			lines = append(lines, "error      "+view.ActiveRun.Error)
 		}
+		lines = append(lines,
+			"",
+			"Commands",
+			"7review chat --run "+view.ActiveRun.ID+" --server "+view.Server,
+			"7review history "+view.ActiveRun.ID+" --server "+view.Server,
+			"7review history "+view.ActiveRun.ID+" --type chat_message --limit 20 --server "+view.Server,
+		)
 	}
 	if len(view.Warnings) > 0 {
 		lines = append(lines, "", "Warnings")
@@ -171,6 +166,36 @@ func renderConsoleMain(view ConsoleView) string {
 		}
 	}
 	return renderConsoleSurface(lines, 82, view.Plain)
+}
+
+func renderActivityLines(view ConsoleView) []string {
+	lines := []string{"Activity"}
+	for _, run := range firstRuns(view.Runs, 8) {
+		status := run.Status
+		if run.HILApproved {
+			status += " approved"
+		}
+		marker := " "
+		if view.ActiveRun != nil && run.ID == view.ActiveRun.ID {
+			marker = ">"
+		}
+		title := trimTo(firstNonEmpty(run.Title, run.ID), 30)
+		updated := formatActivityTime(run.UpdatedAt)
+		history := ""
+		if run.EventCount > 0 {
+			history = fmt.Sprintf(" history=%d", run.EventCount)
+		}
+		line := fmt.Sprintf("%s %-19s %-9s %-14s %-10s%s %s", marker, trimTo(run.ID, 19), trimTo(run.Provider, 9), trimTo(status, 14), updated, history, title)
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func formatActivityTime(value time.Time) string {
+	if value.IsZero() {
+		return "-"
+	}
+	return value.UTC().Format("15:04:05Z")
 }
 
 func renderConsoleRail(view ConsoleView) string {
@@ -226,6 +251,12 @@ func renderConsoleRail(view ConsoleView) string {
 			lines = append(lines, fmt.Sprintf("%-10s %s", trimTo(role.Role, 10), trimTo(role.Primary, 22)))
 		}
 	}
+	if view.ActiveRun != nil {
+		lines = append(lines, "", "Review")
+		for _, item := range reviewTodoLines(*view.ActiveRun) {
+			lines = append(lines, item)
+		}
+	}
 	lines = append(lines,
 		"",
 		"Catalog",
@@ -243,6 +274,23 @@ func renderConsoleRail(view ConsoleView) string {
 		}
 	}
 	return renderConsoleSurface(lines, 34, view.Plain)
+}
+
+func reviewTodoLines(run RunDetail) []string {
+	items := []string{
+		"draft     " + doneOrOpen(run.DraftBytes > 0),
+		"findings  " + doneOrOpen(run.Findings > 0),
+		"hil       " + doneOrOpen(run.HILApproved),
+		"final     " + doneOrOpen(run.FinalBytes > 0),
+	}
+	return items
+}
+
+func doneOrOpen(done bool) string {
+	if done {
+		return "done"
+	}
+	return "open"
 }
 
 func renderConsoleSurface(body []string, width int, plain bool) string {

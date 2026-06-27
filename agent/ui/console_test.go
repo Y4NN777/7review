@@ -59,12 +59,12 @@ func TestRenderConsolePopulatedShowsRunAndRail(t *testing.T) {
 		Skills:    []SkillRow{{Name: "traceability-review", Loaded: true}},
 		Tools:     []ToolRow{{Name: "list_runs", LifecycleStage: "observe", Implemented: true}},
 	})
-	for _, want := range []string{"owner/repo!7", "Fix validation", "findings   2", "history    3 events", "latest     status_changed drafted", "depth     1/8", "openrouter", "reasoner", "skills    1", "tools     1", "refreshed 2026-06-27T12:01:02Z", "watch every 5s"} {
+	for _, want := range []string{"Activity", "Current run", "owner/repo!7", "Fix validation", "findings   2", "history    3 events", "latest     status_changed drafted", "Commands", "7review chat --run owner/repo!7 --server http://agent", "7review history owner/repo!7 --type chat_message --limit 20 --server http://agent", "Review", "draft     done", "hil       open", "depth     1/8", "openrouter", "reasoner", "skills    1", "tools     1", "refreshed 2026-06-27T12:01:02Z", "watch every 5s"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("console output missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "| 7review") || strings.Contains(out, "+---") {
+	if strings.Contains(out, "| 7review") || strings.Contains(out, "+---") || strings.Contains(out, "Active run") || strings.Contains(out, "Runs") {
 		t.Fatalf("console should not render boxed dashboard or right-rail app heading:\n%s", out)
 	}
 }
