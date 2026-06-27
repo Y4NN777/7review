@@ -613,7 +613,7 @@ func TestHandleToolExecuteObservabilityTools(t *testing.T) {
 			OpenRouterBaseURL: "https://openrouter.ai/api",
 			DeepSeekBaseURL:   "https://api.deepseek.com",
 		},
-		pipeline: &pipeline.Pipeline{Jobs: store},
+		pipeline: &pipeline.Pipeline{Jobs: store, Memory: proposalMemory{}},
 	}
 
 	cases := []struct {
@@ -641,6 +641,11 @@ func TestHandleToolExecuteObservabilityTools(t *testing.T) {
 			body: `{"name":"list_provider_status"}`,
 			want: []string{`"active_provider":"openrouter"`, `"name":"openrouter"`, `"configured":true`, `"reasoner"`},
 		},
+		{
+			name: "preview_memory_proposal",
+			body: `{"name":"preview_memory_proposal","input":{"run":"owner/repo!9"}}`,
+			want: []string{`"approved":true`, `"Conventions":["final report"]`, `"final_bytes":12`},
+		},
 	}
 
 	for _, tc := range cases {
@@ -664,7 +669,7 @@ func TestHandleToolExecuteObservabilityTools(t *testing.T) {
 
 func TestHandleToolExecuteRejectsUnimplementedTool(t *testing.T) {
 	s := &Server{pipeline: &pipeline.Pipeline{Jobs: pipeline.NewMemoryRunStore()}}
-	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(`{"name":"preview_memory_proposal","input":{"run":"p!7"}}`))
+	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(`{"name":"rerun_review","input":{"run":"p!7"}}`))
 	rec := httptest.NewRecorder()
 
 	s.handleToolExecute(rec, req)
@@ -898,6 +903,27 @@ func (fakeMemory) Write(context.Context, pipeline.UpdateProposal) error {
 }
 
 func (fakeMemory) Check(context.Context) error {
+	return nil
+}
+
+type proposalMemory struct{}
+
+func (proposalMemory) Recall(context.Context, review.Request) (pipeline.Recall, error) {
+	return pipeline.Recall{}, nil
+}
+
+func (proposalMemory) ProposeUpdate(_ context.Context, rc *review.Context) (pipeline.UpdateProposal, error) {
+	if rc == nil || !rc.HILApproved {
+		return pipeline.UpdateProposal{}, errors.New("approval required")
+	}
+	return pipeline.UpdateProposal{Conventions: []string{rc.FinalReport}}, nil
+}
+
+func (proposalMemory) Write(context.Context, pipeline.UpdateProposal) error {
+	return nil
+}
+
+func (proposalMemory) Check(context.Context) error {
 	return nil
 }
 

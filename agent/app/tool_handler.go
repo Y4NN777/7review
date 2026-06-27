@@ -173,6 +173,27 @@ func (r appToolRunner) PublishStatus(ctx context.Context, id string) (any, error
 	}, nil
 }
 
+func (r appToolRunner) MemoryProposal(ctx context.Context, id string) (any, error) {
+	if r.server == nil || r.server.pipeline == nil || r.server.pipeline.Memory == nil {
+		return nil, fmt.Errorf("memory store is not configured")
+	}
+	run, err := r.server.pipeline.Jobs.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	rc := contextForRunPreview(run)
+	proposal, err := r.server.pipeline.Memory.ProposeUpdate(ctx, rc)
+	if err != nil {
+		return nil, err
+	}
+	return memoryProposalStatusDTO{
+		Run:        run.ID,
+		Approved:   rc.HILApproved,
+		Proposal:   proposal,
+		FinalBytes: len(rc.FinalReport),
+	}, nil
+}
+
 func (s *Server) handleToolExecute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -377,6 +398,13 @@ type publishStatusDTO struct {
 	UpdatedAtUnixMS int64              `json:"updated_at_unix_ms"`
 }
 
+type memoryProposalStatusDTO struct {
+	Run        string                `json:"run"`
+	Approved   bool                  `json:"approved"`
+	Proposal   review.UpdateProposal `json:"proposal"`
+	FinalBytes int                   `json:"final_bytes"`
+}
+
 func configStatus(cfg *config.Config) configStatusDTO {
 	if cfg == nil {
 		return configStatusDTO{}
@@ -531,4 +559,24 @@ func sourceChangeID(source review.Source, run *pipeline.Run) string {
 		return run.Request.ChangeID
 	}
 	return ""
+}
+
+func contextForRunPreview(run *pipeline.Run) *review.Context {
+	if run == nil {
+		return review.NewContext(review.Request{})
+	}
+	if run.Context != nil {
+		return run.Context
+	}
+	rc := review.NewContext(run.Request)
+	if run.Source != nil {
+		rc.Source = *run.Source
+	}
+	rc.Request = run.Request
+	rc.DraftReport = run.DraftReport
+	rc.FinalReport = run.FinalReport
+	rc.HILApproved = run.HILApproved
+	rc.Findings = append([]review.Finding(nil), run.Findings...)
+	rc.WebURL = run.WebURL
+	return rc
 }

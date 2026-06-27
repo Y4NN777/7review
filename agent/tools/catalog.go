@@ -154,7 +154,8 @@ func Catalog() []ToolSpec {
 			Name:           "preview_memory_proposal",
 			Description:    "Preview what approved final review knowledge would write to durable memory before the write occurs.",
 			LifecycleStage: "memory",
-			Implemented:    false,
+			Implemented:    true,
+			Executor:       "POST /tools/execute {\"name\":\"preview_memory_proposal\"}",
 			SideEffects:    false,
 			InputSchema: objectSchema(map[string]any{
 				"run": stringSchema("Run ID whose memory proposal should be previewed."),

@@ -43,6 +43,7 @@ type Observatory interface {
 	DiffSummary(context.Context, string) (any, error)
 	ProviderStatus(context.Context) (any, error)
 	PublishStatus(context.Context, string) (any, error)
+	MemoryProposal(context.Context, string) (any, error)
 }
 
 type ExecuteRequest struct {
@@ -134,6 +135,16 @@ func (e ToolExecutor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteR
 			return ExecuteResponse{}, fmt.Errorf("tools: get_publish_status requires run")
 		}
 		result, err := e.Observatory.PublishStatus(ctx, run)
+		return ExecuteResponse{Name: name, Result: result}, err
+	case "preview_memory_proposal":
+		if e.Observatory == nil {
+			return ExecuteResponse{}, fmt.Errorf("tools: observatory is not configured")
+		}
+		run := stringInput(req.Input, "run", "id")
+		if run == "" {
+			return ExecuteResponse{}, fmt.Errorf("tools: preview_memory_proposal requires run")
+		}
+		result, err := e.Observatory.MemoryProposal(ctx, run)
 		return ExecuteResponse{Name: name, Result: result}, err
 	case "approve_run":
 		if e.Actions == nil {

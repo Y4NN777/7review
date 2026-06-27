@@ -84,6 +84,10 @@ func (f *fakeObservatory) PublishStatus(_ context.Context, run string) (any, err
 	return map[string]any{"run": run}, nil
 }
 
+func (f *fakeObservatory) MemoryProposal(_ context.Context, run string) (any, error) {
+	return map[string]any{"run": run, "approved": true}, nil
+}
+
 func TestToolExecutorExecutesReadOnlyTools(t *testing.T) {
 	runs := &fakeRunTools{}
 	executor := ToolExecutor{Runs: runs, Ready: fakeReady{}, Config: fakeConfig{}, Skills: fakeSkills{}}
@@ -118,6 +122,7 @@ func TestToolExecutorExecutesObservabilityTools(t *testing.T) {
 		{Name: "get_diff_summary", Input: map[string]any{"id": "p!7"}},
 		{Name: "list_provider_status"},
 		{Name: "get_publish_status", Input: map[string]any{"run": "p!7"}},
+		{Name: "preview_memory_proposal", Input: map[string]any{"run": "p!7"}},
 	} {
 		if _, err := executor.Execute(context.Background(), req); err != nil {
 			t.Fatalf("%s failed: %v", req.Name, err)
