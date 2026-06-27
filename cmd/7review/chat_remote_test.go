@@ -307,6 +307,30 @@ func TestChatCommandHandlerPrintsDraftReport(t *testing.T) {
 	}
 }
 
+func TestChatCommandHandlerRendersMemoryProposal(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost || req.URL.Path != "/tools/execute" {
+			t.Fatalf("unexpected memory request: %s %s", req.Method, req.URL.String())
+		}
+		body, _ := io.ReadAll(req.Body)
+		if !strings.Contains(string(body), `"name":"preview_memory_proposal"`) || !strings.Contains(string(body), `"run":"owner/repo!7"`) {
+			t.Fatalf("unexpected memory request body: %s", string(body))
+		}
+		return jsonResponse(http.StatusOK, `{"name":"preview_memory_proposal","result":{"run":"owner/repo!7","approved":true,"final_bytes":42,"proposal":{"Conventions":["final report convention"],"Decisions":["human decision"],"Vectors":[{"ID":"v1","Text":"vector text"}]}}}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "owner/repo!7", client)(context.Background(), "/memory", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"memory owner/repo!7", "approved true", "final_bytes 42", "conventions 1 decisions 1 vectors 1", "final report convention", "human decision", "vector v1"} {
+		if !handled || !strings.Contains(out.String(), want) {
+			t.Fatalf("memory command output missing %q handled=%t:\n%s", want, handled, out.String())
+		}
+	}
+}
+
 func TestChatCommandHandlerWritesDraftReportToQuotedPath(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusOK, `{"id":"owner/repo!7","status":"drafted","draft_report":"draft body"}`), nil

@@ -276,6 +276,16 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 			}
 			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderRunHistory(detail, historyOpts)}, opts.Plain))
 			return true, nil
+		case "/memory":
+			if runID == "" {
+				return true, fmt.Errorf("/memory requires chat <run-id> or --run <run-id>")
+			}
+			var status remoteMemoryProposalStatus
+			if err := executeRemoteTool(client, serverURL, "preview_memory_proposal", map[string]any{"run": runID}, &status); err != nil {
+				return true, err
+			}
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderMemoryProposalSummary(status)}, opts.Plain))
+			return true, nil
 		case "/run":
 			if runID == "" {
 				return true, fmt.Errorf("/run requires chat <run-id> or --run <run-id>")
@@ -414,11 +424,60 @@ func chatCommandHelp(hasRun bool) string {
 			"/draft final.md   write current draft report to a file",
 			"/history   show current run timeline",
 			"/history chat_message 20   show latest chat messages",
+			"/memory    preview approved MemPalace proposal",
 			"/approve --report-file final.md   approve and publish final",
 			"/publish-final --report-file final.md   retry final publish",
 		)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderMemoryProposalSummary(status remoteMemoryProposalStatus) string {
+	lines := []string{
+		"memory " + status.Run,
+		fmt.Sprintf("approved %t", status.Approved),
+		fmt.Sprintf("final_bytes %d", status.FinalBytes),
+		fmt.Sprintf("conventions %d decisions %d vectors %d", len(status.Proposal.Conventions), len(status.Proposal.Decisions), len(status.Proposal.Vectors)),
+	}
+	for _, convention := range firstStrings(status.Proposal.Conventions, 3) {
+		lines = append(lines, "convention "+trimCommandLine(convention, 96))
+	}
+	for _, decision := range firstStrings(status.Proposal.Decisions, 3) {
+		lines = append(lines, "decision "+trimCommandLine(decision, 96))
+	}
+	for _, vector := range firstVectors(status.Proposal.Vectors, 3) {
+		label := strings.TrimSpace(vector.ID)
+		if label == "" {
+			label = trimCommandLine(vector.Text, 48)
+		}
+		lines = append(lines, "vector "+label)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func firstStrings(values []string, limit int) []string {
+	if len(values) <= limit {
+		return values
+	}
+	return values[:limit]
+}
+
+func firstVectors(values []remoteVector, limit int) []remoteVector {
+	if len(values) <= limit {
+		return values
+	}
+	return values[:limit]
+}
+
+func trimCommandLine(value string, max int) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= max {
+		return value
+	}
+	if max <= 3 {
+		return value[:max]
+	}
+	return value[:max-3] + "..."
 }
 
 func renderConfigStatusSummary(status remoteConfigStatus) string {

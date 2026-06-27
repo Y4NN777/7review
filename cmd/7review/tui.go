@@ -100,6 +100,24 @@ type remoteConfigStatus struct {
 	WebhookQueueSize int    `json:"webhook_queue_size"`
 }
 
+type remoteMemoryProposalStatus struct {
+	Run        string               `json:"run"`
+	Approved   bool                 `json:"approved"`
+	Proposal   remoteUpdateProposal `json:"proposal"`
+	FinalBytes int                  `json:"final_bytes"`
+}
+
+type remoteUpdateProposal struct {
+	Conventions []string       `json:"Conventions"`
+	Decisions   []string       `json:"Decisions"`
+	Vectors     []remoteVector `json:"Vectors"`
+}
+
+type remoteVector struct {
+	ID   string `json:"ID"`
+	Text string `json:"Text"`
+}
+
 func runTUI(args []string, out io.Writer) error {
 	opts := parseTUIArgs(args)
 	client := operatorRequestHTTPClient()

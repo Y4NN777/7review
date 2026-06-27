@@ -67,9 +67,9 @@ that specific review run. Inside chat, local commands stay in the terminal flow:
 runtime configuration, `/skills` lists loaded agent skills, `/run` shows the
 current session summary, `/history` shows the run timeline, and
 `/history chat_message 20` shows the latest persisted chat messages without
-sending that command to the model. `/draft` prints the current draft report, and
-`/draft final.md` writes it to a local file for review or editing. HIL actions
-are explicit:
+sending that command to the model. `/memory` previews the approved MemPalace
+proposal. `/draft` prints the current draft report, and `/draft final.md` writes
+it to a local file for review or editing. HIL actions are explicit:
 `/approve --report-file final.md` submits human approval and
 `/publish-final --report-file final.md` retries final publishing for an already
 approved run.
