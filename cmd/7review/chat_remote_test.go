@@ -160,6 +160,41 @@ func TestChatCommandHandlerRendersRunSummary(t *testing.T) {
 	}
 }
 
+func TestChatCommandHandlerRendersStatus(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet || req.URL.Path != "/ready" {
+			t.Fatalf("unexpected status request: %s %s", req.Method, req.URL.String())
+		}
+		return jsonResponse(http.StatusOK, `{"ready":true,"dependencies":{"headroom":"ok","mempalace":"ok","queue":"ok depth=0 capacity=8"},"queue":{"capacity":8,"available":8}}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "", client)(context.Background(), "/status", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"7review status http://agent", "agent", "headroom", "mempalace", "queue"} {
+		if !handled || !strings.Contains(out.String(), want) {
+			t.Fatalf("status command output missing %q handled=%t:\n%s", want, handled, out.String())
+		}
+	}
+}
+
+func TestChatCommandHandlerRendersStatusFailureView(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusServiceUnavailable, `{"ready":false,"dependencies":{"headroom":"down","mempalace":"ok"}}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "", client)(context.Background(), "/status", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !handled || !strings.Contains(out.String(), "headroom") || !strings.Contains(out.String(), "down") {
+		t.Fatalf("status failure output missing dependency details handled=%t:\n%s", handled, out.String())
+	}
+}
+
 func TestChatCommandHandlerPrintsDraftReport(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusOK, `{"id":"owner/repo!7","status":"drafted","draft_report":"draft body"}`), nil

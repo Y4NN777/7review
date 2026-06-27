@@ -227,6 +227,10 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 		case "/help":
 			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: chatCommandHelp(runID != "")}, opts.Plain))
 			return true, nil
+		case "/status":
+			statusView, _, _ := remoteStatusView(client, statusCommandOptions{serverURL: serverURL, remote: true, plain: true})
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: ui.RenderStatus(statusView)}, opts.Plain))
+			return true, nil
 		case "/history":
 			if runID == "" {
 				return true, fmt.Errorf("/history requires chat <run-id> or --run <run-id>")
@@ -368,6 +372,7 @@ func parseChatCommandFields(text string) ([]string, error) {
 func chatCommandHelp(hasRun bool) string {
 	lines := []string{
 		"/help      show chat commands",
+		"/status    show agent readiness",
 		"quit       exit chat",
 	}
 	if hasRun {
