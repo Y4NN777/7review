@@ -178,6 +178,7 @@ func runSetup() {
 
 func runChat() {
 	opts, serverURL, runID := parseChatArgs(os.Args[2:])
+	opts.CommandHandler = chatCommandHandler(serverURL, runID)
 	chatCtx := ui.ChatContext{ServerURL: serverURL}
 	var responder ui.ChatResponder
 	if runID != "" {
@@ -214,6 +215,68 @@ func runChat() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func chatCommandHandler(serverURL, runID string) ui.ChatCommandFunc {
+	return chatCommandHandlerWithClient(serverURL, runID, operatorRequestHTTPClient())
+}
+
+func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) ui.ChatCommandFunc {
+	return func(_ context.Context, text string, out io.Writer, _ ui.ChatContext, opts ui.ChatOptions) (bool, error) {
+		fields := strings.Fields(text)
+		if len(fields) == 0 || !strings.HasPrefix(fields[0], "/") {
+			return false, nil
+		}
+		switch strings.ToLower(fields[0]) {
+		case "/help":
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: chatCommandHelp(runID != "")}, opts.Plain))
+			return true, nil
+		case "/history":
+			if runID == "" {
+				return true, fmt.Errorf("/history requires chat <run-id> or --run <run-id>")
+			}
+			historyOpts := historyCommandOptions{serverURL: serverURL, runID: runID}
+			if len(fields) > 1 {
+				historyOpts.eventType = fields[1]
+			}
+			if len(fields) > 2 {
+				historyOpts.limit = parsePositiveInt(fields[2])
+			}
+			detail, err := fetchRemoteRunDetail(client, serverURL, runID)
+			if err != nil {
+				return true, err
+			}
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderRunHistory(detail, historyOpts)}, opts.Plain))
+			return true, nil
+		case "/run":
+			if runID == "" {
+				return true, fmt.Errorf("/run requires chat <run-id> or --run <run-id>")
+			}
+			detail, err := fetchRemoteRunDetail(client, serverURL, runID)
+			if err != nil {
+				return true, err
+			}
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderRunSnapshot(detail)}, opts.Plain))
+			return true, nil
+		default:
+			return true, fmt.Errorf("unknown chat command %q; use /help", fields[0])
+		}
+	}
+}
+
+func chatCommandHelp(hasRun bool) string {
+	lines := []string{
+		"/help      show chat commands",
+		"quit       exit chat",
+	}
+	if hasRun {
+		lines = append(lines,
+			"/run       show current run summary",
+			"/history   show current run timeline",
+			"/history chat_message 20   show latest chat messages",
+		)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func parseChatArgs(args []string) (ui.ChatOptions, string, string) {

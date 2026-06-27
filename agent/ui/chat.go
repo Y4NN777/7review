@@ -11,7 +11,8 @@ import (
 )
 
 type ChatOptions struct {
-	Plain bool
+	Plain          bool
+	CommandHandler ChatCommandFunc
 }
 
 type ChatContext struct {
@@ -22,6 +23,8 @@ type ChatContext struct {
 	RunID        string
 	ServerURL    string
 }
+
+type ChatCommandFunc func(context.Context, string, io.Writer, ChatContext, ChatOptions) (bool, error)
 
 type ChatResponder interface {
 	StreamRespond(context.Context, string, func(string) error) error
@@ -63,6 +66,12 @@ func RunChat(ctx context.Context, in io.Reader, out io.Writer, meta ChatContext,
 			fmt.Fprintln(out, RenderChatMessage(ChatMessage{Role: "agent", Text: "Bye."}, opts.Plain))
 			return nil
 		}
+		if handled, err := handleChatCommand(ctx, text, out, meta, opts); handled {
+			if err != nil {
+				fmt.Fprintln(out, RenderChatMessage(ChatMessage{Role: "agent", Text: "chat error: " + err.Error()}, opts.Plain))
+			}
+			continue
+		}
 		fmt.Fprint(out, RenderChatMessagePrefix("agent", opts.Plain))
 		err = responder.StreamRespond(ctx, text, func(delta string) error {
 			_, writeErr := fmt.Fprint(out, delta)
@@ -74,6 +83,13 @@ func RunChat(ctx context.Context, in io.Reader, out io.Writer, meta ChatContext,
 			continue
 		}
 	}
+}
+
+func handleChatCommand(ctx context.Context, text string, out io.Writer, meta ChatContext, opts ChatOptions) (bool, error) {
+	if !strings.HasPrefix(strings.TrimSpace(text), "/") || opts.CommandHandler == nil {
+		return false, nil
+	}
+	return opts.CommandHandler(ctx, text, out, meta, opts)
 }
 
 func RenderChatIntro(ctx ChatContext, plain bool) string {

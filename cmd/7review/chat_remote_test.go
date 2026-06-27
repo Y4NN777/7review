@@ -99,6 +99,50 @@ func TestParseChatArgsAcceptsPositionalRunAndServer(t *testing.T) {
 	}
 }
 
+func TestChatCommandHandlerRendersRunHistory(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/run" || req.URL.Query().Get("id") != "owner/repo!7" {
+			t.Fatalf("unexpected request: %s", req.URL.String())
+		}
+		return jsonResponse(http.StatusOK, `{"id":"owner/repo!7","status":"drafted","title":"Fix validation","events":[{"type":"chat_message","message":"first"},{"type":"chat_message","message":"second"},{"type":"status_changed","message":"drafted"}]}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "owner/repo!7", client)(context.Background(), "/history chat_message 1", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !handled {
+		t.Fatal("expected command to be handled")
+	}
+	if !strings.Contains(out.String(), "history 1/3 events") || !strings.Contains(out.String(), "second") {
+		t.Fatalf("history command output missing filtered event:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "first") || strings.Contains(out.String(), "status_changed") {
+		t.Fatalf("history command output included excluded events:\n%s", out.String())
+	}
+}
+
+func TestChatCommandHandlerRendersRunSummary(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"id":"owner/repo!7","provider":"github","project_id":"owner/repo","change_id":"7","status":"drafted","title":"Fix validation","web_url":"https://example.test/pr/7","events":[{"type":"run_started"}],"findings":[{"id":"F1"}],"draft_report":"draft","hil_approved":false}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "owner/repo!7", client)(context.Background(), "/run", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !handled {
+		t.Fatal("expected command to be handled")
+	}
+	for _, want := range []string{"owner/repo!7  drafted", "provider github", "project  owner/repo", "findings 1", "history  1 events", "draft=5 bytes"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("run command output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestParseApprovalArgsAcceptsSpaceAndEqualsFlags(t *testing.T) {
 	dir := t.TempDir()
 	reportPath := filepath.Join(dir, "final.md")

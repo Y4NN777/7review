@@ -20,11 +20,19 @@ type remoteRunEvent struct {
 }
 
 type remoteRunDetail struct {
-	ID         string           `json:"id"`
-	Status     string           `json:"status"`
-	Title      string           `json:"title"`
-	EventCount int              `json:"event_count"`
-	Events     []remoteRunEvent `json:"events"`
+	ID          string           `json:"id"`
+	Provider    string           `json:"provider"`
+	ProjectID   string           `json:"project_id"`
+	ChangeID    string           `json:"change_id"`
+	Status      string           `json:"status"`
+	Title       string           `json:"title"`
+	WebURL      string           `json:"web_url"`
+	EventCount  int              `json:"event_count"`
+	Events      []remoteRunEvent `json:"events"`
+	Findings    []any            `json:"findings"`
+	DraftReport string           `json:"draft_report"`
+	FinalReport string           `json:"final_report"`
+	HILApproved bool             `json:"hil_approved"`
 }
 
 func runHistory() {
@@ -33,18 +41,25 @@ func runHistory() {
 		fmt.Fprintln(os.Stderr, "missing run id")
 		os.Exit(1)
 	}
-	endpoint := strings.TrimRight(opts.serverURL, "/") + "/run?id=" + url.QueryEscape(opts.runID)
-	body, err := requestAgent(operatorRequestHTTPClient(), http.MethodGet, endpoint, nil)
+	detail, err := fetchRemoteRunDetail(operatorRequestHTTPClient(), opts.serverURL, opts.runID)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	var detail remoteRunDetail
-	if err := json.Unmarshal([]byte(body), &detail); err != nil {
-		fmt.Fprintln(os.Stderr, "decode run history:", err)
+		fmt.Fprintln(os.Stderr, "run history:", err)
 		os.Exit(1)
 	}
 	fmt.Println(renderRunHistory(detail, opts))
+}
+
+func fetchRemoteRunDetail(client *http.Client, serverURL, runID string) (remoteRunDetail, error) {
+	endpoint := strings.TrimRight(serverURL, "/") + "/run?id=" + url.QueryEscape(runID)
+	body, err := requestAgent(client, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return remoteRunDetail{}, err
+	}
+	var detail remoteRunDetail
+	if err := json.Unmarshal([]byte(body), &detail); err != nil {
+		return remoteRunDetail{}, fmt.Errorf("decode run: %w", err)
+	}
+	return detail, nil
 }
 
 type historyCommandOptions struct {
@@ -90,6 +105,37 @@ func renderRunHistory(run remoteRunDetail, opts historyCommandOptions) string {
 		lines = append(lines, renderRunEvent(event))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderRunSnapshot(run remoteRunDetail) string {
+	title := strings.TrimSpace(run.Title)
+	if title == "" {
+		title = run.ID
+	}
+	lines := []string{
+		fmt.Sprintf("%s  %s", run.ID, run.Status),
+		title,
+		"provider " + firstNonEmptyHistory(run.Provider, "-"),
+		"project  " + firstNonEmptyHistory(run.ProjectID, "-"),
+		"change   " + firstNonEmptyHistory(run.ChangeID, "-"),
+		fmt.Sprintf("findings %d", len(run.Findings)),
+		fmt.Sprintf("history  %d events", len(run.Events)),
+		fmt.Sprintf("report   draft=%d bytes final=%d bytes", len(run.DraftReport), len(run.FinalReport)),
+		fmt.Sprintf("hil      %t", run.HILApproved),
+	}
+	if run.WebURL != "" {
+		lines = append(lines, "url      "+run.WebURL)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func firstNonEmptyHistory(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func filterRunEvents(events []remoteRunEvent, opts historyCommandOptions) []remoteRunEvent {

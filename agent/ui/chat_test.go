@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 )
@@ -67,6 +68,30 @@ func TestRunChat_RendersResponderError(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "chat error: model unavailable") {
 		t.Fatalf("unexpected output:\n%s", out.String())
+	}
+}
+
+func TestRunChat_HandlesLocalCommandWithoutCallingResponder(t *testing.T) {
+	responder := &fakeResponder{}
+	var out strings.Builder
+	err := RunChat(context.Background(), strings.NewReader("/history\nquit\n"), &out, ChatContext{RunID: "owner/repo!7"}, responder, ChatOptions{
+		Plain: true,
+		CommandHandler: func(_ context.Context, text string, out io.Writer, _ ChatContext, opts ChatOptions) (bool, error) {
+			if text != "/history" {
+				t.Fatalf("unexpected command text %q", text)
+			}
+			fmt.Fprintln(out, RenderChatMessage(ChatMessage{Role: "agent", Text: "history output"}, opts.Plain))
+			return true, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(responder.calls) != 0 {
+		t.Fatalf("command should not call model responder: %#v", responder.calls)
+	}
+	if !strings.Contains(out.String(), "agent: history output") {
+		t.Fatalf("command output missing:\n%s", out.String())
 	}
 }
 
