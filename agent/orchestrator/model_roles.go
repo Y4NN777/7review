@@ -50,7 +50,7 @@ type RoleConfig struct {
 //	    primary: "claude-sonnet-4-6@anthropic"
 //	    fallbacks:
 //	      - "gpt-4o@openai"
-//	      - "qwen2.5-coder:32b@ollama"
+//	      - "qwen2.5-coder-7b-16k:latest@ollama"
 //	    max_tokens: 4096
 //	    parallel: true
 //	    max_parallel: 4

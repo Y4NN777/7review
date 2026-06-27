@@ -221,9 +221,9 @@ func defaultModel(provider string, review bool) string {
 		return "gemini-1.5-flash"
 	case "ollama":
 		if review {
-			return "qwen2.5-coder:32b"
+			return "qwen2.5-coder-7b-16k:latest"
 		}
-		return "llama3.2:3b"
+		return "qwen2.5-coder:1.5b"
 	default:
 		if review {
 			return "claude-sonnet-4-6"

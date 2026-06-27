@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/Y4NN777/7review/agent/config"
@@ -87,6 +88,7 @@ func BuildOrchestrator(cfg *config.Config) (*Orchestrator, error) {
 		if err != nil {
 			return nil, err
 		}
+		applyEnvRoleOverrides(orchCfg, cfg)
 	} else {
 		orchCfg = DefaultOrchestratorConfig(cfg.ReviewModel, cfg.SmallModel, cfg.Provider)
 	}
@@ -96,6 +98,50 @@ func BuildOrchestrator(cfg *config.Config) (*Orchestrator, error) {
 	}
 
 	return NewOrchestrator(orchCfg, providerMap), nil
+}
+
+func applyEnvRoleOverrides(orchCfg *OrchestratorConfig, cfg *config.Config) {
+	if orchCfg == nil {
+		return
+	}
+	provider, providerSet := os.LookupEnv("PROVIDER")
+	reviewModel, reviewSet := os.LookupEnv("REVIEW_MODEL")
+	smallModel, smallSet := os.LookupEnv("SMALL_MODEL")
+	if !providerSet && !reviewSet && !smallSet {
+		return
+	}
+	if !providerSet {
+		provider = cfg.Provider
+	}
+	if !reviewSet {
+		reviewModel = cfg.ReviewModel
+	}
+	if !smallSet {
+		smallModel = cfg.SmallModel
+	}
+	overrideRolePrimary(orchCfg, RoleReasoner, ModelSpec{Model: reviewModel, Provider: provider})
+	overrideRolePrimary(orchCfg, RoleFormatter, ModelSpec{Model: smallModel, Provider: provider})
+}
+
+func overrideRolePrimary(orchCfg *OrchestratorConfig, role ModelRole, primary ModelSpec) {
+	if strings.TrimSpace(primary.Model) == "" || strings.TrimSpace(primary.Provider) == "" {
+		return
+	}
+	if orchCfg.Roles == nil {
+		orchCfg.Roles = make(map[ModelRole]RoleConfig)
+	}
+	roleCfg := orchCfg.Roles[role]
+	roleCfg.Primary = primary
+	if roleCfg.MaxTokens == 0 {
+		if role == RoleReasoner {
+			roleCfg.MaxTokens = 4096
+			roleCfg.Parallel = true
+			roleCfg.MaxParallel = 4
+		} else {
+			roleCfg.MaxTokens = 2048
+		}
+	}
+	orchCfg.Roles[role] = roleCfg
 }
 
 func validateConfiguredProviders(cfg *OrchestratorConfig, providers map[string]LLMProvider) error {

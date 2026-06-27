@@ -725,7 +725,7 @@ func TestHandleToolExecuteProviderStatusUsesLoadedOrchestrator(t *testing.T) {
 		Roles: map[orchestrator.ModelRole]orchestrator.RoleConfig{
 			orchestrator.RoleReasoner: {
 				Primary:   orchestrator.ModelSpec{Model: "claude-sonnet", Provider: "anthropic"},
-				Fallbacks: []orchestrator.ModelSpec{{Model: "qwen2.5-coder:32b", Provider: "ollama"}},
+				Fallbacks: []orchestrator.ModelSpec{{Model: "qwen2.5-coder-7b-16k:latest", Provider: "ollama"}},
 				MaxTokens: 4096,
 				Parallel:  true,
 			},
@@ -748,7 +748,7 @@ func TestHandleToolExecuteProviderStatusUsesLoadedOrchestrator(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	for _, want := range []string{`"mode":"orchestrator"`, `"active_provider":""`, `"primary":"claude-sonnet@anthropic"`, `"fallbacks":["qwen2.5-coder:32b@ollama"]`, `"name":"ollama"`, `"configured":true`} {
+	for _, want := range []string{`"mode":"orchestrator"`, `"active_provider":""`, `"primary":"claude-sonnet@anthropic"`, `"fallbacks":["qwen2.5-coder-7b-16k:latest@ollama"]`, `"name":"ollama"`, `"configured":true`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("provider status missing %q:\n%s", want, body)
 		}

@@ -40,7 +40,24 @@ docker compose up --build
 ```
 
 GitHub can be used instead of GitLab by setting `GITHUB_TOKEN` and `GITHUB_WEBHOOK_SECRET`.
-For local Ollama instead of a hosted model key, set `OLLAMA_BASE_URL` explicitly, for example `http://host.docker.internal:11434`.
+For local Ollama instead of a hosted model key, set `OLLAMA_BASE_URL`
+explicitly. Use `http://127.0.0.1:11434` for local `go run` commands and
+`http://host.docker.internal:11434` from Docker Compose. To force the
+orchestrator to use local models even when `ORCHESTRATOR_CONFIG` is set, export
+the role models explicitly:
+
+```sh
+export PROVIDER=ollama
+export OLLAMA_BASE_URL=http://host.docker.internal:11434
+export REVIEW_MODEL=qwen2.5-coder-7b-16k:latest
+export SMALL_MODEL=qwen2.5-coder:1.5b
+```
+
+For Docker, Ollama must listen on an address reachable from containers. If
+`docker compose run 7review chat --plain` fails with `connection refused` for
+`host.docker.internal:11434`, start Ollama with a non-loopback bind, for example
+`OLLAMA_HOST=0.0.0.0:11434 ollama serve`, then rerun the Compose stack.
+
 If host port `8080` is already used, set `HTTP_PORT`, for example:
 
 ```sh

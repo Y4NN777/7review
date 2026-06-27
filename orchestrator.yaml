@@ -7,7 +7,8 @@
 # Supported providers: anthropic | openai | openrouter | deepseek | mistral | gemini | ollama | openai_compat
 #
 # Set ORCHESTRATOR_CONFIG=./orchestrator.yaml to activate this file.
-# Without it, the agent uses PROVIDER / REVIEW_MODEL / SMALL_MODEL env vars.
+# Explicit PROVIDER / REVIEW_MODEL / SMALL_MODEL env vars override role primaries
+# while keeping the fallbacks and role limits below.
 
 roles:
 
@@ -21,7 +22,7 @@ roles:
       - "openai/gpt-4o@openrouter"
       - "deepseek-chat@deepseek"
       - "mistral-large-latest@mistral"
-      - "qwen2.5-coder:32b@ollama"   # local fallback, no cost, air-gapped safe
+      - "qwen2.5-coder-7b-16k:latest@ollama"   # local fallback, no cost, air-gapped safe
     max_tokens: 4096
     parallel: true
     max_parallel: 4
@@ -35,5 +36,5 @@ roles:
       - "mistral-small-latest@mistral"
       - "openai/gpt-4o-mini@openrouter"
       - "deepseek-chat@deepseek"
-      - "llama3.2:3b@ollama"
+      - "qwen2.5-coder:1.5b@ollama"
     max_tokens: 2048
