@@ -62,11 +62,12 @@ For iterative review, pass a run ID:
 That mode streams through the running agent's `/chat/stream` endpoint, so the
 model sees the stored draft report, validated findings, status, and SCM URL for
 that specific review run. Inside chat, local commands stay in the terminal flow:
-`/status` checks agent readiness, `/run` shows the current session summary,
-`/history` shows the run timeline, and `/history chat_message 20` shows the
-latest persisted chat messages without sending that command to the model.
-`/draft` prints the current draft report, and `/draft final.md` writes it to a
-local file for review or editing. HIL actions are explicit:
+`/status` checks agent readiness, `/tools` lists implemented agent tools,
+`/run` shows the current session summary, `/history` shows the run timeline,
+and `/history chat_message 20` shows the latest persisted chat messages without
+sending that command to the model. `/draft` prints the current draft report, and
+`/draft final.md` writes it to a local file for review or editing. HIL actions
+are explicit:
 `/approve --report-file final.md` submits human approval and
 `/publish-final --report-file final.md` retries final publishing for an already
 approved run.

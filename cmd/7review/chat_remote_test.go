@@ -195,6 +195,26 @@ func TestChatCommandHandlerRendersStatusFailureView(t *testing.T) {
 	}
 }
 
+func TestChatCommandHandlerRendersToolsCatalog(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet || req.URL.Path != "/tools" {
+			t.Fatalf("unexpected tools request: %s %s", req.Method, req.URL.String())
+		}
+		return jsonResponse(http.StatusOK, `[{"name":"list_runs","lifecycle_stage":"observe","implemented":true},{"name":"approve_run","lifecycle_stage":"hil","implemented":true,"requires_approval":true}]`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "", client)(context.Background(), "/tools", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"tools 2", "list_runs", "observe", "approve_run", "hil", "approval"} {
+		if !handled || !strings.Contains(out.String(), want) {
+			t.Fatalf("tools command output missing %q handled=%t:\n%s", want, handled, out.String())
+		}
+	}
+}
+
 func TestChatCommandHandlerPrintsDraftReport(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusOK, `{"id":"owner/repo!7","status":"drafted","draft_report":"draft body"}`), nil

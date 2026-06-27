@@ -231,6 +231,13 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 			statusView, _, _ := remoteStatusView(client, statusCommandOptions{serverURL: serverURL, remote: true, plain: true})
 			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: ui.RenderStatus(statusView)}, opts.Plain))
 			return true, nil
+		case "/tools":
+			var catalog []ui.ToolRow
+			if err := getJSON(client, strings.TrimRight(serverURL, "/")+"/tools", &catalog); err != nil {
+				return true, err
+			}
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderToolCatalogSummary(catalog)}, opts.Plain))
+			return true, nil
 		case "/history":
 			if runID == "" {
 				return true, fmt.Errorf("/history requires chat <run-id> or --run <run-id>")
@@ -373,6 +380,7 @@ func chatCommandHelp(hasRun bool) string {
 	lines := []string{
 		"/help      show chat commands",
 		"/status    show agent readiness",
+		"/tools     show implemented tool catalog",
 		"quit       exit chat",
 	}
 	if hasRun {
@@ -385,6 +393,26 @@ func chatCommandHelp(hasRun bool) string {
 			"/approve --report-file final.md   approve and publish final",
 			"/publish-final --report-file final.md   retry final publish",
 		)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderToolCatalogSummary(catalog []ui.ToolRow) string {
+	if len(catalog) == 0 {
+		return "tools 0"
+	}
+	var lines []string
+	lines = append(lines, fmt.Sprintf("tools %d", len(catalog)))
+	for _, tool := range catalog {
+		state := "implemented"
+		if !tool.Implemented {
+			state = "missing"
+		}
+		flags := []string{state}
+		if tool.RequiresApproval {
+			flags = append(flags, "approval")
+		}
+		lines = append(lines, fmt.Sprintf("%-22s %-10s %s", tool.Name, tool.LifecycleStage, strings.Join(flags, " ")))
 	}
 	return strings.Join(lines, "\n")
 }
