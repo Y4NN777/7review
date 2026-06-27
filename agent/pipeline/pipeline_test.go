@@ -536,6 +536,10 @@ func TestApproveRunUsesProviderNeutralRunID(t *testing.T) {
 	if memory.writes != 1 {
 		t.Fatalf("expected memory write, got %#v", memory)
 	}
+	event := findPipelineRunEvent(updated.Events, "hil_approved")
+	if event == nil || event.Status != StatusFinalized || event.Meta["final_bytes"] != "12" {
+		t.Fatalf("approval audit event missing or wrong: %#v", updated.Events)
+	}
 }
 
 func TestApproveRunRequiresDraftedRun(t *testing.T) {
@@ -648,6 +652,19 @@ func TestPublishFinalWritesMemoryBeforeFinalizing(t *testing.T) {
 	if !memory.proposedApproved || memory.writes != 1 {
 		t.Fatalf("memory was not written during final publish retry: %#v", memory)
 	}
+	event := findPipelineRunEvent(updated.Events, "final_published")
+	if event == nil || event.Status != StatusFinalized || event.Meta["final_bytes"] != "20" {
+		t.Fatalf("final publish audit event missing or wrong: %#v", updated.Events)
+	}
+}
+
+func findPipelineRunEvent(events []RunEvent, eventType string) *RunEvent {
+	for i := range events {
+		if events[i].Type == eventType {
+			return &events[i]
+		}
+	}
+	return nil
 }
 
 func TestSuppressFindingUpdatesDraftAndRejectedIDs(t *testing.T) {

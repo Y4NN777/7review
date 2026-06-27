@@ -175,7 +175,17 @@ func (p *Pipeline) ApproveRun(ctx context.Context, id string, approvedReport str
 	if err := p.Jobs.SaveContext(ctx, id, rc); err != nil {
 		return err
 	}
-	return p.Jobs.Update(ctx, id, StatusFinalized, nil)
+	if err := p.Jobs.Update(ctx, id, StatusFinalized, nil); err != nil {
+		return err
+	}
+	return p.Jobs.AppendEvent(ctx, id, RunEvent{
+		Type:    "hil_approved",
+		Status:  StatusFinalized,
+		Message: "final report approved and published",
+		Meta: map[string]string{
+			"final_bytes": strconv.Itoa(len(finalReport)),
+		},
+	})
 }
 
 func ensureApprovableRun(run *Run) error {
@@ -240,7 +250,17 @@ func (p *Pipeline) PublishFinal(ctx context.Context, id string, report string) e
 	if err := p.Jobs.SaveContext(ctx, id, rc); err != nil {
 		return err
 	}
-	return p.Jobs.Update(ctx, id, StatusFinalized, nil)
+	if err := p.Jobs.Update(ctx, id, StatusFinalized, nil); err != nil {
+		return err
+	}
+	return p.Jobs.AppendEvent(ctx, id, RunEvent{
+		Type:    "final_published",
+		Status:  StatusFinalized,
+		Message: "final report published",
+		Meta: map[string]string{
+			"final_bytes": strconv.Itoa(len(finalReport)),
+		},
+	})
 }
 
 func (p *Pipeline) SuppressFinding(ctx context.Context, id string, findingID string, reason string) error {
