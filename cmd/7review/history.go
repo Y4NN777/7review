@@ -129,12 +129,22 @@ func renderRunSnapshot(run remoteRunDetail) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderSessionDetail(run remoteRunDetail, serverURL string) string {
+func renderSessionDetail(run remoteRunDetail, opts historyCommandOptions) string {
+	serverURL := opts.serverURL
 	serverURL = strings.TrimRight(serverURL, "/")
 	if serverURL == "" {
 		serverURL = "http://localhost:8080"
 	}
 	lines := []string{renderRunSnapshot(run)}
+	eventOpts := opts
+	if eventOpts.limit <= 0 {
+		eventOpts.limit = 5
+	}
+	events := filterRunEvents(run.Events, eventOpts)
+	lines = append(lines, "", fmt.Sprintf("recent %d/%d events", len(events), len(run.Events)))
+	for _, event := range events {
+		lines = append(lines, renderRunEvent(event))
+	}
 	lines = append(lines,
 		"",
 		"commands",

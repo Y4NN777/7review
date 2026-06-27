@@ -129,7 +129,7 @@ func runSession(args []string, out io.Writer, client *http.Client) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(out, renderSessionDetail(detail, opts.serverURL))
+	fmt.Fprintln(out, renderSessionDetail(detail, opts))
 	return nil
 }
 

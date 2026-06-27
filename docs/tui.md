@@ -13,6 +13,7 @@ The command-line interface is an operational TUI for setup and day-to-day checks
 7review sessions --server http://localhost:8080
 7review sessions --status drafted --provider github --limit 10 --server http://localhost:8080
 7review session <project!mr> --server http://localhost:8080
+7review session <project!mr> --type chat_message --limit 5 --server http://localhost:8080
 7review history <project!mr> --server http://localhost:8080
 7review history <project!mr> --type chat_message --limit 20 --server http://localhost:8080
 7review chat
@@ -53,6 +54,8 @@ output.
 `session` renders one persisted review session as a readable operator summary.
 It shows the same run fields used by chat `/run`, then prints exact follow-up
 commands for chat, timeline inspection, TUI focus, approval, and final publish.
+It includes the latest five events by default; use `--type` and `--limit` to
+focus the embedded event slice.
 
 `history` renders a run timeline from `/run?id=<run-id>`, including lifecycle
 events and persisted run-chat events. Use `--type` to filter one event type and
