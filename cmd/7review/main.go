@@ -238,6 +238,13 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 			}
 			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderToolCatalogSummary(catalog)}, opts.Plain))
 			return true, nil
+		case "/providers":
+			var status remoteProviderStatus
+			if err := executeRemoteTool(client, serverURL, "list_provider_status", nil, &status); err != nil {
+				return true, err
+			}
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderProviderStatusSummary(status)}, opts.Plain))
+			return true, nil
 		case "/history":
 			if runID == "" {
 				return true, fmt.Errorf("/history requires chat <run-id> or --run <run-id>")
@@ -381,6 +388,7 @@ func chatCommandHelp(hasRun bool) string {
 		"/help      show chat commands",
 		"/status    show agent readiness",
 		"/tools     show implemented tool catalog",
+		"/providers show model providers and role routes",
 		"quit       exit chat",
 	}
 	if hasRun {
@@ -393,6 +401,45 @@ func chatCommandHelp(hasRun bool) string {
 			"/approve --report-file final.md   approve and publish final",
 			"/publish-final --report-file final.md   retry final publish",
 		)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderProviderStatusSummary(status remoteProviderStatus) string {
+	var lines []string
+	lines = append(lines, "providers")
+	if status.Mode != "" {
+		lines = append(lines, "mode     "+status.Mode)
+	}
+	if status.ActiveProvider != "" {
+		lines = append(lines, "active   "+status.ActiveProvider)
+	}
+	if len(status.Providers) > 0 {
+		lines = append(lines, "configured")
+		for _, provider := range status.Providers {
+			state := "missing"
+			if provider.Configured {
+				state = "configured"
+			}
+			line := fmt.Sprintf("%-14s %s", provider.Name, state)
+			if provider.Reason != "" {
+				line += " " + provider.Reason
+			}
+			lines = append(lines, line)
+		}
+	}
+	if len(status.Roles) > 0 {
+		lines = append(lines, "roles")
+		for _, role := range status.Roles {
+			line := fmt.Sprintf("%-10s %s", role.Role, role.Primary)
+			if len(role.Fallbacks) > 0 {
+				line += " fallback=" + strings.Join(role.Fallbacks, ",")
+			}
+			if role.Parallel {
+				line += fmt.Sprintf(" parallel=%d", role.MaxParallel)
+			}
+			lines = append(lines, line)
+		}
 	}
 	return strings.Join(lines, "\n")
 }

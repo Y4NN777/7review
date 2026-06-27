@@ -215,6 +215,30 @@ func TestChatCommandHandlerRendersToolsCatalog(t *testing.T) {
 	}
 }
 
+func TestChatCommandHandlerRendersProviderStatus(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost || req.URL.Path != "/tools/execute" {
+			t.Fatalf("unexpected provider request: %s %s", req.Method, req.URL.String())
+		}
+		body, _ := io.ReadAll(req.Body)
+		if !strings.Contains(string(body), `"name":"list_provider_status"`) {
+			t.Fatalf("unexpected provider request body: %s", string(body))
+		}
+		return jsonResponse(http.StatusOK, `{"name":"list_provider_status","result":{"mode":"orchestrator","active_provider":"openrouter","providers":[{"name":"openrouter","configured":true},{"name":"ollama","configured":false,"reason":"missing URL"}],"roles":[{"role":"reasoner","primary":"deepseek@openrouter","fallbacks":["qwen@ollama"],"parallel":true,"max_parallel":2}]}}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "", client)(context.Background(), "/providers", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"providers", "mode     orchestrator", "active   openrouter", "openrouter", "configured", "ollama", "missing URL", "reasoner", "deepseek@openrouter", "fallback=qwen@ollama", "parallel=2"} {
+		if !handled || !strings.Contains(out.String(), want) {
+			t.Fatalf("providers command output missing %q handled=%t:\n%s", want, handled, out.String())
+		}
+	}
+}
+
 func TestChatCommandHandlerPrintsDraftReport(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusOK, `{"id":"owner/repo!7","status":"drafted","draft_report":"draft body"}`), nil
