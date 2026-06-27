@@ -239,6 +239,30 @@ func TestChatCommandHandlerRendersProviderStatus(t *testing.T) {
 	}
 }
 
+func TestChatCommandHandlerRendersSkillStatus(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost || req.URL.Path != "/tools/execute" {
+			t.Fatalf("unexpected skills request: %s %s", req.Method, req.URL.String())
+		}
+		body, _ := io.ReadAll(req.Body)
+		if !strings.Contains(string(body), `"name":"list_skills"`) {
+			t.Fatalf("unexpected skills request body: %s", string(body))
+		}
+		return jsonResponse(http.StatusOK, `{"name":"list_skills","result":[{"name":"traceability-review","path":"agent/skills/traceability-review/SKILL.md","loaded":true},{"name":"framework-rules-review","path":"agent/skills/framework-rules-review/SKILL.md","loaded":false}]}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "", client)(context.Background(), "/skills", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"skills 2", "traceability-review", "loaded", "framework-rules-review", "off", "SKILL.md"} {
+		if !handled || !strings.Contains(out.String(), want) {
+			t.Fatalf("skills command output missing %q handled=%t:\n%s", want, handled, out.String())
+		}
+	}
+}
+
 func TestChatCommandHandlerPrintsDraftReport(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusOK, `{"id":"owner/repo!7","status":"drafted","draft_report":"draft body"}`), nil
