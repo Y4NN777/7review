@@ -1,12 +1,14 @@
 package providers
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 const defaultOpenAIBase = "https://api.openai.com"
@@ -28,7 +30,11 @@ func NewOpenAI(apiKey, baseURL string) *OpenAI {
 // Together AI, Groq, vLLM, LM Studio, etc.
 // Just point baseURL at the server and set the right model name.
 func NewOpenAICompat(apiKey, baseURL string) *OpenAI {
-	return &OpenAI{apiKey: apiKey, baseURL: baseURL, name: "openai_compat"}
+	return NewOpenAICompatible("openai_compat", apiKey, baseURL)
+}
+
+func NewOpenAICompatible(name, apiKey, baseURL string) *OpenAI {
+	return &OpenAI{apiKey: apiKey, baseURL: baseURL, name: name}
 }
 
 func (o *OpenAI) Name() string { return o.name }
@@ -60,7 +66,10 @@ func (o *OpenAI) Complete(ctx context.Context, req LLMRequest) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	raw, _ := io.ReadAll(resp.Body)
+	raw, err := readModelResponse(o.name, resp)
+	if err != nil {
+		return "", err
+	}
 
 	var out struct {
 		Choices []struct {
@@ -82,4 +91,81 @@ func (o *OpenAI) Complete(ctx context.Context, req LLMRequest) (string, error) {
 		return "", fmt.Errorf("%s: empty choices in response", o.name)
 	}
 	return out.Choices[0].Message.Content, nil
+}
+
+func (o *OpenAI) Stream(ctx context.Context, req LLMRequest, emit StreamHandler) error {
+	payload := map[string]any{
+		"model":      req.Model,
+		"max_tokens": req.MaxTokens,
+		"stream":     true,
+		"messages": []map[string]string{
+			{"role": "system", "content": req.SystemPrompt},
+			{"role": "user", "content": req.UserMessage},
+		},
+	}
+
+	body, _ := json.Marshal(payload)
+	httpReq, err := http.NewRequestWithContext(ctx, "POST",
+		o.baseURL+"/v1/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("%s: build stream request: %w", o.name, err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+	if o.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+o.apiKey)
+	}
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("%s: stream http: %w", o.name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("%s: stream API error: %s: %s", o.name, resp.Status, strings.TrimSpace(string(raw)))
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxStreamEventBytes)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			return nil
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			return fmt.Errorf("%s: decode stream chunk: %w", o.name, err)
+		}
+		if chunk.Error != nil {
+			return fmt.Errorf("%s: stream API error: %s", o.name, chunk.Error.Message)
+		}
+		for _, choice := range chunk.Choices {
+			if choice.Delta.Content != "" {
+				if err := emit(choice.Delta.Content); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("%s: read stream: %w", o.name, err)
+	}
+	return nil
 }

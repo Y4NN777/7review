@@ -65,6 +65,13 @@ func loadOrchestratorConfigFromFile(path string) (*OrchestratorConfig, error) {
 			}
 			roleCfg.MaxTokens = maxTokens
 			inFallbacks = false
+		case strings.HasPrefix(trimmed, "max_parallel:"):
+			maxParallel, err := strconv.Atoi(yamlValue(trimmed, "max_parallel:"))
+			if err != nil {
+				return nil, fmt.Errorf("orchestrator config: role %q max_parallel: %w", currentRole, err)
+			}
+			roleCfg.MaxParallel = maxParallel
+			inFallbacks = false
 		case strings.HasPrefix(trimmed, "parallel:"):
 			parallel, err := strconv.ParseBool(yamlValue(trimmed, "parallel:"))
 			if err != nil {

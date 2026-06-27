@@ -13,10 +13,6 @@ const (
 	// Used by Step 6 (Report Generator).
 	RoleFormatter ModelRole = "formatter"
 
-	// RoleCompactor is for extraction and summarisation into compact form.
-	// Used by Step 7 (Memory Compactor).
-	RoleCompactor ModelRole = "compactor"
-
 	// RoleEmbedder is for producing vector embeddings (memory search in Step 3).
 	// Not a chat model — handled separately by the embedding client.
 	RoleEmbedder ModelRole = "embedder"
@@ -41,6 +37,9 @@ type RoleConfig struct {
 	// Parallel controls whether Step 5 may fan out across multiple specs.
 	// Only meaningful for RoleReasoner.
 	Parallel bool
+
+	// MaxParallel caps concurrent calls for a parallel role.
+	MaxParallel int
 }
 
 // OrchestratorConfig maps every role to its provider chain.
@@ -54,16 +53,12 @@ type RoleConfig struct {
 //	      - "qwen2.5-coder:32b@ollama"
 //	    max_tokens: 4096
 //	    parallel: true
+//	    max_parallel: 4
 //	  formatter:
 //	    primary: "claude-haiku-4-5-20251001@anthropic"
 //	    fallbacks:
 //	      - "mistral-small-latest@mistral"
 //	    max_tokens: 2048
-//	  compactor:
-//	    primary: "mistral-small-latest@mistral"
-//	    fallbacks:
-//	      - "claude-haiku-4-5-20251001@anthropic"
-//	    max_tokens: 1024
 type OrchestratorConfig struct {
 	Roles map[ModelRole]RoleConfig
 }
@@ -77,17 +72,14 @@ func DefaultOrchestratorConfig(reviewModel, smallModel, provider string) *Orches
 	return &OrchestratorConfig{
 		Roles: map[ModelRole]RoleConfig{
 			RoleReasoner: {
-				Primary:   primary(reviewModel),
-				MaxTokens: 4096,
-				Parallel:  true,
+				Primary:     primary(reviewModel),
+				MaxTokens:   4096,
+				Parallel:    true,
+				MaxParallel: 4,
 			},
 			RoleFormatter: {
 				Primary:   primary(smallModel),
 				MaxTokens: 2048,
-			},
-			RoleCompactor: {
-				Primary:   primary(smallModel),
-				MaxTokens: 1024,
 			},
 		},
 	}

@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -67,4 +68,66 @@ func (o *Ollama) Complete(ctx context.Context, req LLMRequest) (string, error) {
 		return "", fmt.Errorf("ollama: API error: %s", out.Error)
 	}
 	return out.Message.Content, nil
+}
+
+func (o *Ollama) Stream(ctx context.Context, req LLMRequest, emit StreamHandler) error {
+	payload := map[string]any{
+		"model":  req.Model,
+		"stream": true,
+		"messages": []map[string]string{
+			{"role": "system", "content": req.SystemPrompt},
+			{"role": "user", "content": req.UserMessage},
+		},
+		"options": map[string]int{
+			"num_predict": req.MaxTokens,
+		},
+	}
+
+	body, _ := json.Marshal(payload)
+	httpReq, err := http.NewRequestWithContext(ctx, "POST",
+		o.baseURL+"/api/chat", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("ollama: build stream request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("ollama: stream http: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("ollama: stream API error: %s: %s", resp.Status, string(raw))
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxStreamEventBytes)
+	for scanner.Scan() {
+		var chunk struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+			Done  bool   `json:"done"`
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &chunk); err != nil {
+			return fmt.Errorf("ollama: decode stream chunk: %w", err)
+		}
+		if chunk.Error != "" {
+			return fmt.Errorf("ollama: stream API error: %s", chunk.Error)
+		}
+		if chunk.Message.Content != "" {
+			if err := emit(chunk.Message.Content); err != nil {
+				return err
+			}
+		}
+		if chunk.Done {
+			return nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("ollama: read stream: %w", err)
+	}
+	return nil
 }

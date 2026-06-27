@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/Y4NN777/7review/agent/review"
-	diffanalyzer "github.com/Y4NN777/7review/agent/subagents/diff_analyzer"
 )
 
 // Orchestrator is the multi-LLM coordinator.
@@ -19,6 +19,68 @@ import (
 type Orchestrator struct {
 	cfg       *OrchestratorConfig
 	providers map[string]LLMProvider // keyed by provider name
+}
+
+func (o *Orchestrator) StreamComplete(
+	ctx context.Context,
+	rc *review.Context,
+	role ModelRole,
+	step string,
+	systemPrompt, userMessage string,
+	emit func(string) error,
+) (string, error) {
+	roleCfg, ok := o.cfg.Roles[role]
+	if !ok {
+		return "", fmt.Errorf("orchestrator: unknown role %q", role)
+	}
+	if emit == nil {
+		return "", fmt.Errorf("orchestrator: stream emitter is required")
+	}
+
+	chain := append([]ModelSpec{roleCfg.Primary}, roleCfg.Fallbacks...)
+	var lastErr error
+	for _, spec := range chain {
+		provider, ok := o.providers[spec.Provider]
+		if !ok {
+			log.Printf("[orchestrator] %s: provider %q not registered, skipping", step, spec.Provider)
+			continue
+		}
+
+		var b strings.Builder
+		streamReq := LLMRequest{
+			Model:        spec.Model,
+			SystemPrompt: systemPrompt,
+			UserMessage:  userMessage,
+			MaxTokens:    roleCfg.MaxTokens,
+		}
+		if streaming, ok := provider.(StreamingLLMProvider); ok {
+			log.Printf("[orchestrator] %s: streaming %s/%s", step, spec.Provider, spec.Model)
+			err := streaming.Stream(ctx, streamReq, func(delta string) error {
+				b.WriteString(delta)
+				return emit(delta)
+			})
+			if err != nil {
+				lastErr = err
+				log.Printf("[orchestrator] %s: stream %s/%s failed: %v", step, spec.Provider, spec.Model, err)
+				continue
+			}
+			rc.RecordProvider(step, fmt.Sprintf("%s/%s", spec.Provider, spec.Model))
+			return b.String(), nil
+		}
+
+		log.Printf("[orchestrator] %s: provider %s/%s has no streaming API, using compatibility response", step, spec.Provider, spec.Model)
+		result, err := provider.Complete(ctx, streamReq)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if err := emit(result); err != nil {
+			return "", err
+		}
+		rc.RecordProvider(step, fmt.Sprintf("%s/%s", spec.Provider, spec.Model))
+		return result, nil
+	}
+	return "", fmt.Errorf("orchestrator: %s: all providers failed, last error: %w", step, lastErr)
 }
 
 // NewOrchestrator builds an Orchestrator from an OrchestratorConfig.
@@ -84,8 +146,8 @@ func (o *Orchestrator) CompleteParallel(
 	ctx context.Context,
 	rc *review.Context,
 	systemPrompt string,
-	batches [][]diffanalyzer.FileDiff,
-	buildUserMsg func(batch []diffanalyzer.FileDiff) string,
+	batches [][]review.FileDiff,
+	buildUserMsg func(batch []review.FileDiff) string,
 ) error {
 	roleCfg, ok := o.cfg.Roles[RoleReasoner]
 	if !ok {
@@ -110,62 +172,104 @@ func (o *Orchestrator) CompleteParallel(
 
 	// Build the provider chain once — shared across goroutines (providers are stateless).
 	chain := append([]ModelSpec{roleCfg.Primary}, roleCfg.Fallbacks...)
-
-	for i, batch := range batches {
-		wg.Add(1)
-		go func(batchIdx int, b []diffanalyzer.FileDiff) {
-			defer wg.Done()
-
-			// Route: pick spec based on batch complexity.
-			spec := pickSpecForBatch(chain, b, 2000)
-			provider, ok := o.providers[spec.Provider]
-			if !ok {
-				// Fallback to primary provider.
-				provider = o.providers[chain[0].Provider]
-				spec = chain[0]
-			}
-
-			userMsg := buildUserMsg(b)
-			log.Printf("[orchestrator] step5 batch %d/%d → %s/%s",
-				batchIdx+1, len(batches), spec.Provider, spec.Model)
-
-			result, err := provider.Complete(ctx, LLMRequest{
-				Model:        spec.Model,
-				SystemPrompt: systemPrompt,
-				UserMessage:  userMsg,
-				MaxTokens:    roleCfg.MaxTokens,
-			})
-			if err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = fmt.Errorf("batch %d (%s/%s): %w", batchIdx+1, spec.Provider, spec.Model, err)
-				}
-				mu.Unlock()
-				return
-			}
-
-			rc.AddFindings(result)
-			rc.RecordProvider(
-				fmt.Sprintf("step5_batch%d", batchIdx+1),
-				fmt.Sprintf("%s/%s", spec.Provider, spec.Model),
-			)
-		}(i, batch)
+	maxParallel := roleCfg.MaxParallel
+	if maxParallel <= 0 {
+		maxParallel = 4
 	}
+	if maxParallel > len(batches) {
+		maxParallel = len(batches)
+	}
+	jobs := make(chan int)
+	for worker := 0; worker < maxParallel; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for batchIdx := range jobs {
+				processBatch(ctx, o, rc, roleCfg, chain, systemPrompt, buildUserMsg, batchIdx, len(batches), batches[batchIdx], &mu, &firstErr)
+			}
+		}()
+	}
+	for i := range batches {
+		jobs <- i
+	}
+	close(jobs)
 
 	wg.Wait()
 	return firstErr
 }
 
-// pickSpecForBatch selects a ModelSpec based on the estimated token complexity
-// of the batch. Below the threshold → last spec in chain (cheapest).
-// At or above → first spec (most capable).
-func pickSpecForBatch(chain []ModelSpec, batch []diffanalyzer.FileDiff, cheapThreshold int) ModelSpec {
+func processBatch(
+	ctx context.Context,
+	o *Orchestrator,
+	rc *review.Context,
+	roleCfg RoleConfig,
+	chain []ModelSpec,
+	systemPrompt string,
+	buildUserMsg func(batch []review.FileDiff) string,
+	batchIdx int,
+	batchCount int,
+	batch []review.FileDiff,
+	mu *sync.Mutex,
+	firstErr *error,
+) {
+	spec, provider, ok := o.pickRegisteredSpecForBatch(chain, batch, 2000)
+	if !ok {
+		mu.Lock()
+		if *firstErr == nil {
+			*firstErr = fmt.Errorf("batch %d: no registered provider in chain %s", batchIdx+1, describeProviderChain(chain))
+		}
+		mu.Unlock()
+		return
+	}
+
+	userMsg := buildUserMsg(batch)
+	log.Printf("[orchestrator] step5 batch %d/%d → %s/%s",
+		batchIdx+1, batchCount, spec.Provider, spec.Model)
+
+	result, err := provider.Complete(ctx, LLMRequest{
+		Model:        spec.Model,
+		SystemPrompt: systemPrompt,
+		UserMessage:  userMsg,
+		MaxTokens:    roleCfg.MaxTokens,
+	})
+	if err != nil {
+		mu.Lock()
+		if *firstErr == nil {
+			*firstErr = fmt.Errorf("batch %d (%s/%s): %w", batchIdx+1, spec.Provider, spec.Model, err)
+		}
+		mu.Unlock()
+		return
+	}
+
+	rc.AddFindings(result)
+	rc.RecordProvider(
+		fmt.Sprintf("step5_batch%d", batchIdx+1),
+		fmt.Sprintf("%s/%s", spec.Provider, spec.Model),
+	)
+}
+
+// pickRegisteredSpecForBatch selects a registered ModelSpec based on estimated
+// token complexity. Complex batches use the first available provider in chain
+// order. Simple batches prefer the last available fallback as the cheaper path.
+func (o *Orchestrator) pickRegisteredSpecForBatch(chain []ModelSpec, batch []review.FileDiff, cheapThreshold int) (ModelSpec, LLMProvider, bool) {
+	if len(chain) == 0 {
+		return ModelSpec{}, nil, false
+	}
 	total := 0
 	for _, f := range batch {
 		total += f.TokenCount
 	}
 	if total < cheapThreshold && len(chain) > 1 {
-		return chain[len(chain)-1] // cheapest = last in fallback chain
+		for i := len(chain) - 1; i >= 0; i-- {
+			if provider, ok := o.providers[chain[i].Provider]; ok {
+				return chain[i], provider, true
+			}
+		}
 	}
-	return chain[0] // primary = most capable
+	for _, spec := range chain {
+		if provider, ok := o.providers[spec.Provider]; ok {
+			return spec, provider, true
+		}
+	}
+	return ModelSpec{}, nil, false
 }

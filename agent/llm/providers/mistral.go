@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 )
 
@@ -50,7 +49,10 @@ func (m *Mistral) Complete(ctx context.Context, req LLMRequest) (string, error) 
 	}
 	defer resp.Body.Close()
 
-	raw, _ := io.ReadAll(resp.Body)
+	raw, err := readModelResponse("mistral", resp)
+	if err != nil {
+		return "", err
+	}
 
 	var out struct {
 		Choices []struct {
