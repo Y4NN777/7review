@@ -85,3 +85,37 @@ func TestRenderConsoleCommandPanelShowsInputActionsAndOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderConsoleWorkspaceShowsTranscriptRailAndComposer(t *testing.T) {
+	out := RenderConsoleWorkspace(ConsoleWorkspace{
+		View: ConsoleView{
+			Server: "http://agent",
+			Ready:  true,
+			Plain:  true,
+			ActiveRun: &RunDetail{
+				RunRow:      RunRow{ID: "owner/repo!7", Status: "drafted"},
+				DraftBytes:  20,
+				FinalBytes:  0,
+				LatestEvent: "status_changed drafted",
+			},
+			Providers: []ProviderRow{{Name: "openrouter", Configured: true}},
+		},
+		RunID:  "owner/repo!7",
+		Input:  "/history",
+		Help:   true,
+		Status: "ready",
+		Height: 24,
+		Transcript: []ConsoleTranscriptItem{
+			{Role: "you", Text: "/sessions"},
+			{Role: "agent", Text: "sessions 1\nowner/repo!7 drafted"},
+		},
+	})
+	for _, want := range []string{"7review", "Review workspace", "run    owner/repo!7", "Transcript", "you>", "/sessions", "agent>", "sessions 1", "Context", "openrouter", "> /history", "/history chat_message 20"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("workspace output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "chat: 7review chat") {
+		t.Fatalf("interactive workspace should not push users to a separate chat command:\n%s", out)
+	}
+}

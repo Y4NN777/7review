@@ -97,6 +97,22 @@ type ConsoleCommandPanel struct {
 	Log     []string
 }
 
+type ConsoleTranscriptItem struct {
+	Role string
+	Text string
+}
+
+type ConsoleWorkspace struct {
+	View       ConsoleView
+	RunID      string
+	Input      string
+	Help       bool
+	Running    bool
+	Status     string
+	Transcript []ConsoleTranscriptItem
+	Height     int
+}
+
 func RenderConsole(view ConsoleView) string {
 	if view.Server == "" {
 		view.Server = "http://localhost:8080"
@@ -122,6 +138,35 @@ func RenderConsole(view ConsoleView) string {
 		Background(lipgloss.Color("#000000")).
 		Foreground(lipgloss.Color("#D0D0D0"))
 	return style.Render(header + "\n" + body + "\n" + signalStyle().Render(footer))
+}
+
+func RenderConsoleWorkspace(workspace ConsoleWorkspace) string {
+	view := workspace.View
+	if view.Server == "" {
+		view.Server = "http://localhost:8080"
+	}
+	view.Dependencies = sortedDependencies(view.Dependencies)
+	view.Runs = sortedRuns(view.Runs)
+	view.Providers = sortedProviders(view.Providers)
+	view.Skills = sortedSkills(view.Skills)
+	view.Tools = sortedTools(view.Tools)
+
+	header := renderConsoleHeader(view.Plain)
+	rail := renderConsoleRail(view)
+	main := renderWorkspaceMain(workspace, 82)
+	body := joinColumns(main, rail, 2)
+	composer := renderWorkspaceComposer(workspace, 118)
+	if workspace.Height > 0 {
+		reserved := lineCount(header) + lineCount(composer) + 1
+		body = trimLines(body, workspace.Height-reserved)
+	}
+	if view.Plain {
+		return header + "\n" + body + "\n" + composer
+	}
+	return lipgloss.NewStyle().
+		Background(lipgloss.Color("#000000")).
+		Foreground(lipgloss.Color("#D0D0D0")).
+		Render(header + "\n" + body + "\n" + composer)
 }
 
 func renderConsoleMain(view ConsoleView) string {
@@ -244,6 +289,84 @@ func RenderConsoleCommandPanel(panel ConsoleCommandPanel) string {
 		}
 	}
 	return renderCommandSurface(lines, 92)
+}
+
+func renderWorkspaceMain(workspace ConsoleWorkspace, width int) string {
+	view := workspace.View
+	runID := firstNonEmpty(workspace.RunID, activeRunID(view))
+	lines := []string{"Review workspace"}
+	if runID != "" {
+		lines = append(lines, "run    "+trimTo(runID, width-7))
+	} else {
+		lines = append(lines, "run    none selected")
+	}
+	if view.ActiveRun != nil {
+		lines = append(lines,
+			"status "+firstNonEmpty(view.ActiveRun.Status, "-"),
+			fmt.Sprintf("report draft=%d bytes final=%d bytes", view.ActiveRun.DraftBytes, view.ActiveRun.FinalBytes),
+		)
+		if view.ActiveRun.LatestEvent != "" {
+			lines = append(lines, "latest "+trimTo(view.ActiveRun.LatestEvent, width-7))
+		}
+	} else if len(view.Runs) == 0 {
+		lines = append(lines, "sessions none")
+	} else {
+		lines = append(lines, fmt.Sprintf("sessions %d", len(view.Runs)))
+	}
+	if len(view.Warnings) > 0 {
+		lines = append(lines, "", "Warnings")
+		for _, warning := range view.Warnings {
+			lines = append(lines, trimTo(warning, width))
+		}
+	}
+	lines = append(lines, "", "Transcript")
+	if len(workspace.Transcript) == 0 {
+		lines = append(lines,
+			"No messages yet.",
+			"Type /help, /sessions, /status, /history, /diff, /draft, or ask about the active review.",
+		)
+	} else {
+		for _, item := range lastTranscriptItems(workspace.Transcript, 12) {
+			prefix := strings.ToLower(strings.TrimSpace(item.Role))
+			if prefix == "" {
+				prefix = "agent"
+			}
+			for i, line := range wrappedLines(item.Text, width-8) {
+				if i == 0 {
+					lines = append(lines, fmt.Sprintf("%-6s %s", prefix+">", line))
+				} else {
+					lines = append(lines, "       "+line)
+				}
+			}
+		}
+	}
+	return renderConsoleSurface(lines, width, view.Plain)
+}
+
+func renderWorkspaceComposer(workspace ConsoleWorkspace, width int) string {
+	if width < 48 {
+		width = 48
+	}
+	state := firstNonEmpty(workspace.Status, "ready")
+	if workspace.Running {
+		state = "running"
+	}
+	input := workspace.Input
+	if strings.TrimSpace(input) == "" {
+		input = "/help"
+	}
+	lines := []string{
+		"state " + state,
+		"> " + input,
+		"enter send  r refresh  ? help  q exit when input is empty",
+	}
+	if workspace.Help {
+		lines = append(lines,
+			"/status  /sessions  /run  /history  /history chat_message 20",
+			"/diff  /draft  /memory  /approve --report-file final.md  /publish-final --report-file final.md",
+		)
+	}
+	return renderCommandSurface(lines, width)
 }
 
 func readyLabel(ready bool) string {
@@ -543,6 +666,44 @@ func lastStrings(values []string, limit int) []string {
 		return values
 	}
 	return values[len(values)-limit:]
+}
+
+func lastTranscriptItems(values []ConsoleTranscriptItem, limit int) []ConsoleTranscriptItem {
+	if limit <= 0 || len(values) <= limit {
+		return values
+	}
+	return values[len(values)-limit:]
+}
+
+func activeRunID(view ConsoleView) string {
+	if view.ActiveRun != nil {
+		return strings.TrimSpace(view.ActiveRun.ID)
+	}
+	if len(view.Runs) > 0 {
+		return strings.TrimSpace(view.Runs[0].ID)
+	}
+	return ""
+}
+
+func lineCount(value string) int {
+	if value == "" {
+		return 0
+	}
+	return len(strings.Split(value, "\n"))
+}
+
+func trimLines(value string, maxLines int) string {
+	if maxLines <= 0 {
+		return ""
+	}
+	lines := strings.Split(value, "\n")
+	if len(lines) <= maxLines {
+		return value
+	}
+	if maxLines == 1 {
+		return "..."
+	}
+	return strings.Join(append(lines[:maxLines-1], "..."), "\n")
 }
 
 func firstNonEmpty(values ...string) string {

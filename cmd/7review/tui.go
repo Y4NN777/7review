@@ -169,7 +169,9 @@ type consoleTUIModel struct {
 	message        string
 	input          string
 	commandRunning bool
-	commandLog     []string
+	transcript     []ui.ConsoleTranscriptItem
+	stream         <-chan consoleStreamMsg
+	cancel         context.CancelFunc
 	width          int
 	height         int
 }
@@ -185,6 +187,12 @@ type consoleCommandMsg struct {
 	input string
 	out   string
 	err   error
+}
+
+type consoleStreamMsg struct {
+	delta string
+	err   error
+	done  bool
 }
 
 func newConsoleTUIModel(client *http.Client, opts tuiCommandOptions) consoleTUIModel {
@@ -209,6 +217,14 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input = ""
 				return m, nil
 			}
+			if m.commandRunning && m.cancel != nil {
+				m.cancel()
+				m.cancel = nil
+				m.commandRunning = false
+				m.stream = nil
+				m.transcript = updateLastAgentTranscript(m.transcript, "\nstream cancelled")
+				return m, nil
+			}
 			return m, tea.Quit
 		case "enter":
 			command := strings.TrimSpace(m.input)
@@ -217,7 +233,14 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.input = ""
 			m.commandRunning = true
-			m.commandLog = appendCommandLog(m.commandLog, "> "+command)
+			m.transcript = appendTranscript(m.transcript, "you", command)
+			if !strings.HasPrefix(command, "/") && m.effectiveRunID() != "" {
+				ch, cancel := startConsoleChatStream(m.opts, m.effectiveRunID(), command)
+				m.stream = ch
+				m.cancel = cancel
+				m.transcript = append(m.transcript, ui.ConsoleTranscriptItem{Role: "agent"})
+				return m, waitConsoleStream(ch)
+			}
 			return m, executeConsoleCommandCmd(m.client, m.opts, m.effectiveRunID(), command)
 		case "backspace":
 			m.input = dropLastRune(m.input)
@@ -262,12 +285,32 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, fetchConsoleViewCmd(m.client, m.opts)
 	case consoleCommandMsg:
 		m.commandRunning = false
+		m.cancel = nil
+		m.stream = nil
 		if msg.err != nil {
-			m.commandLog = appendCommandLog(m.commandLog, "error: "+msg.err.Error())
+			m.transcript = appendTranscript(m.transcript, "agent", "error: "+msg.err.Error())
 		} else if strings.TrimSpace(msg.out) != "" {
-			m.commandLog = appendCommandLog(m.commandLog, strings.TrimSpace(msg.out))
+			m.transcript = appendTranscript(m.transcript, "agent", normalizeConsoleCommandOutput(msg.out))
 		}
 		return m, fetchConsoleViewCmd(m.client, m.opts)
+	case consoleStreamMsg:
+		if msg.delta != "" {
+			m.transcript = updateLastAgentTranscript(m.transcript, msg.delta)
+		}
+		if msg.err != nil {
+			m.transcript = updateLastAgentTranscript(m.transcript, "\nerror: "+msg.err.Error())
+			m.commandRunning = false
+			m.cancel = nil
+			m.stream = nil
+			return m, fetchConsoleViewCmd(m.client, m.opts)
+		}
+		if msg.done {
+			m.commandRunning = false
+			m.cancel = nil
+			m.stream = nil
+			return m, fetchConsoleViewCmd(m.client, m.opts)
+		}
+		return m, waitConsoleStream(m.stream)
 	}
 	return m, nil
 }
@@ -281,35 +324,26 @@ func (m consoleTUIModel) View() string {
 			Warnings:     []string{m.message},
 		}
 	}
-	out := ui.RenderConsole(m.view)
+	status := m.message
 	if m.loading {
-		out += "\nloading"
+		status = "refreshing"
 	}
 	if m.commandRunning {
-		out += "\nrunning command"
+		status = "running"
 	}
 	if m.err != nil {
-		out += "\nlast error: " + m.err.Error()
+		status = "last error: " + m.err.Error()
 	}
-	panel := ui.RenderConsoleCommandPanel(ui.ConsoleCommandPanel{
-		RunID:   m.effectiveRunID(),
-		Input:   m.input,
-		Help:    m.help,
-		Running: m.commandRunning,
-		Log:     m.commandLog,
+	return ui.RenderConsoleWorkspace(ui.ConsoleWorkspace{
+		View:       m.view,
+		RunID:      m.effectiveRunID(),
+		Input:      m.input,
+		Help:       m.help,
+		Running:    m.commandRunning,
+		Status:     status,
+		Transcript: m.transcript,
+		Height:     m.height,
 	})
-	if m.height > 0 {
-		reserved := lineCount(panel) + 1
-		if m.help {
-			reserved++
-		}
-		out = trimToLineBudget(out, m.height-reserved)
-	}
-	out += "\n" + panel
-	if m.help {
-		out += "\nkeys: type /help, /status, /sessions, /run, /history, /diff, /draft; enter runs; r refresh; q exits when input is empty"
-	}
-	return out
 }
 
 func (m consoleTUIModel) effectiveRunID() string {
@@ -336,6 +370,46 @@ func consoleTick(interval time.Duration) tea.Cmd {
 	return tea.Tick(interval, func(t time.Time) tea.Msg {
 		return consoleTickMsg(t)
 	})
+}
+
+func startConsoleChatStream(opts tuiCommandOptions, runID string, input string) (<-chan consoleStreamMsg, context.CancelFunc) {
+	ch := make(chan consoleStreamMsg, 16)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		defer close(ch)
+		responder := &remoteRunChatResponder{
+			serverURL:  strings.TrimRight(opts.serverURL, "/"),
+			runID:      runID,
+			httpClient: operatorStreamHTTPClient(),
+		}
+		err := responder.StreamRespond(ctx, input, func(delta string) error {
+			if delta == "" {
+				return nil
+			}
+			select {
+			case ch <- consoleStreamMsg{delta: delta}:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+		if err != nil && !errors.Is(err, context.Canceled) {
+			ch <- consoleStreamMsg{err: err}
+			return
+		}
+		ch <- consoleStreamMsg{done: true}
+	}()
+	return ch, cancel
+}
+
+func waitConsoleStream(ch <-chan consoleStreamMsg) tea.Cmd {
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return consoleStreamMsg{done: true}
+		}
+		return msg
+	}
 }
 
 func executeConsoleCommandCmd(client *http.Client, opts tuiCommandOptions, runID string, input string) tea.Cmd {
@@ -375,16 +449,36 @@ func executeConsoleCommand(client *http.Client, opts tuiCommandOptions, runID st
 	return out.String(), err
 }
 
-func appendCommandLog(log []string, item string) []string {
-	item = strings.TrimSpace(item)
-	if item == "" {
-		return log
+func appendTranscript(items []ui.ConsoleTranscriptItem, role string, text string) []ui.ConsoleTranscriptItem {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return items
 	}
-	log = append(log, item)
-	if len(log) > 6 {
-		log = log[len(log)-6:]
+	items = append(items, ui.ConsoleTranscriptItem{Role: role, Text: text})
+	if len(items) > 80 {
+		items = items[len(items)-80:]
 	}
-	return log
+	return items
+}
+
+func updateLastAgentTranscript(items []ui.ConsoleTranscriptItem, delta string) []ui.ConsoleTranscriptItem {
+	if len(items) == 0 || strings.ToLower(strings.TrimSpace(items[len(items)-1].Role)) != "agent" {
+		return appendTranscript(items, "agent", delta)
+	}
+	items = append([]ui.ConsoleTranscriptItem(nil), items...)
+	items[len(items)-1].Text += delta
+	return items
+}
+
+func normalizeConsoleCommandOutput(value string) string {
+	value = strings.TrimSpace(value)
+	for {
+		next := strings.TrimSpace(strings.TrimPrefix(value, "agent:"))
+		if next == value {
+			return value
+		}
+		value = next
+	}
 }
 
 func dropLastRune(value string) string {
@@ -393,27 +487,6 @@ func dropLastRune(value string) string {
 		return value
 	}
 	return string(runes[:len(runes)-1])
-}
-
-func lineCount(value string) int {
-	if value == "" {
-		return 0
-	}
-	return len(strings.Split(value, "\n"))
-}
-
-func trimToLineBudget(value string, maxLines int) string {
-	if maxLines <= 0 {
-		return ""
-	}
-	lines := strings.Split(value, "\n")
-	if len(lines) <= maxLines {
-		return value
-	}
-	if maxLines == 1 {
-		return "..."
-	}
-	return strings.Join(append(lines[:maxLines-1], "..."), "\n")
 }
 
 func parseTUIArgs(args []string) tuiCommandOptions {

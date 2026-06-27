@@ -38,15 +38,21 @@ agent's authenticated `/ready` endpoint and renders pipeline, orchestrator,
 run-store, queue, Headroom, and MemPalace readiness. Set `REVIEW_API_TOKEN`
 when the server requires operator auth.
 
-`tui` renders the operator console as a terminal workspace: recent run activity
-on the left, the current run and exact follow-up commands below it, and a compact
-right rail for dependency state, queue state, provider routing, review progress,
-loaded skills, and tool count. It reads live agent endpoints only: `/ready`,
-`/tools`, and `/tools/execute` for `list_runs`, `get_run`,
-`list_provider_status`, and `list_skills`. It runs as an interactive Bubble Tea
-program by default: press `r` to refresh immediately, `?` to show or hide key
-help, and `q`, `esc`, or `ctrl+c` to exit. Use `--once` for a single
-non-interactive snapshot.
+`tui` runs as an interactive review workspace by default. The live screen keeps
+a transcript/output pane on the left, a compact context rail on the right, and a
+fixed composer at the bottom. Type slash commands directly in the composer:
+`/status`, `/sessions`, `/run`, `/history`, `/history chat_message 20`, `/diff`,
+`/draft`, `/memory`, `/approve --report-file final.md`, and
+`/publish-final --report-file final.md`. Type a normal message when a run is
+active to stream model chat through the running agent's `/chat/stream` endpoint.
+Press `r` to refresh immediately, `?` to show or hide command help, and `q`,
+`esc`, or `ctrl+c` to exit when the input is empty. Use `--once` for a single
+non-interactive dashboard snapshot.
+
+The live TUI reads `/ready`, `/tools`, `/tools/execute`, and run-chat streaming
+endpoints. The `--once` snapshot prints recent run activity, current run
+commands, dependency state, queue state, provider routing, review progress,
+loaded skills, and tool count without entering the interactive workspace.
 
 `sessions` renders a compact human-readable list of persisted review sessions
 from the run store. It uses the same authenticated `list_runs` tool as the TUI,

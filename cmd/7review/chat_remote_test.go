@@ -776,7 +776,7 @@ func TestConsoleTUIModelHandlesInteractiveKeys(t *testing.T) {
 
 	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	model = updated.(consoleTUIModel)
-	if !model.help || cmd != nil || !strings.Contains(model.View(), "keys:") {
+	if !model.help || cmd != nil || !strings.Contains(model.View(), "/history chat_message 20") {
 		t.Fatalf("help key did not toggle help view: model=%#v cmd=%v view=%s", model, cmd, model.View())
 	}
 
@@ -796,7 +796,7 @@ func TestConsoleTUIModelHandlesInteractiveKeys(t *testing.T) {
 	model = updated.(consoleTUIModel)
 	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	model = updated.(consoleTUIModel)
-	if model.input != "/s" || cmd != nil || !strings.Contains(model.View(), "input  /s") {
+	if model.input != "/s" || cmd != nil || !strings.Contains(model.View(), "> /s") {
 		t.Fatalf("typing did not update command input: model=%#v cmd=%v view=%s", model, cmd, model.View())
 	}
 	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyBackspace})
@@ -805,14 +805,60 @@ func TestConsoleTUIModelHandlesInteractiveKeys(t *testing.T) {
 		t.Fatalf("backspace did not edit command input: %q", model.input)
 	}
 
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(consoleTUIModel)
+	if !model.commandRunning || cmd == nil || len(model.transcript) == 0 || model.transcript[len(model.transcript)-1].Text != "/" {
+		t.Fatalf("enter should schedule command and append user transcript: model=%#v cmd=%v", model, cmd)
+	}
+	updated, cmd = model.Update(consoleCommandMsg{input: "/", out: "agent: command output"})
+	model = updated.(consoleTUIModel)
+	if model.commandRunning || cmd == nil || !strings.Contains(model.View(), "agent> command output") || strings.Contains(model.View(), "agent> agent:") {
+		t.Fatalf("command result should append to transcript and refresh: model=%#v cmd=%v view=%s", model, cmd, model.View())
+	}
+
+	streaming := consoleTUIModel{
+		opts:           tuiCommandOptions{serverURL: "http://agent", refreshEvery: time.Second},
+		view:           ui.ConsoleView{Server: "http://agent", Ready: true, Watch: true, RefreshEvery: time.Second},
+		commandRunning: true,
+		stream:         make(chan consoleStreamMsg),
+		transcript: []ui.ConsoleTranscriptItem{
+			{Role: "you", Text: "explain finding"},
+			{Role: "agent"},
+		},
+	}
+	updated, cmd = streaming.Update(consoleStreamMsg{delta: "streamed "})
+	streaming = updated.(consoleTUIModel)
+	if cmd == nil || !strings.Contains(streaming.View(), "agent> streamed") {
+		t.Fatalf("stream delta should append to agent transcript: cmd=%v view=%s", cmd, streaming.View())
+	}
+	updated, cmd = streaming.Update(consoleStreamMsg{delta: "reply"})
+	streaming = updated.(consoleTUIModel)
+	if cmd == nil || !strings.Contains(streaming.View(), "streamed reply") {
+		t.Fatalf("second stream delta should append to same transcript item: cmd=%v view=%s", cmd, streaming.View())
+	}
+	updated, cmd = streaming.Update(consoleStreamMsg{done: true})
+	streaming = updated.(consoleTUIModel)
+	if streaming.commandRunning || cmd == nil {
+		t.Fatalf("stream completion should clear running state and refresh: model=%#v cmd=%v", streaming, cmd)
+	}
+
 	small := newConsoleTUIModel(nil, tuiCommandOptions{serverURL: "http://agent", refreshEvery: time.Second})
 	updated, cmd = small.Update(consoleViewMsg{view: ui.ConsoleView{Server: "http://agent", Ready: true, Watch: true, RefreshEvery: time.Second}})
 	small = updated.(consoleTUIModel)
 	updated, cmd = small.Update(tea.WindowSizeMsg{Width: 100, Height: 12})
 	small = updated.(consoleTUIModel)
 	shortView := small.View()
-	if cmd != nil || !strings.Contains(shortView, "Command") || !strings.Contains(shortView, "input  /") || !strings.Contains(shortView, "...") {
+	if cmd != nil || !strings.Contains(shortView, "> /help") || !strings.Contains(shortView, "...") {
 		t.Fatalf("small terminal view should keep command panel visible and clip dashboard: cmd=%v\n%s", cmd, shortView)
+	}
+}
+
+func TestNormalizeConsoleCommandOutputStripsPlainChatPrefix(t *testing.T) {
+	if got := normalizeConsoleCommandOutput("agent: sessions 0"); got != "sessions 0" {
+		t.Fatalf("unexpected normalized output %q", got)
+	}
+	if got := normalizeConsoleCommandOutput("sessions 0"); got != "sessions 0" {
+		t.Fatalf("output without prefix should stay unchanged: %q", got)
 	}
 }
 
