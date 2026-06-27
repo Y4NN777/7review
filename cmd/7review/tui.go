@@ -19,6 +19,7 @@ type tuiCommandOptions struct {
 	runID          string
 	plain          bool
 	watch          bool
+	once           bool
 	refreshEvery   time.Duration
 	clearOnRefresh bool
 }
@@ -146,7 +147,7 @@ type remoteVector struct {
 func runTUI(args []string, out io.Writer) error {
 	opts := parseTUIArgs(args)
 	client := operatorRequestHTTPClient()
-	if !opts.watch {
+	if opts.once {
 		view, err := remoteConsoleView(client, opts)
 		fmt.Fprintln(out, ui.RenderConsole(view))
 		return err
@@ -164,6 +165,7 @@ func runTUI(args []string, out io.Writer) error {
 func parseTUIArgs(args []string) tuiCommandOptions {
 	opts := tuiCommandOptions{
 		serverURL:      "http://localhost:8080",
+		watch:          true,
 		refreshEvery:   2 * time.Second,
 		clearOnRefresh: true,
 	}
@@ -179,6 +181,11 @@ func parseTUIArgs(args []string) tuiCommandOptions {
 			opts.clearOnRefresh = false
 		case "--watch":
 			opts.watch = true
+			opts.once = false
+		case "--once":
+			opts.watch = false
+			opts.once = true
+			opts.clearOnRefresh = false
 		case "--refresh", "--interval":
 			opts.refreshEvery = parseRefreshInterval(flagValue(args, &i), opts.refreshEvery)
 		case "--no-clear":

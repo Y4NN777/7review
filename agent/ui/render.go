@@ -53,7 +53,7 @@ func RenderStatus(view StatusView) string {
 		if dep.Detail != "" {
 			line += " - " + dep.Detail
 		}
-		runtime = append(runtime, renderLine(line, dep.Ready, view.Plain))
+		runtime = append(runtime, line)
 	}
 	lines = append(lines, renderPanel("RUNTIME", runtime, overallReady(deps), view.Plain))
 	return strings.Join(lines, "\n")
@@ -159,7 +159,7 @@ func stripANSINoise(value string) string {
 	for i := 0; i < len(value); i++ {
 		ch := value[i]
 		if inEscape {
-			if ch >= '@' && ch <= '~' {
+			if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') {
 				inEscape = false
 			}
 			continue

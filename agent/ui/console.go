@@ -102,9 +102,9 @@ func RenderConsole(view ConsoleView) string {
 	left := renderConsoleMain(view)
 	right := renderConsoleRail(view)
 	body := joinColumns(left, right, 2)
-	footer := "tab switch view  ctrl+c exit  /chat use: 7review chat --run <run-id> --server " + view.Server
+	footer := "ctrl+c exit  chat: 7review chat --run <run-id> --server " + view.Server
 	if view.Watch && view.RefreshEvery > 0 {
-		footer = fmt.Sprintf("watch every %s  ctrl+c exit  /chat use: 7review chat --run <run-id> --server %s", view.RefreshEvery, view.Server)
+		footer = fmt.Sprintf("live refresh %s  ctrl+c exit  chat: 7review chat --run <run-id> --server %s", view.RefreshEvery, view.Server)
 	}
 	if view.Plain {
 		return body + "\n" + footer
@@ -116,12 +116,17 @@ func RenderConsole(view ConsoleView) string {
 }
 
 func renderConsoleMain(view ConsoleView) string {
-	var lines []string
+	lines := []string{
+		"7REVIEW",
+		"review agent operator console",
+		"server " + view.Server,
+		"state  " + readyLabel(view.Ready),
+		"",
+	}
 	if len(view.Runs) == 0 {
 		lines = append(lines,
-			"",
-			centerText("7review", 78),
-			centerText("No runs returned by "+view.Server+"/runs", 78),
+			"No review sessions",
+			"No runs returned by "+view.Server+"/runs",
 			"",
 			"Start with one webhook event, or inspect readiness with:",
 			"7review status --server "+view.Server,
@@ -166,6 +171,13 @@ func renderConsoleMain(view ConsoleView) string {
 		}
 	}
 	return renderConsoleSurface(lines, 82, view.Plain)
+}
+
+func readyLabel(ready bool) string {
+	if ready {
+		return "READY"
+	}
+	return "ATTENTION"
 }
 
 func renderActivityLines(view ConsoleView) []string {

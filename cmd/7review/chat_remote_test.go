@@ -759,6 +759,17 @@ func TestParseTUIArgsAcceptsRunServerAndPlain(t *testing.T) {
 	}
 }
 
+func TestParseTUIArgsDefaultsToLiveAndSupportsOnce(t *testing.T) {
+	live := parseTUIArgs(nil)
+	if !live.watch || live.once || !live.clearOnRefresh {
+		t.Fatalf("tui should default to live dashboard: %#v", live)
+	}
+	once := parseTUIArgs([]string{"--once"})
+	if once.watch || !once.once || once.clearOnRefresh {
+		t.Fatalf("tui --once should render one snapshot: %#v", once)
+	}
+}
+
 func TestParseHistoryArgsAcceptsRunServerAndPositional(t *testing.T) {
 	opts := parseHistoryArgs([]string{"owner/repo!7", "--server", "http://agent", "--type", "chat_message", "--limit", "3"})
 	if opts.runID != "owner/repo!7" || opts.serverURL != "http://agent" || opts.eventType != "chat_message" || opts.limit != 3 {
@@ -856,7 +867,7 @@ func TestRemoteConsoleViewUsesAgentEndpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := ui.RenderConsole(view)
-	for _, want := range []string{"owner/repo!7", "Fix validation", "history    3 events", "latest     status_changed drafted", "openrouter", "traceability-review", "tools     2", "refresh 5s", "watch every 5s"} {
+	for _, want := range []string{"7REVIEW", "owner/repo!7", "Fix validation", "history    3 events", "latest     status_changed drafted", "openrouter", "traceability-review", "tools     2", "refresh 5s", "live refresh 5s"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("console output missing %q:\n%s", want, out)
 		}

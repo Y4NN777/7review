@@ -16,12 +16,12 @@ func TestRenderConsoleIdleUsesRealEmptyState(t *testing.T) {
 			{Name: "mempalace", Ready: true},
 		},
 	})
-	for _, want := range []string{"7review", "No runs returned by http://agent/runs", "headroom", "mempalace", "7review chat --run <run-id> --server http://agent"} {
+	for _, want := range []string{"7REVIEW", "review agent operator console", "state  READY", "No review sessions", "No runs returned by http://agent/runs", "headroom", "mempalace", "chat: 7review chat --run <run-id> --server http://agent"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("console output missing %q:\n%s", want, out)
 		}
 	}
-	for _, forbidden := range []string{"Implementing signup", "pocket", "OpenCode Zen"} {
+	for _, forbidden := range []string{"Implementing signup", "pocket", "OpenCode Zen", "tab switch view", "/chat use"} {
 		if strings.Contains(out, forbidden) {
 			t.Fatalf("console fabricated screenshot content %q:\n%s", forbidden, out)
 		}
@@ -59,7 +59,7 @@ func TestRenderConsolePopulatedShowsRunAndRail(t *testing.T) {
 		Skills:    []SkillRow{{Name: "traceability-review", Loaded: true}},
 		Tools:     []ToolRow{{Name: "list_runs", LifecycleStage: "observe", Implemented: true}},
 	})
-	for _, want := range []string{"Activity", "Current run", "owner/repo!7", "Fix validation", "findings   2", "history    3 events", "latest     status_changed drafted", "Commands", "7review chat --run owner/repo!7 --server http://agent", "7review history owner/repo!7 --type chat_message --limit 20 --server http://agent", "Review", "draft     done", "hil       open", "depth     1/8", "openrouter", "reasoner", "skills    1", "tools     1", "refreshed 2026-06-27T12:01:02Z", "watch every 5s"} {
+	for _, want := range []string{"7REVIEW", "Activity", "Current run", "owner/repo!7", "Fix validation", "findings   2", "history    3 events", "latest     status_changed drafted", "Commands", "7review chat --run owner/repo!7 --server http://agent", "7review history owner/repo!7 --type chat_message --limit 20 --server http://agent", "Review", "draft     done", "hil       open", "depth     1/8", "openrouter", "reasoner", "skills    1", "tools     1", "refreshed 2026-06-27T12:01:02Z", "live refresh 5s"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("console output missing %q:\n%s", want, out)
 		}

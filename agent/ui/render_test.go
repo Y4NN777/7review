@@ -29,3 +29,17 @@ func TestRenderStatusStyled(t *testing.T) {
 		t.Fatalf("unexpected output: %q", out)
 	}
 }
+
+func TestRenderStatusStyledDoesNotLeakANSICodeText(t *testing.T) {
+	out := RenderStatus(StatusView{
+		Dependencies: []DependencyStatus{
+			{Name: "agent", URL: "http://agent/ready", Ready: true, Detail: "http=200"},
+			{Name: "queue", Ready: true, Detail: "ok depth=0 capacity=32"},
+		},
+	})
+	for _, leaked := range []string{"38;5;", "0m", "[38"} {
+		if strings.Contains(out, leaked) {
+			t.Fatalf("status output leaked ANSI text %q:\n%q", leaked, out)
+		}
+	}
+}
