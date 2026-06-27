@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/Y4NN777/7review/agent/config"
+	"github.com/Y4NN777/7review/agent/pipeline"
+	"github.com/Y4NN777/7review/agent/review"
 	"github.com/Y4NN777/7review/agent/tools"
 )
 
@@ -73,6 +76,103 @@ func (r appToolRunner) ListSkills(context.Context) (any, error) {
 	return out, nil
 }
 
+func (r appToolRunner) SelectedContext(ctx context.Context, id string) (any, error) {
+	run, err := r.server.pipeline.Jobs.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	source := sourceForRun(run)
+	return selectedContextStatusDTO{
+		Run:            run.ID,
+		CorpusSections: sectionDTOs(source.CorpusSections),
+		SkillSections:  sectionDTOs(source.SkillSections),
+		Memory:         source.Memory,
+		Warnings:       append([]string(nil), source.Run.Warnings...),
+	}, nil
+}
+
+func (r appToolRunner) DiffSummary(ctx context.Context, id string) (any, error) {
+	run, err := r.server.pipeline.Jobs.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	source := sourceForRun(run)
+	diff := source.Diff
+	if diff == nil && run.Context != nil {
+		diff = run.Context.Diff
+	}
+	out := diffSummaryDTO{Run: run.ID}
+	for _, changed := range source.ChangedFiles {
+		out.Additions += changed.Additions
+		out.Deletions += changed.Deletions
+		out.ChangedFiles = append(out.ChangedFiles, changedFileDTO{
+			Path:      changed.NewPath,
+			OldPath:   changed.OldPath,
+			Status:    changed.Status,
+			Additions: changed.Additions,
+			Deletions: changed.Deletions,
+			HasPatch:  strings.TrimSpace(changed.Patch) != "",
+		})
+	}
+	if diff != nil {
+		for _, file := range diff.Files {
+			out.TotalTokens += file.TokenCount
+			out.Files = append(out.Files, fileDiffDTO{
+				Path:       file.Path,
+				TokenCount: file.TokenCount,
+				PatchLines: countLines(file.Patch),
+			})
+		}
+	}
+	out.FileCount = len(out.Files)
+	if out.FileCount == 0 {
+		out.FileCount = len(out.ChangedFiles)
+	}
+	sort.Slice(out.Files, func(i, j int) bool { return out.Files[i].Path < out.Files[j].Path })
+	sort.Slice(out.ChangedFiles, func(i, j int) bool { return out.ChangedFiles[i].Path < out.ChangedFiles[j].Path })
+	return out, nil
+}
+
+func (r appToolRunner) ProviderStatus(context.Context) (any, error) {
+	cfg := r.server.cfg
+	status := providerStatusDTO{
+		ActiveProvider: "",
+		Providers:      configuredProviderDTOs(cfg),
+		Roles:          configuredRoleDTOs(cfg),
+	}
+	if cfg != nil {
+		status.ActiveProvider = cfg.Provider
+		status.OrchestratorConfig = cfg.OrchestratorConfigPath
+	}
+	return status, nil
+}
+
+func (r appToolRunner) PublishStatus(ctx context.Context, id string) (any, error) {
+	run, err := r.server.pipeline.Jobs.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	source := sourceForRun(run)
+	return publishStatusDTO{
+		Run:             run.ID,
+		Status:          run.Status,
+		WebURL:          run.WebURL,
+		HILApproved:     run.HILApproved,
+		HasDraftReport:  strings.TrimSpace(run.DraftReport) != "",
+		HasFinalReport:  strings.TrimSpace(run.FinalReport) != "",
+		DraftBytes:      len(run.DraftReport),
+		FinalBytes:      len(run.FinalReport),
+		Error:           run.Error,
+		Provider:        sourceProvider(source, run),
+		ProjectID:       sourceProjectID(source, run),
+		ChangeID:        sourceChangeID(source, run),
+		SCMDiscussions:  len(sourceSCM(source).Discussions),
+		SCMChecks:       len(sourceSCM(source).Checks),
+		SCMApprovals:    len(sourceSCM(source).Approvals),
+		UpdatedAtUnixMS: run.UpdatedAt.UnixMilli(),
+	}, nil
+}
+
 func (s *Server) handleToolExecute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -95,11 +195,12 @@ func (s *Server) handleToolExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp, err := (tools.ToolExecutor{
-		Runs:    appToolRunner{server: s},
-		Actions: appToolRunner{server: s},
-		Ready:   appToolRunner{server: s},
-		Config:  appToolRunner{server: s},
-		Skills:  appToolRunner{server: s},
+		Runs:        appToolRunner{server: s},
+		Actions:     appToolRunner{server: s},
+		Ready:       appToolRunner{server: s},
+		Config:      appToolRunner{server: s},
+		Skills:      appToolRunner{server: s},
+		Observatory: appToolRunner{server: s},
 	}).Execute(r.Context(), req)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -194,6 +295,88 @@ type skillStatusDTO struct {
 	Loaded        bool              `json:"loaded"`
 }
 
+type selectedContextStatusDTO struct {
+	Run            string              `json:"run"`
+	CorpusSections []sectionStatusDTO  `json:"corpus_sections"`
+	SkillSections  []sectionStatusDTO  `json:"skill_sections"`
+	Memory         review.MemoryRecall `json:"memory"`
+	Warnings       []string            `json:"warnings,omitempty"`
+}
+
+type sectionStatusDTO struct {
+	Path         string      `json:"path"`
+	Title        string      `json:"title"`
+	Kind         review.Kind `json:"kind"`
+	ContentBytes int         `json:"content_bytes"`
+	ContentLines int         `json:"content_lines"`
+}
+
+type diffSummaryDTO struct {
+	Run          string           `json:"run"`
+	FileCount    int              `json:"file_count"`
+	TotalTokens  int              `json:"total_tokens"`
+	Additions    int              `json:"additions"`
+	Deletions    int              `json:"deletions"`
+	Files        []fileDiffDTO    `json:"files"`
+	ChangedFiles []changedFileDTO `json:"changed_files"`
+}
+
+type fileDiffDTO struct {
+	Path       string `json:"path"`
+	TokenCount int    `json:"token_count"`
+	PatchLines int    `json:"patch_lines"`
+}
+
+type changedFileDTO struct {
+	Path      string `json:"path"`
+	OldPath   string `json:"old_path,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	HasPatch  bool   `json:"has_patch"`
+}
+
+type providerStatusDTO struct {
+	ActiveProvider     string              `json:"active_provider"`
+	OrchestratorConfig string              `json:"orchestrator_config,omitempty"`
+	Providers          []providerStatusRow `json:"providers"`
+	Roles              []roleStatusDTO     `json:"roles"`
+}
+
+type providerStatusRow struct {
+	Name       string `json:"name"`
+	Configured bool   `json:"configured"`
+	BaseURL    string `json:"base_url,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+type roleStatusDTO struct {
+	Role        string `json:"role"`
+	Primary     string `json:"primary"`
+	MaxTokens   int    `json:"max_tokens"`
+	Parallel    bool   `json:"parallel"`
+	MaxParallel int    `json:"max_parallel,omitempty"`
+}
+
+type publishStatusDTO struct {
+	Run             string             `json:"run"`
+	Status          pipeline.RunStatus `json:"status"`
+	WebURL          string             `json:"web_url,omitempty"`
+	HILApproved     bool               `json:"hil_approved"`
+	HasDraftReport  bool               `json:"has_draft_report"`
+	HasFinalReport  bool               `json:"has_final_report"`
+	DraftBytes      int                `json:"draft_bytes"`
+	FinalBytes      int                `json:"final_bytes"`
+	Error           string             `json:"error,omitempty"`
+	Provider        string             `json:"provider,omitempty"`
+	ProjectID       string             `json:"project_id,omitempty"`
+	ChangeID        string             `json:"change_id,omitempty"`
+	SCMDiscussions  int                `json:"scm_discussions"`
+	SCMChecks       int                `json:"scm_checks"`
+	SCMApprovals    int                `json:"scm_approvals"`
+	UpdatedAtUnixMS int64              `json:"updated_at_unix_ms"`
+}
+
 func configStatus(cfg *config.Config) configStatusDTO {
 	if cfg == nil {
 		return configStatusDTO{}
@@ -228,3 +411,124 @@ var _ tools.RunActions = appToolRunner{}
 var _ tools.ReadyChecker = appToolRunner{}
 var _ tools.ConfigStatusReader = appToolRunner{}
 var _ tools.SkillLister = appToolRunner{}
+var _ tools.Observatory = appToolRunner{}
+
+func sourceForRun(run *pipeline.Run) review.Source {
+	if run == nil {
+		return review.Source{}
+	}
+	if run.Source != nil {
+		return *run.Source
+	}
+	if run.Context != nil {
+		return run.Context.Source
+	}
+	return review.Source{Request: run.Request}
+}
+
+func sourceSCM(source review.Source) *review.SCMContext {
+	if source.SCM != nil {
+		return source.SCM
+	}
+	return &review.SCMContext{}
+}
+
+func sectionDTOs(sections []review.Section) []sectionStatusDTO {
+	out := make([]sectionStatusDTO, 0, len(sections))
+	for _, section := range sections {
+		out = append(out, sectionStatusDTO{
+			Path:         section.Path,
+			Title:        section.Title,
+			Kind:         section.Kind,
+			ContentBytes: len(section.Content),
+			ContentLines: countLines(section.Content),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind == out[j].Kind {
+			return out[i].Path < out[j].Path
+		}
+		return out[i].Kind < out[j].Kind
+	})
+	return out
+}
+
+func countLines(text string) int {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return 0
+	}
+	return strings.Count(text, "\n") + 1
+}
+
+func configuredProviderDTOs(cfg *config.Config) []providerStatusRow {
+	if cfg == nil {
+		return nil
+	}
+	rows := []providerStatusRow{
+		{Name: "anthropic", Configured: cfg.AnthropicAPIKey != ""},
+		{Name: "openai", Configured: cfg.OpenAIAPIKey != ""},
+		{Name: "openrouter", Configured: cfg.OpenRouterAPIKey != "", BaseURL: cfg.OpenRouterBaseURL},
+		{Name: "deepseek", Configured: cfg.DeepSeekAPIKey != "", BaseURL: cfg.DeepSeekBaseURL},
+		{Name: "mistral", Configured: cfg.MistralAPIKey != ""},
+		{Name: "gemini", Configured: cfg.GeminiAPIKey != ""},
+		{Name: "ollama", Configured: cfg.OllamaBaseURL != "", BaseURL: cfg.OllamaBaseURL},
+		{Name: "openai_compat", Configured: cfg.Provider == "openai_compat" && cfg.ProviderBaseURL != "", BaseURL: cfg.ProviderBaseURL},
+	}
+	for i := range rows {
+		if !rows[i].Configured {
+			rows[i].Reason = "credentials or endpoint not configured"
+		}
+	}
+	return rows
+}
+
+func configuredRoleDTOs(cfg *config.Config) []roleStatusDTO {
+	if cfg == nil {
+		return nil
+	}
+	return []roleStatusDTO{
+		{
+			Role:        "reasoner",
+			Primary:     cfg.ReviewModel + "@" + cfg.Provider,
+			MaxTokens:   4096,
+			Parallel:    true,
+			MaxParallel: 4,
+		},
+		{
+			Role:      "formatter",
+			Primary:   cfg.SmallModel + "@" + cfg.Provider,
+			MaxTokens: 2048,
+		},
+	}
+}
+
+func sourceProvider(source review.Source, run *pipeline.Run) string {
+	if source.SCM != nil && source.SCM.Provider != "" {
+		return source.SCM.Provider
+	}
+	if run != nil {
+		return run.Request.Provider
+	}
+	return ""
+}
+
+func sourceProjectID(source review.Source, run *pipeline.Run) string {
+	if source.SCM != nil && source.SCM.ProjectID != "" {
+		return source.SCM.ProjectID
+	}
+	if run != nil {
+		return run.Request.ProjectID
+	}
+	return ""
+}
+
+func sourceChangeID(source review.Source, run *pipeline.Run) string {
+	if source.SCM != nil && source.SCM.ChangeID != "" {
+		return source.SCM.ChangeID
+	}
+	if run != nil {
+		return run.Request.ChangeID
+	}
+	return ""
+}

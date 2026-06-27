@@ -57,6 +57,33 @@ func (fakeSkills) ListSkills(context.Context) (any, error) {
 	return []string{"methodology-review"}, nil
 }
 
+type fakeObservatory struct {
+	selectedRun string
+	diffRun     string
+	publishRun  string
+	providerHit bool
+}
+
+func (f *fakeObservatory) SelectedContext(_ context.Context, run string) (any, error) {
+	f.selectedRun = run
+	return map[string]any{"run": run}, nil
+}
+
+func (f *fakeObservatory) DiffSummary(_ context.Context, run string) (any, error) {
+	f.diffRun = run
+	return map[string]any{"run": run}, nil
+}
+
+func (f *fakeObservatory) ProviderStatus(context.Context) (any, error) {
+	f.providerHit = true
+	return map[string]any{"providers": []string{"openrouter"}}, nil
+}
+
+func (f *fakeObservatory) PublishStatus(_ context.Context, run string) (any, error) {
+	f.publishRun = run
+	return map[string]any{"run": run}, nil
+}
+
 func TestToolExecutorExecutesReadOnlyTools(t *testing.T) {
 	runs := &fakeRunTools{}
 	executor := ToolExecutor{Runs: runs, Ready: fakeReady{}, Config: fakeConfig{}, Skills: fakeSkills{}}
@@ -79,6 +106,25 @@ func TestToolExecutorExecutesReadOnlyTools(t *testing.T) {
 		if _, err := executor.Execute(context.Background(), ExecuteRequest{Name: name}); err != nil {
 			t.Fatalf("%s failed: %v", name, err)
 		}
+	}
+}
+
+func TestToolExecutorExecutesObservabilityTools(t *testing.T) {
+	observatory := &fakeObservatory{}
+	executor := ToolExecutor{Observatory: observatory}
+
+	for _, req := range []ExecuteRequest{
+		{Name: "get_selected_context", Input: map[string]any{"run": "p!7"}},
+		{Name: "get_diff_summary", Input: map[string]any{"id": "p!7"}},
+		{Name: "list_provider_status"},
+		{Name: "get_publish_status", Input: map[string]any{"run": "p!7"}},
+	} {
+		if _, err := executor.Execute(context.Background(), req); err != nil {
+			t.Fatalf("%s failed: %v", req.Name, err)
+		}
+	}
+	if observatory.selectedRun != "p!7" || observatory.diffRun != "p!7" || observatory.publishRun != "p!7" || !observatory.providerHit {
+		t.Fatalf("observability tools were not called correctly: %#v", observatory)
 	}
 }
 

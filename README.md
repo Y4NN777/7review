@@ -21,13 +21,12 @@ Implemented:
 - Operator commands for setup, status, run inspection, HIL approval, final
   publish, and streaming chat
 - Docker Compose runtime with agent, Headroom bridge, and MemPalace bridge
+- Tool execution for run listing, run details, skills, selected context, diff
+  summary, provider status, publish status, readiness, config status, HIL
+  approval, and final publishing
 
 Still intentionally marked as not implemented in the tool catalog:
 
-- selected context inspection
-- diff summary inspection
-- provider status inspection
-- publish status inspection
 - draft revision
 - finding suppression
 - review rerun

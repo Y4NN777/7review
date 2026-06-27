@@ -8,11 +8,12 @@ import (
 )
 
 type ToolExecutor struct {
-	Runs    RunReader
-	Actions RunActions
-	Ready   ReadyChecker
-	Config  ConfigStatusReader
-	Skills  SkillLister
+	Runs        RunReader
+	Actions     RunActions
+	Ready       ReadyChecker
+	Config      ConfigStatusReader
+	Skills      SkillLister
+	Observatory Observatory
 }
 
 type RunReader interface {
@@ -35,6 +36,13 @@ type ConfigStatusReader interface {
 
 type SkillLister interface {
 	ListSkills(context.Context) (any, error)
+}
+
+type Observatory interface {
+	SelectedContext(context.Context, string) (any, error)
+	DiffSummary(context.Context, string) (any, error)
+	ProviderStatus(context.Context) (any, error)
+	PublishStatus(context.Context, string) (any, error)
 }
 
 type ExecuteRequest struct {
@@ -90,6 +98,42 @@ func (e ToolExecutor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteR
 			return ExecuteResponse{}, fmt.Errorf("tools: skill lister is not configured")
 		}
 		result, err := e.Skills.ListSkills(ctx)
+		return ExecuteResponse{Name: name, Result: result}, err
+	case "get_selected_context":
+		if e.Observatory == nil {
+			return ExecuteResponse{}, fmt.Errorf("tools: observatory is not configured")
+		}
+		run := stringInput(req.Input, "run", "id")
+		if run == "" {
+			return ExecuteResponse{}, fmt.Errorf("tools: get_selected_context requires run")
+		}
+		result, err := e.Observatory.SelectedContext(ctx, run)
+		return ExecuteResponse{Name: name, Result: result}, err
+	case "get_diff_summary":
+		if e.Observatory == nil {
+			return ExecuteResponse{}, fmt.Errorf("tools: observatory is not configured")
+		}
+		run := stringInput(req.Input, "run", "id")
+		if run == "" {
+			return ExecuteResponse{}, fmt.Errorf("tools: get_diff_summary requires run")
+		}
+		result, err := e.Observatory.DiffSummary(ctx, run)
+		return ExecuteResponse{Name: name, Result: result}, err
+	case "list_provider_status":
+		if e.Observatory == nil {
+			return ExecuteResponse{}, fmt.Errorf("tools: observatory is not configured")
+		}
+		result, err := e.Observatory.ProviderStatus(ctx)
+		return ExecuteResponse{Name: name, Result: result}, err
+	case "get_publish_status":
+		if e.Observatory == nil {
+			return ExecuteResponse{}, fmt.Errorf("tools: observatory is not configured")
+		}
+		run := stringInput(req.Input, "run", "id")
+		if run == "" {
+			return ExecuteResponse{}, fmt.Errorf("tools: get_publish_status requires run")
+		}
+		result, err := e.Observatory.PublishStatus(ctx, run)
 		return ExecuteResponse{Name: name, Result: result}, err
 	case "approve_run":
 		if e.Actions == nil {
