@@ -305,17 +305,17 @@ func TestChatCommandHandlerRendersSessions(t *testing.T) {
 	})}
 
 	var out strings.Builder
-	handled, err := chatCommandHandlerWithClient("http://agent", "", client)(context.Background(), "/sessions", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	handled, err := chatCommandHandlerWithClient("http://agent", "", client)(context.Background(), "/sessions drafted 1", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"sessions 2", "owner/repo!7", "Fix validation", "history=3", "owner/repo!6", "finalized+approved", "change owner/repo!6"} {
+	for _, want := range []string{"sessions 1/2", "status=drafted", "limit=1", "owner/repo!7", "Fix validation", "history=3", "change owner/repo!7"} {
 		if !handled || !strings.Contains(out.String(), want) {
 			t.Fatalf("sessions command output missing %q handled=%t:\n%s", want, handled, out.String())
 		}
 	}
-	if strings.Index(out.String(), "owner/repo!7") > strings.Index(out.String(), "owner/repo!6") {
-		t.Fatalf("sessions were not rendered newest first:\n%s", out.String())
+	if strings.Contains(out.String(), "owner/repo!6") {
+		t.Fatalf("sessions filter included non-matching run:\n%s", out.String())
 	}
 }
 
@@ -562,16 +562,21 @@ func TestRunSessionsUsesListRunsTool(t *testing.T) {
 		if !strings.Contains(string(body), `"name":"list_runs"`) {
 			t.Fatalf("unexpected sessions request body: %s", string(body))
 		}
-		return jsonResponse(http.StatusOK, `{"name":"list_runs","result":[{"id":"owner/repo!7","provider":"github","project_id":"owner/repo","change_id":"7","title":"Fix validation","status":"drafted","updated_at":"2026-06-27T12:00:00Z","event_count":3}]}`), nil
+		return jsonResponse(http.StatusOK, `{"name":"list_runs","result":[{"id":"owner/repo!7","provider":"github","project_id":"owner/repo","change_id":"7","title":"Fix validation","status":"drafted","updated_at":"2026-06-27T12:00:00Z","event_count":3},{"id":"group/repo!8","provider":"gitlab","project_id":"group/repo","change_id":"8","title":"Ship report","status":"drafted","updated_at":"2026-06-27T12:05:00Z","event_count":1},{"id":"owner/repo!6","provider":"github","project_id":"owner/repo","change_id":"6","title":"Done","status":"finalized","updated_at":"2026-06-27T11:00:00Z","event_count":2}]}`), nil
 	})}
 
 	var out strings.Builder
-	if err := runSessions([]string{"--server", "http://agent"}, &out, client); err != nil {
+	if err := runSessions([]string{"--server", "http://agent", "--status", "drafted", "--provider", "github", "--limit", "1"}, &out, client); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"sessions 1", "owner/repo!7", "github", "drafted", "Fix validation", "change owner/repo!7"} {
+	for _, want := range []string{"sessions 1/3", "status=drafted", "provider=github", "limit=1", "owner/repo!7", "github", "drafted", "Fix validation", "change owner/repo!7"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("sessions output missing %q:\n%s", want, out.String())
+		}
+	}
+	for _, notWant := range []string{"group/repo!8", "owner/repo!6"} {
+		if strings.Contains(out.String(), notWant) {
+			t.Fatalf("sessions filter included %q:\n%s", notWant, out.String())
 		}
 	}
 }

@@ -104,13 +104,49 @@ func runListRuns() {
 }
 
 func runSessions(args []string, out io.Writer, client *http.Client) error {
-	serverURL := commandServerURL(args)
+	opts := parseSessionsArgs(args)
 	var runs []remoteRunRow
-	if err := executeRemoteTool(client, serverURL, "list_runs", nil, &runs); err != nil {
+	if err := executeRemoteTool(client, opts.serverURL, "list_runs", nil, &runs); err != nil {
 		return err
 	}
-	fmt.Fprintln(out, renderSessionsSummary(runs))
+	fmt.Fprintln(out, renderSessionsSummary(runs, opts))
 	return nil
+}
+
+type sessionsCommandOptions struct {
+	serverURL string
+	status    string
+	provider  string
+	limit     int
+}
+
+func parseSessionsArgs(args []string) sessionsCommandOptions {
+	opts := sessionsCommandOptions{serverURL: "http://localhost:8080"}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch flagName(arg) {
+		case "--server":
+			opts.serverURL = flagValue(args, &i)
+		case "--status":
+			opts.status = flagValue(args, &i)
+		case "--provider":
+			opts.provider = flagValue(args, &i)
+		case "--limit":
+			opts.limit = parsePositiveInt(flagValue(args, &i))
+		default:
+			if strings.HasPrefix(arg, "-") {
+				continue
+			}
+			if opts.status == "" {
+				opts.status = arg
+				continue
+			}
+			if opts.limit == 0 {
+				opts.limit = parsePositiveInt(arg)
+			}
+		}
+	}
+	return opts
 }
 
 func runGetRun() {
@@ -278,11 +314,12 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderSkillStatusSummary(skills)}, opts.Plain))
 			return true, nil
 		case "/sessions":
+			sessionOpts := parseSessionsArgs(append([]string{"--server", serverURL}, fields[1:]...))
 			var runs []remoteRunRow
 			if err := executeRemoteTool(client, serverURL, "list_runs", nil, &runs); err != nil {
 				return true, err
 			}
-			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderSessionsSummary(runs)}, opts.Plain))
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderSessionsSummary(runs, sessionOpts)}, opts.Plain))
 			return true, nil
 		case "/diff":
 			if runID == "" {
@@ -601,11 +638,33 @@ func renderDiffSummary(summary remoteDiffSummary) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderSessionsSummary(runs []remoteRunRow) string {
-	if len(runs) == 0 {
-		return "sessions 0"
+func renderSessionsSummary(runs []remoteRunRow, opts sessionsCommandOptions) string {
+	filtered := filterSessionRows(runs, opts)
+	limit := opts.limit
+	if limit <= 0 {
+		limit = 12
 	}
-	sorted := append([]remoteRunRow(nil), runs...)
+	header := fmt.Sprintf("sessions %d", len(filtered))
+	if len(filtered) != len(runs) {
+		header = fmt.Sprintf("sessions %d/%d", len(filtered), len(runs))
+	}
+	var filters []string
+	if opts.status != "" {
+		filters = append(filters, "status="+opts.status)
+	}
+	if opts.provider != "" {
+		filters = append(filters, "provider="+opts.provider)
+	}
+	if opts.limit > 0 {
+		filters = append(filters, fmt.Sprintf("limit=%d", opts.limit))
+	}
+	if len(filters) > 0 {
+		header += " " + strings.Join(filters, " ")
+	}
+	if len(filtered) == 0 {
+		return header
+	}
+	sorted := append([]remoteRunRow(nil), filtered...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		if sorted[i].UpdatedAt.Equal(sorted[j].UpdatedAt) {
 			return sorted[i].ID < sorted[j].ID
@@ -618,8 +677,8 @@ func renderSessionsSummary(runs []remoteRunRow) string {
 		}
 		return sorted[i].UpdatedAt.After(sorted[j].UpdatedAt)
 	})
-	lines := []string{fmt.Sprintf("sessions %d", len(sorted))}
-	for _, run := range firstRunRows(sorted, 12) {
+	lines := []string{header}
+	for _, run := range firstRunRows(sorted, limit) {
 		status := strings.TrimSpace(run.Status)
 		if status == "" {
 			status = "unknown"
@@ -650,10 +709,29 @@ func renderSessionsSummary(runs []remoteRunRow) string {
 		lines = append(lines, fmt.Sprintf("%-20s %-8s %-18s %-20s%s %s", trimCommandLine(run.ID, 20), trimCommandLine(run.Provider, 8), trimCommandLine(status, 18), updated, history, title))
 		lines = append(lines, "  change "+trimCommandLine(change, 96))
 	}
-	if len(sorted) > 12 {
-		lines = append(lines, fmt.Sprintf("%d more sessions", len(sorted)-12))
+	if len(sorted) > limit {
+		lines = append(lines, fmt.Sprintf("%d more sessions", len(sorted)-limit))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func filterSessionRows(runs []remoteRunRow, opts sessionsCommandOptions) []remoteRunRow {
+	status := strings.ToLower(strings.TrimSpace(opts.status))
+	provider := strings.ToLower(strings.TrimSpace(opts.provider))
+	if status == "" && provider == "" {
+		return runs
+	}
+	out := make([]remoteRunRow, 0, len(runs))
+	for _, run := range runs {
+		if status != "" && strings.ToLower(strings.TrimSpace(run.Status)) != status {
+			continue
+		}
+		if provider != "" && strings.ToLower(strings.TrimSpace(run.Provider)) != provider {
+			continue
+		}
+		out = append(out, run)
+	}
+	return out
 }
 
 func firstRunRows(values []remoteRunRow, limit int) []remoteRunRow {
