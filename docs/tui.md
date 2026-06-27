@@ -12,6 +12,7 @@ The command-line interface is an operational TUI for setup and day-to-day checks
 7review tui --watch --refresh 5s --server http://localhost:8080
 7review sessions --server http://localhost:8080
 7review sessions --status drafted --provider github --limit 10 --server http://localhost:8080
+7review sessions --query validation --server http://localhost:8080
 7review session <project!mr> --server http://localhost:8080
 7review session <project!mr> --type chat_message --limit 5 --server http://localhost:8080
 7review history <project!mr> --server http://localhost:8080
@@ -48,8 +49,9 @@ until interrupted.
 from the run store. It uses the same authenticated `list_runs` tool as the TUI,
 orders sessions newest first, and shows the run id, provider, status, update
 time, history count, title, and normalized change id. Filter with `--status`,
-`--provider`, and `--limit`; `7review runs` remains available for raw JSON
-output.
+`--provider`, `--query`, and `--limit`; query search matches run id, provider,
+project id, change id, title, status, and URL. `7review runs` remains available
+for raw JSON output.
 
 `session` renders one persisted review session as a readable operator summary.
 It shows the same run fields used by chat `/run`, then prints exact follow-up
@@ -82,9 +84,10 @@ that specific review run. Inside chat, local commands stay in the terminal flow:
 `/status` checks agent readiness, `/tools` lists implemented agent tools,
 `/providers` shows model provider and role routing, `/config` shows redacted
 runtime configuration, `/skills` lists loaded agent skills, `/sessions` lists
-review sessions, `/sessions drafted 5` filters recent sessions, `/run` shows
-the current session summary, `/diff` shows changed files and patch summary,
-`/history` shows the run timeline, and
+review sessions, `/sessions drafted 5` filters recent sessions, and
+`/sessions validation 5` searches by text. `/run` shows the current session
+summary, `/diff` shows changed files and patch summary, `/history` shows the
+run timeline, and
 `/history chat_message 20` shows the latest persisted chat messages without
 sending that command to the model. `/memory` previews the approved MemPalace
 proposal. `/draft` prints the current draft report, and `/draft final.md` writes

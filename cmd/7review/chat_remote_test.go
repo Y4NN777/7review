@@ -305,11 +305,11 @@ func TestChatCommandHandlerRendersSessions(t *testing.T) {
 	})}
 
 	var out strings.Builder
-	handled, err := chatCommandHandlerWithClient("http://agent", "", client)(context.Background(), "/sessions drafted 1", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	handled, err := chatCommandHandlerWithClient("http://agent", "", client)(context.Background(), "/sessions validation 1", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"sessions 1/2", "status=drafted", "limit=1", "owner/repo!7", "Fix validation", "history=3", "change owner/repo!7"} {
+	for _, want := range []string{"sessions 1/2", "query=validation", "limit=1", "owner/repo!7", "Fix validation", "history=3", "change owner/repo!7"} {
 		if !handled || !strings.Contains(out.String(), want) {
 			t.Fatalf("sessions command output missing %q handled=%t:\n%s", want, handled, out.String())
 		}
@@ -566,10 +566,10 @@ func TestRunSessionsUsesListRunsTool(t *testing.T) {
 	})}
 
 	var out strings.Builder
-	if err := runSessions([]string{"--server", "http://agent", "--status", "drafted", "--provider", "github", "--limit", "1"}, &out, client); err != nil {
+	if err := runSessions([]string{"--server", "http://agent", "--status", "drafted", "--provider", "github", "--query", "validation", "--limit", "1"}, &out, client); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"sessions 1/3", "status=drafted", "provider=github", "limit=1", "owner/repo!7", "github", "drafted", "Fix validation", "change owner/repo!7"} {
+	for _, want := range []string{"sessions 1/3", "status=drafted", "provider=github", "query=validation", "limit=1", "owner/repo!7", "github", "drafted", "Fix validation", "change owner/repo!7"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("sessions output missing %q:\n%s", want, out.String())
 		}

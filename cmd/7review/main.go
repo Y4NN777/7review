@@ -137,6 +137,7 @@ type sessionsCommandOptions struct {
 	serverURL string
 	status    string
 	provider  string
+	query     string
 	limit     int
 }
 
@@ -151,18 +152,26 @@ func parseSessionsArgs(args []string) sessionsCommandOptions {
 			opts.status = flagValue(args, &i)
 		case "--provider":
 			opts.provider = flagValue(args, &i)
+		case "--query", "--search":
+			opts.query = flagValue(args, &i)
 		case "--limit":
 			opts.limit = parsePositiveInt(flagValue(args, &i))
 		default:
 			if strings.HasPrefix(arg, "-") {
 				continue
 			}
-			if opts.status == "" {
+			if opts.status == "" && isKnownSessionStatus(arg) {
 				opts.status = arg
 				continue
 			}
 			if opts.limit == 0 {
-				opts.limit = parsePositiveInt(arg)
+				if limit := parsePositiveInt(arg); limit > 0 {
+					opts.limit = limit
+					continue
+				}
+			}
+			if opts.query == "" {
+				opts.query = arg
 			}
 		}
 	}
@@ -675,6 +684,9 @@ func renderSessionsSummary(runs []remoteRunRow, opts sessionsCommandOptions) str
 	if opts.provider != "" {
 		filters = append(filters, "provider="+opts.provider)
 	}
+	if opts.query != "" {
+		filters = append(filters, "query="+opts.query)
+	}
 	if opts.limit > 0 {
 		filters = append(filters, fmt.Sprintf("limit=%d", opts.limit))
 	}
@@ -738,7 +750,8 @@ func renderSessionsSummary(runs []remoteRunRow, opts sessionsCommandOptions) str
 func filterSessionRows(runs []remoteRunRow, opts sessionsCommandOptions) []remoteRunRow {
 	status := strings.ToLower(strings.TrimSpace(opts.status))
 	provider := strings.ToLower(strings.TrimSpace(opts.provider))
-	if status == "" && provider == "" {
+	query := strings.ToLower(strings.TrimSpace(opts.query))
+	if status == "" && provider == "" && query == "" {
 		return runs
 	}
 	out := make([]remoteRunRow, 0, len(runs))
@@ -749,9 +762,42 @@ func filterSessionRows(runs []remoteRunRow, opts sessionsCommandOptions) []remot
 		if provider != "" && strings.ToLower(strings.TrimSpace(run.Provider)) != provider {
 			continue
 		}
+		if query != "" && !sessionRowMatchesQuery(run, query) {
+			continue
+		}
 		out = append(out, run)
 	}
 	return out
+}
+
+func sessionRowMatchesQuery(run remoteRunRow, query string) bool {
+	values := []string{
+		run.ID,
+		run.Provider,
+		run.ProjectID,
+		run.ChangeID,
+		run.Title,
+		run.Status,
+		run.WebURL,
+	}
+	if run.ProjectID != "" && run.ChangeID != "" {
+		values = append(values, run.ProjectID+"!"+run.ChangeID)
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(value)), query) {
+			return true
+		}
+	}
+	return false
+}
+
+func isKnownSessionStatus(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "queued", "running", "drafted", "awaiting_hil", "approved", "published", "finalized", "failed":
+		return true
+	default:
+		return false
+	}
 }
 
 func firstRunRows(values []remoteRunRow, limit int) []remoteRunRow {
