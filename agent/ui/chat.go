@@ -19,6 +19,7 @@ type ChatContext struct {
 	ConfigError  string
 	HeadroomURL  string
 	MemPalaceURL string
+	RunID        string
 }
 
 type ChatResponder interface {
@@ -91,27 +92,61 @@ func RenderChatIntro(ctx ChatContext, plain bool) string {
 	if plain {
 		return text
 	}
-	var body []string
-	body = append(body,
+	body := joinColumns(renderChatMain(status, ctx), renderChatRail(ctx), 2)
+	return lipgloss.NewStyle().
+		Background(lipgloss.Color("#000000")).
+		Foreground(lipgloss.Color("#D0D0D0")).
+		Render(body)
+}
+
+func renderChatMain(status string, ctx ChatContext) string {
+	lines := []string{
 		"",
 		centerText("7review", 72),
 		"",
-		"  "+status,
-	)
-	if ctx.ConfigError != "" {
-		body = append(body, "  config: "+ctx.ConfigError)
+		"  " + status,
 	}
-	body = append(body,
+	if ctx.ConfigError != "" {
+		lines = append(lines, "  config: "+ctx.ConfigError)
+	}
+	lines = append(lines,
 		"",
 		"  "+composerLine("ask about setup, status, reviews, or next steps"),
 		"  Chat  7review",
 		"",
 		"                                            tab switch agent  ctrl+c commands",
 	)
-	return lipgloss.NewStyle().
-		Background(lipgloss.Color("#000000")).
-		Foreground(lipgloss.Color("#D0D0D0")).
-		Render(strings.Join(body, "\n"))
+	return renderConsoleSurface(lines, 78, false)
+}
+
+func renderChatRail(ctx ChatContext) string {
+	mode := "local"
+	if ctx.RunID != "" {
+		mode = "run"
+	}
+	lines := []string{
+		"Chat",
+		"",
+		"Context",
+		"mode      " + mode,
+	}
+	if ctx.RunID != "" {
+		lines = append(lines, "run       "+trimTo(ctx.RunID, 20))
+	}
+	if ctx.HeadroomURL != "" {
+		lines = append(lines, "", "MCP", "headroom  connected")
+	}
+	if ctx.MemPalaceURL != "" {
+		if ctx.HeadroomURL == "" {
+			lines = append(lines, "", "MCP")
+		}
+		lines = append(lines, "mempalace connected")
+	}
+	if ctx.ConfigError != "" {
+		lines = append(lines, "", "Config", trimTo(ctx.ConfigError, 28))
+	}
+	lines = append(lines, "", "~", "7review")
+	return renderConsoleSurface(lines, 30, false)
 }
 
 func RenderChatMessage(msg ChatMessage, plain bool) string {
@@ -122,11 +157,16 @@ func RenderChatMessagePrefix(role string, plain bool) string {
 	if plain {
 		return role + ": "
 	}
-	color := lipgloss.Color("42")
+	color := lipgloss.Color("#00E676")
 	if role == "user" {
-		color = lipgloss.Color("39")
+		color = lipgloss.Color("#4AA3FF")
 	}
-	return lipgloss.NewStyle().Foreground(color).Render(role + ": ")
+	label := "  " + role
+	if role == "agent" {
+		label = "  Build"
+	}
+	return lipgloss.NewStyle().Foreground(color).Render(label+"  ") +
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#5F6368")).Render("7review\n  ")
 }
 
 func prompt(plain bool) string {

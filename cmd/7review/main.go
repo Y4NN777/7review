@@ -192,6 +192,7 @@ func runChat() {
 	var responder ui.ChatResponder
 	if runID != "" {
 		chatCtx.ConfigLoaded = true
+		chatCtx.RunID = runID
 		responder = &remoteRunChatResponder{
 			serverURL:  strings.TrimRight(serverURL, "/"),
 			runID:      runID,

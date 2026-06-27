@@ -52,13 +52,30 @@ func TestRunChat_RendersResponderError(t *testing.T) {
 }
 
 func TestRenderChatIntroStyledUsesTerminalComposer(t *testing.T) {
-	out := RenderChatIntro(ChatContext{ConfigLoaded: true}, false)
-	for _, want := range []string{"7review", "| ask about setup, status, reviews, or next steps", "Chat  7review", "tab switch agent"} {
+	out := RenderChatIntro(ChatContext{
+		ConfigLoaded: true,
+		RunID:        "owner/repo!7",
+		HeadroomURL:  "http://headroom:8787",
+		MemPalaceURL: "http://mempalace:8788",
+	}, false)
+	for _, want := range []string{"7review", "| ask about setup, status, reviews, or next steps", "Chat  7review", "tab switch agent", "Context", "mode      run", "run       owner/repo!7", "headroom  connected", "mempalace connected"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("styled chat intro missing %q:\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, "7review chat\nconfig loaded") {
 		t.Fatalf("styled chat intro kept old banner layout:\n%s", out)
+	}
+}
+
+func TestRenderChatMessagePrefixStyledUsesTerminalBlock(t *testing.T) {
+	out := RenderChatMessagePrefix("agent", false)
+	for _, want := range []string{"Build", "7review\n  "} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("styled agent prefix missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "agent:") {
+		t.Fatalf("styled prefix kept old REPL label:\n%s", out)
 	}
 }
