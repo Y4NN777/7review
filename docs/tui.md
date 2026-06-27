@@ -64,7 +64,10 @@ model sees the stored draft report, validated findings, status, and SCM URL for
 that specific review run. Inside run chat, local commands stay in the terminal
 flow: `/run` shows the current session summary, `/history` shows the run
 timeline, and `/history chat_message 20` shows the latest persisted chat
-messages without sending that command to the model.
+messages without sending that command to the model. HIL actions are explicit:
+`/approve --report-file final.md` submits human approval and
+`/publish-final --report-file final.md` retries final publishing for an already
+approved run.
 
 Operator HTTP commands use bounded clients: normal commands time out after 60
 seconds, while streamed run chat has a longer bounded timeout for interactive

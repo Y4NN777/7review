@@ -143,6 +143,64 @@ func TestChatCommandHandlerRendersRunSummary(t *testing.T) {
 	}
 }
 
+func TestChatCommandHandlerApprovesRunFromReportFile(t *testing.T) {
+	reportPath := filepath.Join(t.TempDir(), "final.md")
+	if err := os.WriteFile(reportPath, []byte("approved final"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var gotBody string
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost || req.URL.Path != "/approve" || req.URL.Query().Get("run") != "owner/repo!7" {
+			t.Fatalf("unexpected approval request: %s %s", req.Method, req.URL.String())
+		}
+		body, _ := io.ReadAll(req.Body)
+		gotBody = string(body)
+		return jsonResponse(http.StatusAccepted, `{"accepted":true}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "owner/repo!7", client)(context.Background(), "/approve --report-file "+reportPath, &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !handled || gotBody != "approved final" || !strings.Contains(out.String(), "approval queued for owner/repo!7") {
+		t.Fatalf("unexpected approval command handled=%t body=%q out=%s", handled, gotBody, out.String())
+	}
+}
+
+func TestChatCommandHandlerPublishFinalFromReportFile(t *testing.T) {
+	reportPath := filepath.Join(t.TempDir(), "final.md")
+	if err := os.WriteFile(reportPath, []byte("approved final retry"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var gotBody string
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost || req.URL.Path != "/publish/final" || req.URL.Query().Get("run") != "owner/repo!7" {
+			t.Fatalf("unexpected publish request: %s %s", req.Method, req.URL.String())
+		}
+		body, _ := io.ReadAll(req.Body)
+		gotBody = string(body)
+		return jsonResponse(http.StatusAccepted, `{"accepted":true}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "owner/repo!7", client)(context.Background(), "/publish-final --report-file "+reportPath, &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !handled || gotBody != "approved final retry" || !strings.Contains(out.String(), "final publish queued for owner/repo!7") {
+		t.Fatalf("unexpected publish command handled=%t body=%q out=%s", handled, gotBody, out.String())
+	}
+}
+
+func TestChatCommandHandlerRequiresReportFileForHILCommands(t *testing.T) {
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "owner/repo!7", operatorRequestHTTPClient())(context.Background(), "/approve", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if !handled || err == nil || !strings.Contains(err.Error(), "--report-file") {
+		t.Fatalf("expected report-file error handled=%t err=%v", handled, err)
+	}
+}
+
 func TestParseApprovalArgsAcceptsSpaceAndEqualsFlags(t *testing.T) {
 	dir := t.TempDir()
 	reportPath := filepath.Join(dir, "final.md")

@@ -131,13 +131,7 @@ func runApprove() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	endpoint := strings.TrimRight(opts.serverURL, "/") + "/approve?"
-	if opts.runID != "" {
-		endpoint += "run=" + url.QueryEscape(opts.runID)
-	} else {
-		endpoint += "project=" + url.QueryEscape(opts.projectID) + "&mr=" + url.QueryEscape(opts.mrIID)
-	}
-	if _, err := requestAgent(operatorRequestHTTPClient(), http.MethodPost, endpoint, strings.NewReader(opts.report)); err != nil {
+	if err := submitApproval(operatorRequestHTTPClient(), opts); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -150,8 +144,7 @@ func runPublishFinal() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	endpoint := strings.TrimRight(opts.serverURL, "/") + "/publish/final?run=" + url.QueryEscape(opts.runID)
-	if _, err := requestAgent(operatorRequestHTTPClient(), http.MethodPost, endpoint, strings.NewReader(opts.report)); err != nil {
+	if err := submitFinalPublish(operatorRequestHTTPClient(), opts); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -258,6 +251,38 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 			}
 			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderRunSnapshot(detail)}, opts.Plain))
 			return true, nil
+		case "/approve":
+			if runID == "" {
+				return true, fmt.Errorf("/approve requires chat <run-id> or --run <run-id>")
+			}
+			if !hasFlag(fields[1:], "--report-file") {
+				return true, fmt.Errorf("/approve requires --report-file <path>")
+			}
+			approval, err := parseApprovalArgs(append([]string{"--server", serverURL, "--run", runID}, fields[1:]...))
+			if err != nil {
+				return true, err
+			}
+			if err := submitApproval(client, approval); err != nil {
+				return true, err
+			}
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: "approval queued for " + approval.approvalTarget()}, opts.Plain))
+			return true, nil
+		case "/publish-final":
+			if runID == "" {
+				return true, fmt.Errorf("/publish-final requires chat <run-id> or --run <run-id>")
+			}
+			if !hasFlag(fields[1:], "--report-file") {
+				return true, fmt.Errorf("/publish-final requires --report-file <path>")
+			}
+			publish, err := parsePublishArgs(append([]string{"--server", serverURL, "--run", runID}, fields[1:]...))
+			if err != nil {
+				return true, err
+			}
+			if err := submitFinalPublish(client, publish); err != nil {
+				return true, err
+			}
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: "final publish queued for " + publish.runID}, opts.Plain))
+			return true, nil
 		default:
 			return true, fmt.Errorf("unknown chat command %q; use /help", fields[0])
 		}
@@ -274,9 +299,20 @@ func chatCommandHelp(hasRun bool) string {
 			"/run       show current run summary",
 			"/history   show current run timeline",
 			"/history chat_message 20   show latest chat messages",
+			"/approve --report-file final.md   approve and publish final",
+			"/publish-final --report-file final.md   retry final publish",
 		)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func hasFlag(args []string, name string) bool {
+	for _, arg := range args {
+		if flagName(arg) == name {
+			return true
+		}
+	}
+	return false
 }
 
 func parseChatArgs(args []string) (ui.ChatOptions, string, string) {
@@ -455,6 +491,23 @@ func parsePublishArgs(args []string) (publishCommandOptions, error) {
 		opts.report = string(report)
 	}
 	return opts, nil
+}
+
+func submitApproval(client *http.Client, opts approvalCommandOptions) error {
+	endpoint := strings.TrimRight(opts.serverURL, "/") + "/approve?"
+	if opts.runID != "" {
+		endpoint += "run=" + url.QueryEscape(opts.runID)
+	} else {
+		endpoint += "project=" + url.QueryEscape(opts.projectID) + "&mr=" + url.QueryEscape(opts.mrIID)
+	}
+	_, err := requestAgent(client, http.MethodPost, endpoint, strings.NewReader(opts.report))
+	return err
+}
+
+func submitFinalPublish(client *http.Client, opts publishCommandOptions) error {
+	endpoint := strings.TrimRight(opts.serverURL, "/") + "/publish/final?run=" + url.QueryEscape(opts.runID)
+	_, err := requestAgent(client, http.MethodPost, endpoint, strings.NewReader(opts.report))
+	return err
 }
 
 func commandServerURL(args []string) string {
