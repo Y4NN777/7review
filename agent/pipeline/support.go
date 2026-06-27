@@ -53,6 +53,7 @@ type RunStore interface {
 	Start(context.Context, review.Request) (*Run, error)
 	Update(context.Context, string, RunStatus, error) error
 	SaveContext(context.Context, string, *review.Context) error
+	AppendEvent(context.Context, string, RunEvent) error
 	Get(context.Context, string) (*Run, error)
 	List(context.Context) ([]Run, error)
 }
@@ -123,6 +124,19 @@ func (s *MemoryRunStore) SaveContext(_ context.Context, id string, rc *review.Co
 	}
 	run.UpdatedAt = time.Now().UTC()
 	appendContextSavedEvent(run)
+	return nil
+}
+
+func (s *MemoryRunStore) AppendEvent(_ context.Context, id string, event RunEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	run, ok := s.runs[id]
+	if !ok {
+		return fmt.Errorf("run %q not found", id)
+	}
+	appendPreparedRunEvent(run, event)
+	run.UpdatedAt = time.Now().UTC()
 	return nil
 }
 
@@ -224,6 +238,19 @@ func (s *FileRunStore) SaveContext(_ context.Context, id string, rc *review.Cont
 	}
 	run.UpdatedAt = time.Now().UTC()
 	appendContextSavedEvent(run)
+	return s.writeLocked(run)
+}
+
+func (s *FileRunStore) AppendEvent(_ context.Context, id string, event RunEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	run, err := s.readLocked(id)
+	if err != nil {
+		return err
+	}
+	appendPreparedRunEvent(run, event)
+	run.UpdatedAt = time.Now().UTC()
 	return s.writeLocked(run)
 }
 
@@ -401,6 +428,24 @@ func appendRunEvent(run *Run, eventType string, status RunStatus, message string
 		Message: strings.TrimSpace(message),
 		Meta:    cleanEventMeta(meta),
 	}
+	run.Events = append(run.Events, event)
+}
+
+func appendPreparedRunEvent(run *Run, event RunEvent) {
+	if run == nil {
+		return
+	}
+	event.Type = strings.TrimSpace(event.Type)
+	if event.Type == "" {
+		event.Type = "event"
+	}
+	if event.At.IsZero() {
+		event.At = time.Now().UTC()
+	} else {
+		event.At = event.At.UTC()
+	}
+	event.Message = strings.TrimSpace(event.Message)
+	event.Meta = cleanEventMeta(event.Meta)
 	run.Events = append(run.Events, event)
 }
 

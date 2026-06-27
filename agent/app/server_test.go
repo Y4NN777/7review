@@ -419,6 +419,25 @@ func TestHandleChatStreamStreamsAgainstStoredRun(t *testing.T) {
 	if !strings.Contains(out, `event: done`) || !strings.Contains(out, `"delta":"stream "`) || !strings.Contains(out, `"delta":"reply"`) {
 		t.Fatalf("unexpected stream response:\n%s", out)
 	}
+	updated, err := store.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasRunEvent(updated.Events, "chat_message") || !hasRunEvent(updated.Events, "chat_response") {
+		t.Fatalf("chat stream did not persist chat history: %#v", updated.Events)
+	}
+	if got := updated.Events[len(updated.Events)-2].Message; got != "explain F1" {
+		t.Fatalf("chat message event stored wrong message %q", got)
+	}
+}
+
+func hasRunEvent(events []pipeline.RunEvent, eventType string) bool {
+	for _, event := range events {
+		if event.Type == eventType {
+			return true
+		}
+	}
+	return false
 }
 
 func TestHandleChatStreamRejectsOversizedMessage(t *testing.T) {

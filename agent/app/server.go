@@ -362,7 +362,16 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 	system := reviewChatSystemPrompt(*run)
 	user := fmt.Sprintf("Engineer message:\n%s", req.Message)
-	_, err = s.pipeline.Orchestrator.StreamComplete(r.Context(), rc, orchestrator.RoleFormatter, "review_chat", system, user, func(delta string) error {
+	_ = s.pipeline.Jobs.AppendEvent(r.Context(), id, pipeline.RunEvent{
+		Type:    "chat_message",
+		Status:  run.Status,
+		Message: truncateEventMessage(req.Message),
+		Meta: map[string]string{
+			"role":  "engineer",
+			"bytes": fmt.Sprintf("%d", len(req.Message)),
+		},
+	})
+	responseText, err := s.pipeline.Orchestrator.StreamComplete(r.Context(), rc, orchestrator.RoleFormatter, "review_chat", system, user, func(delta string) error {
 		data, _ := json.Marshal(chatStreamEvent{Delta: delta})
 		if _, writeErr := fmt.Fprintf(w, "data: %s\n\n", data); writeErr != nil {
 			return writeErr
@@ -371,13 +380,37 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
+		_ = s.pipeline.Jobs.AppendEvent(r.Context(), id, pipeline.RunEvent{
+			Type:    "chat_failed",
+			Status:  run.Status,
+			Message: truncateEventMessage(err.Error()),
+			Meta:    map[string]string{"role": "agent"},
+		})
 		data, _ := json.Marshal(chatStreamEvent{Error: err.Error()})
 		_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
 		flusher.Flush()
 		return
 	}
+	_ = s.pipeline.Jobs.AppendEvent(r.Context(), id, pipeline.RunEvent{
+		Type:    "chat_response",
+		Status:  run.Status,
+		Message: truncateEventMessage(responseText),
+		Meta: map[string]string{
+			"role":  "agent",
+			"bytes": fmt.Sprintf("%d", len(responseText)),
+		},
+	})
 	_, _ = fmt.Fprint(w, "event: done\ndata: {}\n\n")
 	flusher.Flush()
+}
+
+func truncateEventMessage(message string) string {
+	message = strings.TrimSpace(message)
+	const maxEventMessageBytes = 2000
+	if len(message) <= maxEventMessageBytes {
+		return message
+	}
+	return message[:maxEventMessageBytes] + "..."
 }
 
 func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {

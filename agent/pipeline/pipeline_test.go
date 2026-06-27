@@ -331,6 +331,33 @@ func TestFileRunStorePersistsRunsAcrossInstances(t *testing.T) {
 	}
 }
 
+func TestFileRunStoreAppendEventPersistsChatHistory(t *testing.T) {
+	dir := t.TempDir()
+	req := review.Request{Provider: "github", ProjectID: "owner/repo", ChangeID: "7"}
+	store := NewFileRunStore(dir)
+	run, err := store.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(context.Background(), run.ID, RunEvent{
+		Type:    "chat_message",
+		Status:  StatusDrafted,
+		Message: "explain finding F1",
+		Meta:    map[string]string{"role": "engineer"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := NewFileRunStore(dir)
+	got, err := reopened.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Events) != 2 || got.Events[1].Type != "chat_message" || got.Events[1].Message != "explain finding F1" || got.Events[1].Meta["role"] != "engineer" {
+		t.Fatalf("chat event did not persist: %#v", got.Events)
+	}
+}
+
 func TestFileRunStoreSafelyPersistsSlashContainingRunIDs(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFileRunStore(dir)
