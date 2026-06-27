@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Y4NN777/7review/agent/tools"
 	"github.com/Y4NN777/7review/agent/ui"
@@ -324,9 +325,21 @@ func TestRunStatusRemoteReturnsErrorWhenAgentNotReady(t *testing.T) {
 }
 
 func TestParseTUIArgsAcceptsRunServerAndPlain(t *testing.T) {
-	opts := parseTUIArgs([]string{"owner/repo!7", "--server", "http://agent", "--plain"})
-	if opts.runID != "owner/repo!7" || opts.serverURL != "http://agent" || !opts.plain {
+	opts := parseTUIArgs([]string{"owner/repo!7", "--server", "http://agent", "--plain", "--watch", "--refresh", "5s"})
+	if opts.runID != "owner/repo!7" || opts.serverURL != "http://agent" || !opts.plain || !opts.watch || opts.refreshEvery != 5*time.Second || opts.clearOnRefresh {
 		t.Fatalf("unexpected tui options: %#v", opts)
+	}
+}
+
+func TestParseRefreshIntervalAcceptsSecondsAndDuration(t *testing.T) {
+	if got := parseRefreshInterval("3", time.Second); got != 3*time.Second {
+		t.Fatalf("unexpected seconds interval: %s", got)
+	}
+	if got := parseRefreshInterval("250ms", time.Second); got != 250*time.Millisecond {
+		t.Fatalf("unexpected duration interval: %s", got)
+	}
+	if got := parseRefreshInterval("bad", 2*time.Second); got != 2*time.Second {
+		t.Fatalf("expected fallback interval, got %s", got)
 	}
 }
 
@@ -365,12 +378,12 @@ func TestRemoteConsoleViewUsesAgentEndpoints(t *testing.T) {
 		t.Fatalf("unexpected request path %s", req.URL.Path)
 		return nil, nil
 	})}
-	view, err := remoteConsoleView(client, tuiCommandOptions{serverURL: "http://agent", plain: true})
+	view, err := remoteConsoleView(client, tuiCommandOptions{serverURL: "http://agent", plain: true, watch: true, refreshEvery: 5 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := ui.RenderConsole(view)
-	for _, want := range []string{"owner/repo!7", "Fix validation", "openrouter", "traceability-review", "tools     2"} {
+	for _, want := range []string{"owner/repo!7", "Fix validation", "openrouter", "traceability-review", "tools     2", "refresh 5s", "watch every 5s"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("console output missing %q:\n%s", want, out)
 		}

@@ -29,11 +29,15 @@ func TestRenderConsoleIdleUsesRealEmptyState(t *testing.T) {
 }
 
 func TestRenderConsolePopulatedShowsRunAndRail(t *testing.T) {
+	refreshedAt := time.Date(2026, 6, 27, 12, 1, 2, 0, time.UTC)
 	out := RenderConsole(ConsoleView{
-		Server: "http://agent",
-		Ready:  true,
-		Plain:  true,
-		Queue:  QueueView{Depth: 1, Capacity: 8, Completed: 3, Failed: 1},
+		Server:       "http://agent",
+		Ready:        true,
+		Plain:        true,
+		Watch:        true,
+		RefreshedAt:  refreshedAt,
+		RefreshEvery: 5 * time.Second,
+		Queue:        QueueView{Depth: 1, Capacity: 8, Completed: 3, Failed: 1},
 		Runs: []RunRow{{
 			ID:        "owner/repo!7",
 			Provider:  "github",
@@ -53,7 +57,7 @@ func TestRenderConsolePopulatedShowsRunAndRail(t *testing.T) {
 		Skills:    []SkillRow{{Name: "traceability-review", Loaded: true}},
 		Tools:     []ToolRow{{Name: "list_runs", LifecycleStage: "observe", Implemented: true}},
 	})
-	for _, want := range []string{"owner/repo!7", "Fix validation", "findings   2", "depth     1/8", "openrouter", "reasoner", "skills    1", "tools     1"} {
+	for _, want := range []string{"owner/repo!7", "Fix validation", "findings   2", "depth     1/8", "openrouter", "reasoner", "skills    1", "tools     1", "refreshed 2026-06-27T12:01:02Z", "watch every 5s"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("console output missing %q:\n%s", want, out)
 		}

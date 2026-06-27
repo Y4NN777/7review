@@ -13,6 +13,9 @@ type ConsoleView struct {
 	Server       string
 	Ready        bool
 	Plain        bool
+	Watch        bool
+	RefreshedAt  time.Time
+	RefreshEvery time.Duration
 	Warnings     []string
 	Queue        QueueView
 	Dependencies []DependencyStatus
@@ -97,6 +100,9 @@ func RenderConsole(view ConsoleView) string {
 	right := renderConsoleRail(view)
 	body := joinColumns(left, right, 2)
 	footer := "tab switch view  ctrl+c exit  /chat use: 7review chat --run <run-id> --server " + view.Server
+	if view.Watch && view.RefreshEvery > 0 {
+		footer = fmt.Sprintf("watch every %s  ctrl+c exit  /chat use: 7review chat --run <run-id> --server %s", view.RefreshEvery, view.Server)
+	}
 	if view.Plain {
 		return body + "\n" + footer
 	}
@@ -166,9 +172,14 @@ func renderConsoleRail(view ConsoleView) string {
 		"7review",
 		"server " + view.Server,
 		"state  " + state,
-		"",
-		"Runtime",
 	}
+	if !view.RefreshedAt.IsZero() {
+		lines = append(lines, "refreshed "+view.RefreshedAt.UTC().Format(time.RFC3339))
+	}
+	if view.Watch && view.RefreshEvery > 0 {
+		lines = append(lines, "refresh "+view.RefreshEvery.String())
+	}
+	lines = append(lines, "", "Runtime")
 	for _, dep := range view.Dependencies {
 		status := "down"
 		if dep.Ready {

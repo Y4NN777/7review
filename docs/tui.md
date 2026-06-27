@@ -8,6 +8,8 @@ The command-line interface is an operational TUI for setup and day-to-day checks
 7review setup
 7review status
 7review status --server http://localhost:8080
+7review tui --server http://localhost:8080
+7review tui --watch --refresh 5s --server http://localhost:8080
 7review chat
 7review chat --run <project!mr> --server http://localhost:8080
 ```
@@ -26,6 +28,12 @@ The command-line interface is an operational TUI for setup and day-to-day checks
 agent's authenticated `/ready` endpoint and renders pipeline, orchestrator,
 run-store, queue, Headroom, and MemPalace readiness. Set `REVIEW_API_TOKEN`
 when the server requires operator auth.
+
+`tui` renders the operator console: active runs, selected run details,
+dependency state, queue state, configured providers, role routing, loaded
+skills, and tool count. It reads live agent endpoints only: `/ready`, `/tools`,
+and `/tools/execute` for `list_runs`, `get_run`, `list_provider_status`, and
+`list_skills`. With `--watch`, it refreshes in place until interrupted.
 
 `chat` is an interactive, streaming, model-driven operator surface for setup,
 status, Docker, sidecars, webhooks, review iteration, and next steps. It uses

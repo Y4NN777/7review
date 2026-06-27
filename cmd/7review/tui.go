@@ -15,9 +15,12 @@ import (
 )
 
 type tuiCommandOptions struct {
-	serverURL string
-	runID     string
-	plain     bool
+	serverURL      string
+	runID          string
+	plain          bool
+	watch          bool
+	refreshEvery   time.Duration
+	clearOnRefresh bool
 }
 
 type remoteRunRow struct {
@@ -73,13 +76,28 @@ type remoteSkillStatus struct {
 
 func runTUI(args []string, out io.Writer) error {
 	opts := parseTUIArgs(args)
-	view, err := remoteConsoleView(operatorRequestHTTPClient(), opts)
-	fmt.Fprintln(out, ui.RenderConsole(view))
-	return err
+	client := operatorRequestHTTPClient()
+	if !opts.watch {
+		view, err := remoteConsoleView(client, opts)
+		fmt.Fprintln(out, ui.RenderConsole(view))
+		return err
+	}
+	for {
+		view, _ := remoteConsoleView(client, opts)
+		if opts.clearOnRefresh {
+			fmt.Fprint(out, "\x1b[2J\x1b[H")
+		}
+		fmt.Fprintln(out, ui.RenderConsole(view))
+		time.Sleep(opts.refreshEvery)
+	}
 }
 
 func parseTUIArgs(args []string) tuiCommandOptions {
-	opts := tuiCommandOptions{serverURL: "http://localhost:8080"}
+	opts := tuiCommandOptions{
+		serverURL:      "http://localhost:8080",
+		refreshEvery:   2 * time.Second,
+		clearOnRefresh: true,
+	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch flagName(arg) {
@@ -89,6 +107,13 @@ func parseTUIArgs(args []string) tuiCommandOptions {
 			opts.runID = flagValue(args, &i)
 		case "--plain":
 			opts.plain = true
+			opts.clearOnRefresh = false
+		case "--watch":
+			opts.watch = true
+		case "--refresh", "--interval":
+			opts.refreshEvery = parseRefreshInterval(flagValue(args, &i), opts.refreshEvery)
+		case "--no-clear":
+			opts.clearOnRefresh = false
 		default:
 			if !strings.HasPrefix(arg, "-") && opts.runID == "" {
 				opts.runID = arg
@@ -100,7 +125,13 @@ func parseTUIArgs(args []string) tuiCommandOptions {
 
 func remoteConsoleView(client *http.Client, opts tuiCommandOptions) (ui.ConsoleView, error) {
 	serverURL := strings.TrimRight(opts.serverURL, "/")
-	view := ui.ConsoleView{Server: serverURL, Plain: opts.plain}
+	view := ui.ConsoleView{
+		Server:       serverURL,
+		Plain:        opts.plain,
+		Watch:        opts.watch,
+		RefreshedAt:  time.Now().UTC(),
+		RefreshEvery: opts.refreshEvery,
+	}
 	var failures []string
 
 	readyView, ready, err := remoteStatusView(client, statusCommandOptions{serverURL: serverURL, remote: true, plain: true})
@@ -163,6 +194,21 @@ func remoteConsoleView(client *http.Client, opts tuiCommandOptions) (ui.ConsoleV
 		return view, errors.New(strings.Join(failures, "; "))
 	}
 	return view, nil
+}
+
+func parseRefreshInterval(value string, fallback time.Duration) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	interval, err := time.ParseDuration(value)
+	if err != nil {
+		interval, err = time.ParseDuration(value + "s")
+	}
+	if err != nil || interval <= 0 {
+		return fallback
+	}
+	return interval
 }
 
 func getJSON(client *http.Client, endpoint string, target any) error {

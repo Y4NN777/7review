@@ -152,6 +152,8 @@ background work. Request handlers do not run review work inline.
 ```sh
 7review setup
 7review status --server http://localhost:8080
+7review tui --server http://localhost:8080
+7review tui --watch --refresh 5s --server http://localhost:8080
 7review runs --server http://localhost:8080
 7review run <run-id> --server http://localhost:8080
 7review chat
