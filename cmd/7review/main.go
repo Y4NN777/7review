@@ -245,6 +245,13 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 			}
 			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderProviderStatusSummary(status)}, opts.Plain))
 			return true, nil
+		case "/config":
+			var status remoteConfigStatus
+			if err := executeRemoteTool(client, serverURL, "get_config_status", nil, &status); err != nil {
+				return true, err
+			}
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderConfigStatusSummary(status)}, opts.Plain))
+			return true, nil
 		case "/skills":
 			var skills []remoteSkillStatus
 			if err := executeRemoteTool(client, serverURL, "list_skills", nil, &skills); err != nil {
@@ -396,6 +403,7 @@ func chatCommandHelp(hasRun bool) string {
 		"/status    show agent readiness",
 		"/tools     show implemented tool catalog",
 		"/providers show model providers and role routes",
+		"/config    show redacted runtime configuration",
 		"/skills    show loaded agent skills",
 		"quit       exit chat",
 	}
@@ -411,6 +419,37 @@ func chatCommandHelp(hasRun bool) string {
 		)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderConfigStatusSummary(status remoteConfigStatus) string {
+	lines := []string{"config"}
+	lines = appendIfSet(lines, "listen   ", status.ListenAddr)
+	lines = appendIfSet(lines, "provider ", status.Provider)
+	lines = appendIfSet(lines, "review   ", status.ReviewModel)
+	lines = appendIfSet(lines, "small    ", status.SmallModel)
+	lines = appendIfSet(lines, "orch     ", status.Orchestrator)
+	lines = appendIfSet(lines, "corpus   ", status.CorpusRoot)
+	lines = appendIfSet(lines, "memory   ", status.MemoryDir)
+	lines = appendIfSet(lines, "hil      ", status.HILChannel)
+	lines = appendIfSet(lines, "headroom ", status.HeadroomURL)
+	lines = appendIfSet(lines, "mempalace", status.MemPalaceURL)
+	if status.WebhookWorkers > 0 || status.WebhookQueueSize > 0 {
+		lines = append(lines, fmt.Sprintf("workers  %d queue=%d", status.WebhookWorkers, status.WebhookQueueSize))
+	}
+	lines = append(lines, "integrations")
+	lines = append(lines,
+		fmt.Sprintf("github=%t gitlab=%t", status.HasGitHub, status.HasGitLab),
+		fmt.Sprintf("openai=%t openrouter=%t deepseek=%t", status.HasOpenAI, status.HasOpenRouter, status.HasDeepSeek),
+		fmt.Sprintf("anthropic=%t mistral=%t gemini=%t ollama=%t", status.HasAnthropic, status.HasMistral, status.HasGemini, status.HasOllama),
+	)
+	return strings.Join(lines, "\n")
+}
+
+func appendIfSet(lines []string, label string, value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return lines
+	}
+	return append(lines, label+" "+strings.TrimSpace(value))
 }
 
 func renderSkillStatusSummary(skills []remoteSkillStatus) string {
