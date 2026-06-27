@@ -331,6 +331,30 @@ func TestChatCommandHandlerRendersMemoryProposal(t *testing.T) {
 	}
 }
 
+func TestChatCommandHandlerRendersDiffSummary(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost || req.URL.Path != "/tools/execute" {
+			t.Fatalf("unexpected diff request: %s %s", req.Method, req.URL.String())
+		}
+		body, _ := io.ReadAll(req.Body)
+		if !strings.Contains(string(body), `"name":"get_diff_summary"`) || !strings.Contains(string(body), `"run":"owner/repo!7"`) {
+			t.Fatalf("unexpected diff request body: %s", string(body))
+		}
+		return jsonResponse(http.StatusOK, `{"name":"get_diff_summary","result":{"run":"owner/repo!7","file_count":2,"total_tokens":123,"additions":10,"deletions":3,"changed_files":[{"path":"api/orders.go","status":"modified","additions":8,"deletions":2,"has_patch":true},{"old_path":"old.go","path":"new.go","status":"renamed","additions":2,"deletions":1,"has_patch":false}]}}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "owner/repo!7", client)(context.Background(), "/diff", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"diff owner/repo!7", "files 2 tokens 123 +10 -3", "changed", "modified", "api/orders.go", "old.go -> new.go", "no-patch"} {
+		if !handled || !strings.Contains(out.String(), want) {
+			t.Fatalf("diff command output missing %q handled=%t:\n%s", want, handled, out.String())
+		}
+	}
+}
+
 func TestChatCommandHandlerWritesDraftReportToQuotedPath(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusOK, `{"id":"owner/repo!7","status":"drafted","draft_report":"draft body"}`), nil

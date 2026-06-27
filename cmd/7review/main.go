@@ -259,6 +259,16 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 			}
 			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderSkillStatusSummary(skills)}, opts.Plain))
 			return true, nil
+		case "/diff":
+			if runID == "" {
+				return true, fmt.Errorf("/diff requires chat <run-id> or --run <run-id>")
+			}
+			var summary remoteDiffSummary
+			if err := executeRemoteTool(client, serverURL, "get_diff_summary", map[string]any{"run": runID}, &summary); err != nil {
+				return true, err
+			}
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderDiffSummary(summary)}, opts.Plain))
+			return true, nil
 		case "/history":
 			if runID == "" {
 				return true, fmt.Errorf("/history requires chat <run-id> or --run <run-id>")
@@ -422,6 +432,7 @@ func chatCommandHelp(hasRun bool) string {
 			"/run       show current run summary",
 			"/draft     show current draft report",
 			"/draft final.md   write current draft report to a file",
+			"/diff      show changed files and patch summary",
 			"/history   show current run timeline",
 			"/history chat_message 20   show latest chat messages",
 			"/memory    preview approved MemPalace proposal",
@@ -469,6 +480,20 @@ func firstVectors(values []remoteVector, limit int) []remoteVector {
 	return values[:limit]
 }
 
+func firstChangedFiles(values []remoteChangedFile, limit int) []remoteChangedFile {
+	if len(values) <= limit {
+		return values
+	}
+	return values[:limit]
+}
+
+func firstFileDiffs(values []remoteFileDiff, limit int) []remoteFileDiff {
+	if len(values) <= limit {
+		return values
+	}
+	return values[:limit]
+}
+
 func trimCommandLine(value string, max int) string {
 	value = strings.TrimSpace(value)
 	if len(value) <= max {
@@ -509,6 +534,45 @@ func appendIfSet(lines []string, label string, value string) []string {
 		return lines
 	}
 	return append(lines, label+" "+strings.TrimSpace(value))
+}
+
+func renderDiffSummary(summary remoteDiffSummary) string {
+	lines := []string{
+		"diff " + summary.Run,
+		fmt.Sprintf("files %d tokens %d +%d -%d", summary.FileCount, summary.TotalTokens, summary.Additions, summary.Deletions),
+	}
+	if len(summary.ChangedFiles) > 0 {
+		lines = append(lines, "changed")
+		for _, file := range firstChangedFiles(summary.ChangedFiles, 8) {
+			status := strings.TrimSpace(file.Status)
+			if status == "" {
+				status = "changed"
+			}
+			patch := "no-patch"
+			if file.HasPatch {
+				patch = "patch"
+			}
+			path := strings.TrimSpace(file.Path)
+			if file.OldPath != "" && file.OldPath != file.Path {
+				path = strings.TrimSpace(file.OldPath) + " -> " + path
+			}
+			lines = append(lines, fmt.Sprintf("%-9s +%-4d -%-4d %-8s %s", trimCommandLine(status, 9), file.Additions, file.Deletions, patch, trimCommandLine(path, 80)))
+		}
+		if len(summary.ChangedFiles) > 8 {
+			lines = append(lines, fmt.Sprintf("%d more changed files", len(summary.ChangedFiles)-8))
+		}
+		return strings.Join(lines, "\n")
+	}
+	if len(summary.Files) > 0 {
+		lines = append(lines, "patches")
+		for _, file := range firstFileDiffs(summary.Files, 8) {
+			lines = append(lines, fmt.Sprintf("%-5d tokens %-5d lines %s", file.TokenCount, file.PatchLines, trimCommandLine(file.Path, 80)))
+		}
+		if len(summary.Files) > 8 {
+			lines = append(lines, fmt.Sprintf("%d more patch chunks", len(summary.Files)-8))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func renderSkillStatusSummary(skills []remoteSkillStatus) string {

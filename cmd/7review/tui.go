@@ -107,6 +107,31 @@ type remoteMemoryProposalStatus struct {
 	FinalBytes int                  `json:"final_bytes"`
 }
 
+type remoteDiffSummary struct {
+	Run          string              `json:"run"`
+	FileCount    int                 `json:"file_count"`
+	TotalTokens  int                 `json:"total_tokens"`
+	Additions    int                 `json:"additions"`
+	Deletions    int                 `json:"deletions"`
+	Files        []remoteFileDiff    `json:"files"`
+	ChangedFiles []remoteChangedFile `json:"changed_files"`
+}
+
+type remoteFileDiff struct {
+	Path       string `json:"path"`
+	TokenCount int    `json:"token_count"`
+	PatchLines int    `json:"patch_lines"`
+}
+
+type remoteChangedFile struct {
+	Path      string `json:"path"`
+	OldPath   string `json:"old_path"`
+	Status    string `json:"status"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	HasPatch  bool   `json:"has_patch"`
+}
+
 type remoteUpdateProposal struct {
 	Conventions []string       `json:"Conventions"`
 	Decisions   []string       `json:"Decisions"`

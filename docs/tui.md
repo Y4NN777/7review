@@ -65,7 +65,8 @@ that specific review run. Inside chat, local commands stay in the terminal flow:
 `/status` checks agent readiness, `/tools` lists implemented agent tools,
 `/providers` shows model provider and role routing, `/config` shows redacted
 runtime configuration, `/skills` lists loaded agent skills, `/run` shows the
-current session summary, `/history` shows the run timeline, and
+current session summary, `/diff` shows changed files and patch summary,
+`/history` shows the run timeline, and
 `/history chat_message 20` shows the latest persisted chat messages without
 sending that command to the model. `/memory` previews the approved MemPalace
 proposal. `/draft` prints the current draft report, and `/draft final.md` writes
