@@ -216,7 +216,10 @@ func chatCommandHandler(serverURL, runID string) ui.ChatCommandFunc {
 
 func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) ui.ChatCommandFunc {
 	return func(_ context.Context, text string, out io.Writer, _ ui.ChatContext, opts ui.ChatOptions) (bool, error) {
-		fields := strings.Fields(text)
+		fields, err := parseChatCommandFields(text)
+		if err != nil {
+			return true, err
+		}
 		if len(fields) == 0 || !strings.HasPrefix(fields[0], "/") {
 			return false, nil
 		}
@@ -287,6 +290,65 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 			return true, fmt.Errorf("unknown chat command %q; use /help", fields[0])
 		}
 	}
+}
+
+func parseChatCommandFields(text string) ([]string, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, nil
+	}
+	var fields []string
+	var b strings.Builder
+	var quote rune
+	escaped := false
+	inField := false
+	for _, r := range text {
+		if escaped {
+			b.WriteRune(r)
+			escaped = false
+			inField = true
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			inField = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+				continue
+			}
+			b.WriteRune(r)
+			inField = true
+			continue
+		}
+		if r == '"' || r == '\'' {
+			quote = r
+			inField = true
+			continue
+		}
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			if inField {
+				fields = append(fields, b.String())
+				b.Reset()
+				inField = false
+			}
+			continue
+		}
+		b.WriteRune(r)
+		inField = true
+	}
+	if escaped {
+		b.WriteRune('\\')
+	}
+	if quote != 0 {
+		return nil, fmt.Errorf("unterminated quote in chat command")
+	}
+	if inField {
+		fields = append(fields, b.String())
+	}
+	return fields, nil
 }
 
 func chatCommandHelp(hasRun bool) string {

@@ -99,6 +99,23 @@ func TestParseChatArgsAcceptsPositionalRunAndServer(t *testing.T) {
 	}
 }
 
+func TestParseChatCommandFieldsSupportsQuotedValues(t *testing.T) {
+	fields, err := parseChatCommandFields(`/approve --report-file "final report.md" --note 'lead approved' escaped\ value`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/approve", "--report-file", "final report.md", "--note", "lead approved", "escaped value"}
+	if strings.Join(fields, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("unexpected fields: %#v", fields)
+	}
+}
+
+func TestParseChatCommandFieldsRejectsUnclosedQuote(t *testing.T) {
+	if _, err := parseChatCommandFields(`/approve --report-file "final.md`); err == nil {
+		t.Fatal("expected unclosed quote error")
+	}
+}
+
 func TestChatCommandHandlerRendersRunHistory(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL.Path != "/run" || req.URL.Query().Get("id") != "owner/repo!7" {
@@ -144,7 +161,7 @@ func TestChatCommandHandlerRendersRunSummary(t *testing.T) {
 }
 
 func TestChatCommandHandlerApprovesRunFromReportFile(t *testing.T) {
-	reportPath := filepath.Join(t.TempDir(), "final.md")
+	reportPath := filepath.Join(t.TempDir(), "final report.md")
 	if err := os.WriteFile(reportPath, []byte("approved final"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +176,7 @@ func TestChatCommandHandlerApprovesRunFromReportFile(t *testing.T) {
 	})}
 
 	var out strings.Builder
-	handled, err := chatCommandHandlerWithClient("http://agent", "owner/repo!7", client)(context.Background(), "/approve --report-file "+reportPath, &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	handled, err := chatCommandHandlerWithClient("http://agent", "owner/repo!7", client)(context.Background(), `/approve --report-file "`+reportPath+`"`, &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
 	if err != nil {
 		t.Fatal(err)
 	}
