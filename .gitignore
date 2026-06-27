@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+.7review/
+coverage.out
+*.cover
+__pycache__/
+*.pyc
+dist/
+tmp/
+docker-compose.override.yml

@@ -1,0 +1,21 @@
+{
+  "name": "7review",
+  "description": "Production code-review agent for GitLab merge requests and GitHub pull requests.",
+  "instructions": "agent/instructions.md",
+  "tools": "agent/tools",
+  "skills": "agent/skills",
+  "channels": [
+    "http",
+    "gitlab",
+    "github",
+    "tui"
+  ],
+  "required_dependencies": [
+    "headroom",
+    "mempalace"
+  ],
+  "knowledge_outputs": [
+    "docs/wiki",
+    "docs/wiki/_context/context_pack.json"
+  ]
+}

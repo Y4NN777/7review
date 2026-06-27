@@ -1,0 +1,14 @@
+.git
+.agents
+.codex
+.env
+.env.*
+!.env.example
+tmp
+dist
+coverage.out
+*.cover
+node_modules
+docker-compose.override.yml
+__pycache__
+*.pyc

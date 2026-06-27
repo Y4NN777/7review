@@ -1,0 +1,50 @@
+# TUI
+
+The command-line interface is an operational TUI for setup and day-to-day checks.
+
+## Commands
+
+```sh
+7review setup
+7review status
+7review status --server http://localhost:8080
+7review chat
+7review chat --run <project!mr> --server http://localhost:8080
+```
+
+`setup` writes a local `.env` file with `0600` permissions. It asks for:
+
+- run mode: Docker or local
+- SCM provider: GitLab or GitHub
+- one model provider
+- Headroom and MemPalace defaults
+- HTTP port and webhook worker sizing
+- HTTP server timeout defaults
+- corpus root for target repository knowledge when running Docker
+
+`status` renders local config state by default. With `--server`, it calls the
+agent's authenticated `/ready` endpoint and renders pipeline, orchestrator,
+run-store, queue, Headroom, and MemPalace readiness. Set `REVIEW_API_TOKEN`
+when the server requires operator auth.
+
+`chat` is an interactive, streaming, model-driven operator surface for setup,
+status, Docker, sidecars, webhooks, review iteration, and next steps. It uses
+the configured orchestrator formatter role. OpenAI-compatible providers and
+Ollama stream token chunks natively; providers without a streaming client use a
+single compatibility response until their streaming APIs are implemented. If
+configuration is invalid, chat falls back to a local message that tells the
+operator to run setup and status first.
+
+For iterative review, pass a run ID:
+
+```sh
+7review chat --run project!42 --server http://localhost:8080
+```
+
+That mode streams through the running agent's `/chat/stream` endpoint, so the
+model sees the stored draft report, validated findings, status, and SCM URL for
+that specific review run.
+
+Operator HTTP commands use bounded clients: normal commands time out after 60
+seconds, while streamed run chat has a longer bounded timeout for interactive
+responses.

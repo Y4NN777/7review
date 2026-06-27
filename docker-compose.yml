@@ -1,0 +1,100 @@
+services:
+  7review:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: 7review-agent:local
+    environment:
+      LISTEN_ADDR: ":8080"
+      HTTP_READ_HEADER_TIMEOUT_MS: "${HTTP_READ_HEADER_TIMEOUT_MS:-5000}"
+      HTTP_READ_TIMEOUT_MS: "${HTTP_READ_TIMEOUT_MS:-30000}"
+      HTTP_WRITE_TIMEOUT_MS: "${HTTP_WRITE_TIMEOUT_MS:-120000}"
+      HTTP_IDLE_TIMEOUT_MS: "${HTTP_IDLE_TIMEOUT_MS:-120000}"
+      ORCHESTRATOR_CONFIG: /app/orchestrator.yaml
+      CORPUS_ROOT: /workspace
+      MEMORY_DIR: /data/7review
+      HEADROOM_URL: http://headroom:8787
+      HEADROOM_TIMEOUT_MS: "${HEADROOM_TIMEOUT_MS:-5000}"
+      MEMPALACE_URL: http://mempalace:8788
+      MEMPALACE_TIMEOUT_MS: "${MEMPALACE_TIMEOUT_MS:-5000}"
+      REVIEW_API_TOKEN: "${REVIEW_API_TOKEN:-}"
+      WEBHOOK_WORKERS: "${WEBHOOK_WORKERS:-4}"
+      WEBHOOK_QUEUE_SIZE: "${WEBHOOK_QUEUE_SIZE:-32}"
+      WEBHOOK_JOB_TIMEOUT_MS: "${WEBHOOK_JOB_TIMEOUT_MS:-900000}"
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      GITHUB_WEBHOOK_SECRET: "${GITHUB_WEBHOOK_SECRET:-}"
+      GITLAB_URL: "${GITLAB_URL:-}"
+      GITLAB_TOKEN: "${GITLAB_TOKEN:-}"
+      GITLAB_WEBHOOK_SECRET: "${GITLAB_WEBHOOK_SECRET:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      MISTRAL_API_KEY: "${MISTRAL_API_KEY:-}"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-}"
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+    volumes:
+      - review-data:/data/7review
+      - "${CORPUS_ROOT:-.}:/workspace:ro"
+    depends_on:
+      headroom:
+        condition: service_healthy
+      mempalace:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/7review", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - review-agent
+
+  headroom:
+    build:
+      context: ./docker/headroom-bridge
+      dockerfile: Dockerfile
+    image: 7review-headroom-bridge:local
+    environment:
+      HEADROOM_BRIDGE_PORT: "8787"
+      HEADROOM_COMPRESSION_RATIO: "${HEADROOM_COMPRESSION_RATIO:-0.55}"
+    expose:
+      - "8787"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    networks:
+      - review-agent
+
+  mempalace:
+    build:
+      context: ./docker/mempalace-bridge
+      dockerfile: Dockerfile
+    image: 7review-mempalace-bridge:local
+    environment:
+      MEMPALACE_BRIDGE_PORT: "8788"
+      MEMPALACE_DATA_DIR: /data
+      MEMPALACE_NAMESPACE: "${MEMPALACE_NAMESPACE:-7review}"
+    volumes:
+      - mempalace-data:/data
+    expose:
+      - "8788"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8788/health', timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    networks:
+      - review-agent
+
+networks:
+  review-agent:
+    driver: bridge
+
+volumes:
+  review-data:
+  mempalace-data:
