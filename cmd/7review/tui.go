@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -159,13 +160,18 @@ func runTUI(args []string, out io.Writer) error {
 }
 
 type consoleTUIModel struct {
-	client  *http.Client
-	opts    tuiCommandOptions
-	view    ui.ConsoleView
-	err     error
-	loading bool
-	help    bool
-	message string
+	client         *http.Client
+	opts           tuiCommandOptions
+	view           ui.ConsoleView
+	err            error
+	loading        bool
+	help           bool
+	message        string
+	input          string
+	commandRunning bool
+	commandLog     []string
+	width          int
+	height         int
 }
 
 type consoleViewMsg struct {
@@ -174,6 +180,12 @@ type consoleViewMsg struct {
 }
 
 type consoleTickMsg time.Time
+
+type consoleCommandMsg struct {
+	input string
+	out   string
+	err   error
+}
 
 func newConsoleTUIModel(client *http.Client, opts tuiCommandOptions) consoleTUIModel {
 	if opts.refreshEvery <= 0 {
@@ -193,15 +205,48 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q", "esc":
+			if m.input != "" {
+				m.input = ""
+				return m, nil
+			}
 			return m, tea.Quit
+		case "enter":
+			command := strings.TrimSpace(m.input)
+			if command == "" || m.commandRunning {
+				return m, nil
+			}
+			m.input = ""
+			m.commandRunning = true
+			m.commandLog = appendCommandLog(m.commandLog, "> "+command)
+			return m, executeConsoleCommandCmd(m.client, m.opts, m.effectiveRunID(), command)
+		case "backspace":
+			m.input = dropLastRune(m.input)
+			return m, nil
 		case "r":
+			if m.input != "" {
+				m.input += msg.String()
+				return m, nil
+			}
 			m.loading = true
 			m.message = "refreshing"
 			return m, fetchConsoleViewCmd(m.client, m.opts)
 		case "?":
-			m.help = !m.help
+			if m.input != "" {
+				m.input += msg.String()
+			} else {
+				m.help = !m.help
+			}
 			return m, nil
+		default:
+			if len(msg.Runes) > 0 {
+				m.input += string(msg.Runes)
+				return m, nil
+			}
 		}
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
 	case consoleViewMsg:
 		m.view = msg.view
 		m.err = msg.err
@@ -214,6 +259,14 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, consoleTick(m.opts.refreshEvery)
 	case consoleTickMsg:
 		m.loading = true
+		return m, fetchConsoleViewCmd(m.client, m.opts)
+	case consoleCommandMsg:
+		m.commandRunning = false
+		if msg.err != nil {
+			m.commandLog = appendCommandLog(m.commandLog, "error: "+msg.err.Error())
+		} else if strings.TrimSpace(msg.out) != "" {
+			m.commandLog = appendCommandLog(m.commandLog, strings.TrimSpace(msg.out))
+		}
 		return m, fetchConsoleViewCmd(m.client, m.opts)
 	}
 	return m, nil
@@ -232,13 +285,44 @@ func (m consoleTUIModel) View() string {
 	if m.loading {
 		out += "\nloading"
 	}
+	if m.commandRunning {
+		out += "\nrunning command"
+	}
 	if m.err != nil {
 		out += "\nlast error: " + m.err.Error()
 	}
+	panel := ui.RenderConsoleCommandPanel(ui.ConsoleCommandPanel{
+		RunID:   m.effectiveRunID(),
+		Input:   m.input,
+		Help:    m.help,
+		Running: m.commandRunning,
+		Log:     m.commandLog,
+	})
+	if m.height > 0 {
+		reserved := lineCount(panel) + 1
+		if m.help {
+			reserved++
+		}
+		out = trimToLineBudget(out, m.height-reserved)
+	}
+	out += "\n" + panel
 	if m.help {
-		out += "\nkeys: r refresh now  ? hide help  q/esc/ctrl+c exit"
+		out += "\nkeys: type /help, /status, /sessions, /run, /history, /diff, /draft; enter runs; r refresh; q exits when input is empty"
 	}
 	return out
+}
+
+func (m consoleTUIModel) effectiveRunID() string {
+	if strings.TrimSpace(m.opts.runID) != "" {
+		return strings.TrimSpace(m.opts.runID)
+	}
+	if m.view.ActiveRun != nil {
+		return strings.TrimSpace(m.view.ActiveRun.ID)
+	}
+	if len(m.view.Runs) > 0 {
+		return strings.TrimSpace(m.view.Runs[0].ID)
+	}
+	return ""
 }
 
 func fetchConsoleViewCmd(client *http.Client, opts tuiCommandOptions) tea.Cmd {
@@ -252,6 +336,84 @@ func consoleTick(interval time.Duration) tea.Cmd {
 	return tea.Tick(interval, func(t time.Time) tea.Msg {
 		return consoleTickMsg(t)
 	})
+}
+
+func executeConsoleCommandCmd(client *http.Client, opts tuiCommandOptions, runID string, input string) tea.Cmd {
+	return func() tea.Msg {
+		out, err := executeConsoleCommand(client, opts, runID, input)
+		return consoleCommandMsg{input: input, out: out, err: err}
+	}
+}
+
+func executeConsoleCommand(client *http.Client, opts tuiCommandOptions, runID string, input string) (string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", nil
+	}
+	serverURL := strings.TrimRight(opts.serverURL, "/")
+	if strings.HasPrefix(input, "/") {
+		var out bytes.Buffer
+		handled, err := chatCommandHandlerWithClient(serverURL, runID, client)(context.Background(), input, &out, ui.ChatContext{ServerURL: serverURL, RunID: runID}, ui.ChatOptions{Plain: true})
+		if !handled && err == nil {
+			err = fmt.Errorf("unknown command %q; use /help", input)
+		}
+		return out.String(), err
+	}
+	if runID == "" {
+		return "", fmt.Errorf("model chat needs an active run; use /sessions first or start TUI with --run <run-id>")
+	}
+	var out strings.Builder
+	responder := &remoteRunChatResponder{
+		serverURL:  serverURL,
+		runID:      runID,
+		httpClient: operatorStreamHTTPClient(),
+	}
+	err := responder.StreamRespond(context.Background(), input, func(delta string) error {
+		out.WriteString(delta)
+		return nil
+	})
+	return out.String(), err
+}
+
+func appendCommandLog(log []string, item string) []string {
+	item = strings.TrimSpace(item)
+	if item == "" {
+		return log
+	}
+	log = append(log, item)
+	if len(log) > 6 {
+		log = log[len(log)-6:]
+	}
+	return log
+}
+
+func dropLastRune(value string) string {
+	runes := []rune(value)
+	if len(runes) == 0 {
+		return value
+	}
+	return string(runes[:len(runes)-1])
+}
+
+func lineCount(value string) int {
+	if value == "" {
+		return 0
+	}
+	return len(strings.Split(value, "\n"))
+}
+
+func trimToLineBudget(value string, maxLines int) string {
+	if maxLines <= 0 {
+		return ""
+	}
+	lines := strings.Split(value, "\n")
+	if len(lines) <= maxLines {
+		return value
+	}
+	if maxLines == 1 {
+		return "..."
+	}
+	return strings.Join(append(lines[:maxLines-1], "..."), "\n")
 }
 
 func parseTUIArgs(args []string) tuiCommandOptions {

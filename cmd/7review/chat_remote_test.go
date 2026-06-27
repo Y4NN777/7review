@@ -788,8 +788,58 @@ func TestConsoleTUIModelHandlesInteractiveKeys(t *testing.T) {
 
 	updated, cmd = model.Update(consoleViewMsg{view: ui.ConsoleView{Server: "http://agent", Ready: true, Watch: true, RefreshEvery: time.Second}})
 	model = updated.(consoleTUIModel)
-	if model.loading || model.err != nil || cmd == nil || !strings.Contains(model.View(), "7REVIEW") {
+	if model.loading || model.err != nil || cmd == nil || !strings.Contains(model.View(), "7review") {
 		t.Fatalf("view update did not render dashboard and schedule tick: model=%#v cmd=%v view=%s", model, cmd, model.View())
+	}
+
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model = updated.(consoleTUIModel)
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	model = updated.(consoleTUIModel)
+	if model.input != "/s" || cmd != nil || !strings.Contains(model.View(), "input  /s") {
+		t.Fatalf("typing did not update command input: model=%#v cmd=%v view=%s", model, cmd, model.View())
+	}
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	model = updated.(consoleTUIModel)
+	if model.input != "/" {
+		t.Fatalf("backspace did not edit command input: %q", model.input)
+	}
+
+	small := newConsoleTUIModel(nil, tuiCommandOptions{serverURL: "http://agent", refreshEvery: time.Second})
+	updated, cmd = small.Update(consoleViewMsg{view: ui.ConsoleView{Server: "http://agent", Ready: true, Watch: true, RefreshEvery: time.Second}})
+	small = updated.(consoleTUIModel)
+	updated, cmd = small.Update(tea.WindowSizeMsg{Width: 100, Height: 12})
+	small = updated.(consoleTUIModel)
+	shortView := small.View()
+	if cmd != nil || !strings.Contains(shortView, "Command") || !strings.Contains(shortView, "input  /") || !strings.Contains(shortView, "...") {
+		t.Fatalf("small terminal view should keep command panel visible and clip dashboard: cmd=%v\n%s", cmd, shortView)
+	}
+}
+
+func TestExecuteConsoleCommandRunsSlashCommandThroughAgentTools(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/tools/execute" {
+			t.Fatalf("unexpected request path %s", req.URL.Path)
+		}
+		body, _ := io.ReadAll(req.Body)
+		var call tools.ExecuteRequest
+		if err := json.Unmarshal(body, &call); err != nil {
+			t.Fatal(err)
+		}
+		if call.Name != "list_runs" {
+			t.Fatalf("unexpected tool call %q", call.Name)
+		}
+		return jsonResponse(http.StatusOK, `{"name":"list_runs","result":[{"id":"owner/repo!7","provider":"github","project_id":"owner/repo","change_id":"7","title":"Fix validation","status":"drafted","event_count":2}]}`), nil
+	})}
+
+	out, err := executeConsoleCommand(client, tuiCommandOptions{serverURL: "http://agent"}, "", "/sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"agent:", "sessions 1", "owner/repo!7", "Fix validation"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("command output missing %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -890,7 +940,7 @@ func TestRemoteConsoleViewUsesAgentEndpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := ui.RenderConsole(view)
-	for _, want := range []string{"7REVIEW", "owner/repo!7", "Fix validation", "history    3 events", "latest     status_changed drafted", "openrouter", "traceability-review", "tools     2", "refresh 5s", "live refresh 5s"} {
+	for _, want := range []string{"7review", "owner/repo!7", "Fix validation", "history    3 events", "latest     status_changed drafted", "openrouter", "traceability-review", "tools     2", "refresh 5s", "live refresh 5s"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("console output missing %q:\n%s", want, out)
 		}

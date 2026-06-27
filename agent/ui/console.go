@@ -89,6 +89,14 @@ type ToolRow struct {
 	RequiresApproval bool   `json:"requires_approval"`
 }
 
+type ConsoleCommandPanel struct {
+	RunID   string
+	Input   string
+	Help    bool
+	Running bool
+	Log     []string
+}
+
 func RenderConsole(view ConsoleView) string {
 	if view.Server == "" {
 		view.Server = "http://localhost:8080"
@@ -99,6 +107,7 @@ func RenderConsole(view ConsoleView) string {
 	view.Skills = sortedSkills(view.Skills)
 	view.Tools = sortedTools(view.Tools)
 
+	header := renderConsoleHeader(view.Plain)
 	left := renderConsoleMain(view)
 	right := renderConsoleRail(view)
 	body := joinColumns(left, right, 2)
@@ -107,18 +116,16 @@ func RenderConsole(view ConsoleView) string {
 		footer = fmt.Sprintf("live refresh %s  r refresh  ? help  q/ctrl+c exit  chat: 7review chat --run <run-id> --server %s", view.RefreshEvery, view.Server)
 	}
 	if view.Plain {
-		return body + "\n" + footer
+		return header + "\n" + body + "\n" + footer
 	}
 	style := lipgloss.NewStyle().
 		Background(lipgloss.Color("#000000")).
 		Foreground(lipgloss.Color("#D0D0D0"))
-	return style.Render(body + "\n" + signalStyle().Render(footer))
+	return style.Render(header + "\n" + body + "\n" + signalStyle().Render(footer))
 }
 
 func renderConsoleMain(view ConsoleView) string {
 	lines := []string{
-		"7REVIEW",
-		"review agent operator console",
 		"server " + view.Server,
 		"state  " + readyLabel(view.Ready),
 		"",
@@ -171,6 +178,72 @@ func renderConsoleMain(view ConsoleView) string {
 		}
 	}
 	return renderConsoleSurface(lines, 82, view.Plain)
+}
+
+func renderConsoleHeader(plain bool) string {
+	lines := []string{
+		"",
+		centerText("7review", 82),
+		centerText("review agent operator console", 82),
+		"",
+	}
+	if plain {
+		return strings.Join(lines, "\n")
+	}
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#F0F6FC")).
+		Background(lipgloss.Color("#000000")).
+		Bold(true).
+		Render(strings.Join(lines, "\n"))
+}
+
+func RenderConsoleCommandPanel(panel ConsoleCommandPanel) string {
+	lines := []string{
+		"Command",
+	}
+	if panel.RunID != "" {
+		lines = append(lines, "run    "+trimTo(panel.RunID, 70))
+	} else {
+		lines = append(lines, "run    none selected")
+	}
+	state := "ready"
+	if panel.Running {
+		state = "running"
+	}
+	lines = append(lines,
+		"state  "+state,
+		"",
+		"input  "+firstNonEmpty(panel.Input, "/help"),
+	)
+	if panel.Help {
+		lines = append(lines,
+			"",
+			"Slash commands",
+			"/help",
+			"/status",
+			"/sessions",
+			"/sessions drafted 5",
+			"/run",
+			"/history",
+			"/history chat_message 20",
+			"/diff",
+			"/draft",
+			"/memory",
+			"/approve --report-file final.md",
+			"/publish-final --report-file final.md",
+			"",
+			"Type a normal message to chat with the model for the active run.",
+		)
+	}
+	if len(panel.Log) > 0 {
+		lines = append(lines, "", "Recent output")
+		for _, item := range lastStrings(panel.Log, 4) {
+			for _, line := range wrappedLines(item, 86) {
+				lines = append(lines, line)
+			}
+		}
+	}
+	return renderCommandSurface(lines, 92)
 }
 
 func readyLabel(ready bool) string {
@@ -318,9 +391,26 @@ func renderConsoleSurface(body []string, width int, plain bool) string {
 		return out
 	}
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#5F6368")).
+		Foreground(lipgloss.Color("#C9D1D9")).
 		Background(lipgloss.Color("#000000")).
 		Render(out)
+}
+
+func renderCommandSurface(body []string, width int) string {
+	if width < 40 {
+		width = 40
+	}
+	var lines []string
+	for _, line := range body {
+		lines = append(lines, padRight(trimTo(stripANSINoise(line), width), width))
+	}
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#D0D7DE")).
+		Background(lipgloss.Color("#050505")).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("#4AA3FF")).
+		Padding(0, 1).
+		Render(strings.Join(lines, "\n"))
 }
 
 func joinColumns(left, right string, gap int) string {
@@ -347,7 +437,7 @@ func joinColumns(left, right string, gap int) string {
 
 func signalStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#4AA3FF")).
+		Foreground(lipgloss.Color("#58A6FF")).
 		Background(lipgloss.Color("#000000"))
 }
 
@@ -429,6 +519,30 @@ func trimTo(value string, max int) string {
 		return value[:max]
 	}
 	return value[:max-3] + "..."
+}
+
+func wrappedLines(value string, width int) []string {
+	value = strings.TrimSpace(stripANSINoise(value))
+	if value == "" {
+		return nil
+	}
+	var out []string
+	for _, raw := range strings.Split(value, "\n") {
+		line := strings.TrimSpace(raw)
+		for len(line) > width {
+			out = append(out, line[:width])
+			line = strings.TrimSpace(line[width:])
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+func lastStrings(values []string, limit int) []string {
+	if limit <= 0 || len(values) <= limit {
+		return values
+	}
+	return values[len(values)-limit:]
 }
 
 func firstNonEmpty(values ...string) string {
