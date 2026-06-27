@@ -1,6 +1,6 @@
 # 7review
 
-7review is a Go code-review agent for GitHub pull requests and GitLab merge
+7review is a code-review agent for GitHub pull requests and GitLab merge
 requests. It receives SCM webhooks, enriches the change with provider metadata,
 selects repository knowledge and skills, runs model review, validates findings,
 publishes a draft report, waits for human approval, then publishes the final
