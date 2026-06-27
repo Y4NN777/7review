@@ -322,6 +322,7 @@ type configStatusDTO struct {
 	Provider         string `json:"provider"`
 	ReviewModel      string `json:"review_model"`
 	SmallModel       string `json:"small_model"`
+	EmbeddingModel   string `json:"embedding_model,omitempty"`
 	Orchestrator     string `json:"orchestrator_config,omitempty"`
 	HasGitLab        bool   `json:"has_gitlab"`
 	HasGitHub        bool   `json:"has_github"`
@@ -459,6 +460,7 @@ func configStatus(cfg *config.Config) configStatusDTO {
 		Provider:         cfg.Provider,
 		ReviewModel:      cfg.ReviewModel,
 		SmallModel:       cfg.SmallModel,
+		EmbeddingModel:   cfg.EmbeddingModel,
 		Orchestrator:     cfg.OrchestratorConfigPath,
 		HasGitLab:        cfg.GitLabURL != "" && cfg.GitLabToken != "" && cfg.WebhookSecret != "",
 		HasGitHub:        cfg.GitHubAPIURL != "" && cfg.GitHubToken != "" && cfg.GitHubWebhookSecret != "",

@@ -31,6 +31,7 @@ func TestConfigProfileEnvFile_DockerGitLabOpenAI(t *testing.T) {
 		"HEADROOM_URL=http://headroom:8787",
 		"MEMPALACE_URL=http://mempalace:8788",
 		"HTTP_PORT=8080",
+		"EMBEDDING_MODEL=",
 	} {
 		if !strings.Contains(env, want) {
 			t.Fatalf("expected %q in env:\n%s", want, env)
@@ -49,6 +50,7 @@ func TestRunSetupWizard_WritesEnvFile(t *testing.T) {
 		"secret",                     // GitLab webhook secret
 		"",                           // openai
 		"sk-test",                    // OpenAI key
+		"",                           // embedding model
 		"",                           // HTTP port
 		"agent-token",                // operator API token
 		"",                           // workers

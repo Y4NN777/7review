@@ -51,6 +51,9 @@ func TestLoadConfig_SidecarTimeoutDefaults(t *testing.T) {
 	if cfg.CorpusRoot != "." {
 		t.Fatalf("unexpected corpus root %q", cfg.CorpusRoot)
 	}
+	if cfg.EmbeddingModel != "nomic-embed-text:latest" {
+		t.Fatalf("unexpected embedding model %q", cfg.EmbeddingModel)
+	}
 }
 
 func TestLoadConfig_CorpusRootOverride(t *testing.T) {
@@ -153,5 +156,23 @@ func TestLoadConfig_OpenRouterAndDeepSeek(t *testing.T) {
 	}
 	if cfg.ReviewModel != "openai/gpt-4o" || cfg.SmallModel != "openai/gpt-4o-mini" {
 		t.Fatalf("unexpected openrouter default models: review=%q small=%q", cfg.ReviewModel, cfg.SmallModel)
+	}
+}
+
+func TestLoadConfig_EmbeddingModelOverride(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "token")
+	t.Setenv("GITHUB_WEBHOOK_SECRET", "secret")
+	t.Setenv("REVIEW_API_TOKEN", "agent-token")
+	t.Setenv("HEADROOM_URL", "http://headroom")
+	t.Setenv("MEMPALACE_URL", "http://mempalace")
+	t.Setenv("OLLAMA_BASE_URL", "http://ollama:11434")
+	t.Setenv("EMBEDDING_MODEL", "custom-embed")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EmbeddingModel != "custom-embed" {
+		t.Fatalf("unexpected embedding model %q", cfg.EmbeddingModel)
 	}
 }

@@ -34,6 +34,7 @@ type ConfigProfile struct {
 	MistralAPIKey     string
 	GeminiAPIKey      string
 	OllamaBaseURL     string
+	EmbeddingModel    string
 
 	HTTPPort            string
 	CorpusRoot          string
@@ -69,6 +70,7 @@ func DefaultConfigProfile() ConfigProfile {
 		LLMProvider:         "openai",
 		OpenRouterBaseURL:   "https://openrouter.ai/api",
 		DeepSeekBaseURL:     "https://api.deepseek.com",
+		EmbeddingModel:      "",
 		HTTPPort:            "8080",
 		CorpusRoot:          ".",
 		MemoryDir:           "/data/7review",
@@ -137,10 +139,12 @@ func RunSetupWizard(in io.Reader, out io.Writer, opts SetupOptions) error {
 		profile.GeminiAPIKey = askSecret(reader, out, "Gemini API key")
 	case "ollama":
 		profile.OllamaBaseURL = ask(reader, out, "Ollama base URL", "http://host.docker.internal:11434")
+		profile.EmbeddingModel = "nomic-embed-text:latest"
 	default:
 		profile.LLMProvider = "openai"
 		profile.OpenAIAPIKey = askSecret(reader, out, "OpenAI API key")
 	}
+	profile.EmbeddingModel = ask(reader, out, "Embedding model for MemPalace retrieval", profile.EmbeddingModel)
 
 	profile.HTTPPort = ask(reader, out, "Host HTTP port", profile.HTTPPort)
 	profile.APIToken = askSecret(reader, out, "Operator API token")
@@ -278,6 +282,7 @@ func (p ConfigProfile) EnvFile() string {
 		{"MISTRAL_API_KEY", p.MistralAPIKey},
 		{"GEMINI_API_KEY", p.GeminiAPIKey},
 		{"OLLAMA_BASE_URL", p.OllamaBaseURL},
+		{"EMBEDDING_MODEL", p.EmbeddingModel},
 	}
 
 	var b strings.Builder
@@ -307,6 +312,7 @@ func RenderSetupResult(path string, profile ConfigProfile, plain bool) string {
 		fmt.Sprintf("corpus root: %s", profile.CorpusRoot),
 		fmt.Sprintf("headroom: %s", profile.HeadroomURL),
 		fmt.Sprintf("mempalace: %s", profile.MemPalaceURL),
+		fmt.Sprintf("embedding: %s", firstNonEmpty(profile.EmbeddingModel, "provider default")),
 	}
 	text := strings.Join(lines, "\n")
 	if plain {

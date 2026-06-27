@@ -52,8 +52,9 @@ type Config struct {
 	ProviderBaseURL string // optional override (e.g. for openai_compat or Ollama)
 
 	// ReviewModel and SmallModel are the model strings for the fallback single-provider mode.
-	ReviewModel string // used for RoleReasoner
-	SmallModel  string // used for RoleFormatter
+	ReviewModel    string // used for RoleReasoner
+	SmallModel     string // used for RoleFormatter
+	EmbeddingModel string // used by memory/vector retrieval sidecars
 
 	// Per-provider API keys — used when the orchestrator config references
 	// multiple providers. All optional; only needed if that provider is used.
@@ -111,6 +112,7 @@ func LoadConfig() (*Config, error) {
 		ProviderBaseURL: os.Getenv("PROVIDER_BASE_URL"),
 		ReviewModel:     os.Getenv("REVIEW_MODEL"),
 		SmallModel:      os.Getenv("SMALL_MODEL"),
+		EmbeddingModel:  os.Getenv("EMBEDDING_MODEL"),
 
 		// Per-provider keys (multi-provider orchestration)
 		AnthropicAPIKey:   os.Getenv("ANTHROPIC_API_KEY"),
@@ -128,6 +130,9 @@ func LoadConfig() (*Config, error) {
 	}
 	if c.SmallModel == "" {
 		c.SmallModel = defaultModel(c.Provider, false)
+	}
+	if c.EmbeddingModel == "" {
+		c.EmbeddingModel = defaultEmbeddingModel(c.Provider, c.OllamaBaseURL)
 	}
 
 	var missing []string
@@ -230,6 +235,13 @@ func defaultModel(provider string, review bool) string {
 		}
 		return "claude-haiku-4-5-20251001"
 	}
+}
+
+func defaultEmbeddingModel(provider string, ollamaBaseURL string) string {
+	if provider == "ollama" || ollamaBaseURL != "" {
+		return "nomic-embed-text:latest"
+	}
+	return ""
 }
 
 func getEnv(key, fallback string) string {

@@ -16,12 +16,13 @@ type ChatOptions struct {
 }
 
 type ChatContext struct {
-	ConfigLoaded bool
-	ConfigError  string
-	HeadroomURL  string
-	MemPalaceURL string
-	RunID        string
-	ServerURL    string
+	ConfigLoaded   bool
+	ConfigError    string
+	HeadroomURL    string
+	MemPalaceURL   string
+	EmbeddingModel string
+	RunID          string
+	ServerURL      string
 }
 
 type ChatCommandFunc func(context.Context, string, io.Writer, ChatContext, ChatOptions) (bool, error)
@@ -181,6 +182,9 @@ func renderChatRail(ctx ChatContext) string {
 			lines = append(lines, "", "MCP")
 		}
 		lines = append(lines, "mempalace connected")
+	}
+	if ctx.EmbeddingModel != "" {
+		lines = append(lines, "", "RAG", "embed     "+trimTo(ctx.EmbeddingModel, 18))
 	}
 	if ctx.ConfigError != "" {
 		lines = append(lines, "", "Config", trimTo(ctx.ConfigError, 28))

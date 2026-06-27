@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Y4NN777/7review/agent/config"
+	"github.com/Y4NN777/7review/agent/review"
 	"github.com/Y4NN777/7review/agent/tools"
 	"github.com/Y4NN777/7review/agent/ui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -859,6 +861,117 @@ func TestNormalizeConsoleCommandOutputStripsPlainChatPrefix(t *testing.T) {
 	}
 	if got := normalizeConsoleCommandOutput("sessions 0"); got != "sessions 0" {
 		t.Fatalf("output without prefix should stay unchanged: %q", got)
+	}
+}
+
+func TestConsoleChatResponderUsesLocalModelWhenNoRunIsActive(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "local-dev-token")
+	t.Setenv("GITHUB_WEBHOOK_SECRET", "local-dev-secret")
+	t.Setenv("REVIEW_API_TOKEN", "agent-token")
+	t.Setenv("HEADROOM_URL", "http://headroom:8787")
+	t.Setenv("MEMPALACE_URL", "http://mempalace:8788")
+	t.Setenv("PROVIDER", "ollama")
+	t.Setenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+	t.Setenv("REVIEW_MODEL", "qwen2.5-coder-7b-16k:latest")
+	t.Setenv("SMALL_MODEL", "qwen2.5-coder:1.5b")
+	t.Setenv("ORCHESTRATOR_CONFIG", "")
+
+	responder, err := consoleChatResponder(tuiCommandOptions{serverURL: "http://agent"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := responder.(*modelChatResponder); !ok {
+		t.Fatalf("expected local model responder for no-run chat, got %T", responder)
+	}
+}
+
+func TestChatSystemPromptDefinesOperationalContract(t *testing.T) {
+	prompt := chatSystemPrompt(&config.Config{
+		InstructionsPath:       "../../agent/instructions.md",
+		HeadroomURL:            "http://headroom:8787",
+		MemPalaceURL:           "http://mempalace:8788",
+		GitLabURL:              "https://gitlab.example.com",
+		GitHubAPIURL:           "https://api.github.com",
+		Provider:               "ollama",
+		ReviewModel:            "qwen2.5-coder-7b-16k:latest",
+		SmallModel:             "qwen2.5-coder:1.5b",
+		EmbeddingModel:         "nomic-embed-text:latest",
+		OrchestratorConfigPath: "./orchestrator.yaml",
+	})
+	for _, want := range []string{
+		"7review Agent Instructions",
+		"Your product identity is 7review.",
+		"Do not claim to be Codex, Claude, OpenCode, OpenAI",
+		"do not describe diff hunks as a context window",
+		"use the retrieved memory block",
+		"Always separate known state from assumptions.",
+		"Never invent runtime state",
+		"Prefer one clear next command",
+		"Do not claim final approval",
+		"Headroom and MemPalace as required dependencies",
+		"REVIEW_API_TOKEN",
+		"7review status --server <agent-url>",
+		"7review chat --run <run-id> --server <agent-url>",
+		"7review approve",
+		"7review publish-final",
+		"curl <agent-url>/ready",
+		"get_run",
+		"approve_run",
+		"Provider: ollama",
+		"Review model: qwen2.5-coder-7b-16k:latest",
+		"Small/formatter model: qwen2.5-coder:1.5b",
+		"Embedding model: nomic-embed-text:latest",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestDeterministicOperatorAnswerHandlesIdentityAndModelQuestions(t *testing.T) {
+	cfg := &config.Config{
+		Provider:               "ollama",
+		ReviewModel:            "qwen2.5-coder-7b-16k:latest",
+		SmallModel:             "qwen2.5-coder:1.5b",
+		EmbeddingModel:         "nomic-embed-text:latest",
+		OrchestratorConfigPath: "./orchestrator.yaml",
+	}
+	identity, ok := deterministicOperatorAnswer(cfg, "who created you?")
+	if !ok || !strings.Contains(identity, "I am 7review") || strings.Contains(identity, "I am Codex") || strings.Contains(identity, "OpenAI-powered") {
+		t.Fatalf("bad identity answer ok=%t:\n%s", ok, identity)
+	}
+	model, ok := deterministicOperatorAnswer(cfg, "what kind of model are you?")
+	for _, want := range []string{"Provider: ollama", "Review model: qwen2.5-coder-7b-16k:latest", "Formatter/chat model: qwen2.5-coder:1.5b", "Embedding model: nomic-embed-text:latest"} {
+		if !ok || !strings.Contains(model, want) {
+			t.Fatalf("model answer missing %q ok=%t:\n%s", want, ok, model)
+		}
+	}
+	context, ok := deterministicOperatorAnswer(cfg, "what about your context window?")
+	if !ok || !strings.Contains(context, "does not treat a diff hunk as the model context window") {
+		t.Fatalf("bad context answer ok=%t:\n%s", ok, context)
+	}
+}
+
+func TestModelChatResponderUserMessageIncludesRetrievedMemory(t *testing.T) {
+	responder := &modelChatResponder{}
+	block := renderOperatorMemoryRecall(review.MemoryRecall{
+		Conventions: []string{"Use bounded webhook workers."},
+		Decisions:   []string{"Headroom and MemPalace are required sidecars."},
+		History:     []string{"Previous review preferred explicit HIL approval."},
+	})
+	message := responder.userMessage("what should I check?", block)
+	for _, want := range []string{
+		"Retrieved memory and embedding-backed context for the small model:",
+		"retrieval: mempalace",
+		"conventions:",
+		"- Use bounded webhook workers.",
+		"Structured task input:",
+		"User message:",
+		"what should I check?",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("message missing %q:\n%s", want, message)
+		}
 	}
 }
 

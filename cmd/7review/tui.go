@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Y4NN777/7review/agent/config"
+	"github.com/Y4NN777/7review/agent/orchestrator"
 	"github.com/Y4NN777/7review/agent/tools"
 	"github.com/Y4NN777/7review/agent/ui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -87,6 +89,7 @@ type remoteConfigStatus struct {
 	Provider         string `json:"provider"`
 	ReviewModel      string `json:"review_model"`
 	SmallModel       string `json:"small_model"`
+	EmbeddingModel   string `json:"embedding_model"`
 	Orchestrator     string `json:"orchestrator_config"`
 	HasGitLab        bool   `json:"has_gitlab"`
 	HasGitHub        bool   `json:"has_github"`
@@ -234,7 +237,7 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input = ""
 			m.commandRunning = true
 			m.transcript = appendTranscript(m.transcript, "you", command)
-			if !strings.HasPrefix(command, "/") && m.effectiveRunID() != "" {
+			if !strings.HasPrefix(command, "/") {
 				ch, cancel := startConsoleChatStream(m.opts, m.effectiveRunID(), command)
 				m.stream = ch
 				m.cancel = cancel
@@ -377,12 +380,12 @@ func startConsoleChatStream(opts tuiCommandOptions, runID string, input string) 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		defer close(ch)
-		responder := &remoteRunChatResponder{
-			serverURL:  strings.TrimRight(opts.serverURL, "/"),
-			runID:      runID,
-			httpClient: operatorStreamHTTPClient(),
+		responder, err := consoleChatResponder(opts, runID)
+		if err != nil {
+			ch <- consoleStreamMsg{err: err}
+			return
 		}
-		err := responder.StreamRespond(ctx, input, func(delta string) error {
+		err = responder.StreamRespond(ctx, input, func(delta string) error {
 			if delta == "" {
 				return nil
 			}
@@ -400,6 +403,25 @@ func startConsoleChatStream(opts tuiCommandOptions, runID string, input string) 
 		ch <- consoleStreamMsg{done: true}
 	}()
 	return ch, cancel
+}
+
+func consoleChatResponder(opts tuiCommandOptions, runID string) (ui.ChatResponder, error) {
+	if strings.TrimSpace(runID) != "" {
+		return &remoteRunChatResponder{
+			serverURL:  strings.TrimRight(opts.serverURL, "/"),
+			runID:      runID,
+			httpClient: operatorStreamHTTPClient(),
+		}, nil
+	}
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("local model chat needs config or an active run: %w", err)
+	}
+	modelOrchestrator, err := orchestrator.BuildOrchestrator(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("local model chat orchestration is not ready: %w", err)
+	}
+	return &modelChatResponder{orchestrator: modelOrchestrator, cfg: cfg}, nil
 }
 
 func waitConsoleStream(ch <-chan consoleStreamMsg) tea.Cmd {

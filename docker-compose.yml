@@ -40,6 +40,7 @@ services:
       PROVIDER_BASE_URL: "${PROVIDER_BASE_URL:-}"
       REVIEW_MODEL: "${REVIEW_MODEL:-}"
       SMALL_MODEL: "${SMALL_MODEL:-}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-}"
     ports:
       - "${HTTP_PORT:-8080}:8080"
     extra_hosts:
@@ -89,6 +90,8 @@ services:
       MEMPALACE_BRIDGE_PORT: "8788"
       MEMPALACE_DATA_DIR: /data
       MEMPALACE_NAMESPACE: "${MEMPALACE_NAMESPACE:-7review}"
+      MEMPALACE_EMBEDDING_MODEL: "${EMBEDDING_MODEL:-}"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-}"
     volumes:
       - mempalace-data:/data
     expose:

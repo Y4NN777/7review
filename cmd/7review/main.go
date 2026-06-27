@@ -274,6 +274,7 @@ func runChat() {
 			chatCtx.ConfigLoaded = true
 			chatCtx.HeadroomURL = cfg.HeadroomURL
 			chatCtx.MemPalaceURL = cfg.MemPalaceURL
+			chatCtx.EmbeddingModel = cfg.EmbeddingModel
 			modelOrchestrator, err := orchestrator.BuildOrchestrator(cfg)
 			if err != nil {
 				chatCtx.ConfigLoaded = false
@@ -603,6 +604,7 @@ func renderConfigStatusSummary(status remoteConfigStatus) string {
 	lines = appendIfSet(lines, "provider ", status.Provider)
 	lines = appendIfSet(lines, "review   ", status.ReviewModel)
 	lines = appendIfSet(lines, "small    ", status.SmallModel)
+	lines = appendIfSet(lines, "embed    ", status.EmbeddingModel)
 	lines = appendIfSet(lines, "orch     ", status.Orchestrator)
 	lines = appendIfSet(lines, "corpus   ", status.CorpusRoot)
 	lines = appendIfSet(lines, "memory   ", status.MemoryDir)
@@ -1213,14 +1215,27 @@ func addAgentAuthHeaders(req *http.Request) {
 type modelChatResponder struct {
 	orchestrator *orchestrator.Orchestrator
 	cfg          *config.Config
+	memory       operatorMemoryRecall
 	history      []string
 }
 
+type operatorMemoryRecall interface {
+	Recall(context.Context, review.Request) (review.MemoryRecall, error)
+}
+
 func (r *modelChatResponder) StreamRespond(ctx context.Context, input string, emit func(string) error) error {
+	if answer, ok := deterministicOperatorAnswer(r.cfg, input); ok {
+		r.history = append(r.history, "user: "+input, "agent: "+answer)
+		if len(r.history) > 12 {
+			r.history = r.history[len(r.history)-12:]
+		}
+		return emit(answer)
+	}
+
 	callCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	userMessage := r.userMessage(input)
+	userMessage := r.userMessage(input, r.operatorMemoryBlock(callCtx, input))
 	rc := review.NewContext(review.Request{Provider: "cli", ProjectID: "local", ChangeID: "chat"})
 	out, err := r.orchestrator.StreamComplete(callCtx, rc, orchestrator.RoleFormatter, "chat", chatSystemPrompt(r.cfg), userMessage, emit)
 	if err != nil {
@@ -1233,7 +1248,105 @@ func (r *modelChatResponder) StreamRespond(ctx context.Context, input string, em
 	return nil
 }
 
-func (r *modelChatResponder) userMessage(input string) string {
+func deterministicOperatorAnswer(cfg *config.Config, input string) (string, bool) {
+	text := strings.ToLower(strings.TrimSpace(input))
+	switch {
+	case containsAny(text, "who created you", "who made you", "are you codex", "are you openai", "are you claude", "are you opencode"):
+		return "I am 7review, the code-review agent in this repository. I run on the configured model provider; I should not claim to be Codex, OpenAI, Claude, or OpenCode.", true
+	case containsAny(text, "what kind of model", "what model are you", "which model", "your model", "models are you"):
+		return strings.Join([]string{
+			"I am 7review's operator chat surface, backed by the configured model routing.",
+			"Provider: " + cfg.Provider,
+			"Review model: " + cfg.ReviewModel,
+			"Formatter/chat model: " + cfg.SmallModel,
+			"Embedding model: " + firstNonEmptyCommand(cfg.EmbeddingModel, "not configured"),
+			"Orchestrator config: " + firstNonEmptyCommand(cfg.OrchestratorConfigPath, "env single-provider mode"),
+			"Use `/providers` in run chat or `7review status --server <agent-url>` for live runtime status.",
+		}, "\n"), true
+	case containsAny(text, "context window", "context size", "context length", "token window"):
+		return strings.Join([]string{
+			"7review does not treat a diff hunk as the model context window.",
+			"It builds review context from SCM diff, selected corpus, recalled memory, and Headroom compression.",
+			"The exact context window depends on the configured provider/model; current routing is:",
+			"Provider: " + cfg.Provider,
+			"Review model: " + cfg.ReviewModel,
+			"Formatter/chat model: " + cfg.SmallModel,
+			"Embedding model: " + firstNonEmptyCommand(cfg.EmbeddingModel, "not configured"),
+		}, "\n"), true
+	default:
+		return "", false
+	}
+}
+
+func containsAny(value string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *modelChatResponder) operatorMemoryBlock(ctx context.Context, input string) string {
+	memory := r.memory
+	if memory == nil && r.cfg != nil && strings.TrimSpace(r.cfg.MemPalaceURL) != "" {
+		memory = tools.NewMemPalaceStore(r.cfg.MemPalaceURL, time.Duration(r.cfg.MemPalaceTimeout)*time.Millisecond)
+	}
+	if memory == nil {
+		return "retrieval: unavailable\nreason: MemPalace is not configured for operator chat"
+	}
+	recall, err := memory.Recall(ctx, review.Request{
+		Provider:    "cli",
+		ProjectID:   "local",
+		Repository:  "operator-chat",
+		ChangeID:    "chat",
+		Title:       input,
+		Description: strings.Join(r.history, "\n"),
+	})
+	if err != nil {
+		return "retrieval: unavailable\nreason: " + err.Error()
+	}
+	return renderOperatorMemoryRecall(recall)
+}
+
+func renderOperatorMemoryRecall(recall review.MemoryRecall) string {
+	lines := []string{"retrieval: mempalace"}
+	lines = appendMemorySection(lines, "conventions", recall.Conventions)
+	lines = appendMemorySection(lines, "decisions", recall.Decisions)
+	lines = appendMemorySection(lines, "history", recall.History)
+	if len(lines) == 1 {
+		lines = append(lines, "no matching memory")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func appendMemorySection(lines []string, label string, values []string) []string {
+	if len(values) == 0 {
+		return lines
+	}
+	lines = append(lines, label+":")
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		lines = append(lines, "- "+truncateForPrompt(value, 500))
+	}
+	return lines
+}
+
+func truncateForPrompt(value string, max int) string {
+	value = strings.TrimSpace(value)
+	if max <= 0 || len(value) <= max {
+		return value
+	}
+	if max <= 3 {
+		return value[:max]
+	}
+	return value[:max-3] + "..."
+}
+
+func (r *modelChatResponder) userMessage(input string, memoryBlock string) string {
 	var b strings.Builder
 	if len(r.history) > 0 {
 		b.WriteString("Recent chat history:\n")
@@ -1243,6 +1356,10 @@ func (r *modelChatResponder) userMessage(input string) string {
 		}
 		b.WriteString("\n")
 	}
+	b.WriteString("Retrieved memory and embedding-backed context for the small model:\n")
+	b.WriteString(memoryBlock)
+	b.WriteString("\n\n")
+	b.WriteString("Structured task input:\n")
 	b.WriteString("User message:\n")
 	b.WriteString(input)
 	return b.String()
@@ -1256,6 +1373,13 @@ func chatSystemPrompt(cfg *config.Config) string {
 	}
 	return strings.Join([]string{
 		"You are 7review's live engineering copilot, embedded in a production code-review agent.",
+		"Identity rules:",
+		"- Your product identity is 7review.",
+		"- Do not claim to be Codex, Claude, OpenCode, OpenAI, Anthropic, Qwen, Ollama, or any other harness/provider.",
+		"- If asked who created you, say you are the 7review code-review agent running on the configured model provider; do not invent a creator.",
+		"- If asked what model you are, explain the configured provider and role routing shown below. Say the exact underlying model can only be verified from runtime configuration/logs.",
+		"- If asked about context window size, do not describe diff hunks as a context window. Say 7review builds review context from SCM diff, selected corpus, memory, and Headroom compression; exact token limits depend on the configured model and role.",
+		"- For small/formatter model answers, use the retrieved memory block in the user message as the only memory-backed knowledge. If it says retrieval is unavailable or no matching memory, say so plainly.",
 		"Always-on instructions:",
 		instructions,
 		"Your job is to help engineers operate and iterate with the agent while preserving the review lifecycle: webhook -> SCM enrichment -> diff/context -> model review -> validation -> draft -> HIL approval -> final publish -> memory write.",
@@ -1291,6 +1415,12 @@ func chatSystemPrompt(cfg *config.Config) string {
 		"MemPalace: " + cfg.MemPalaceURL,
 		"GitLab URL: " + cfg.GitLabURL,
 		"GitHub API URL: " + cfg.GitHubAPIURL,
+		"Configured model routing:",
+		"Provider: " + cfg.Provider,
+		"Review model: " + cfg.ReviewModel,
+		"Small/formatter model: " + cfg.SmallModel,
+		"Embedding model: " + firstNonEmptyCommand(cfg.EmbeddingModel, "not configured"),
+		"Orchestrator config: " + cfg.OrchestratorConfigPath,
 	}, "\n")
 }
 
