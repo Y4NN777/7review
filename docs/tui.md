@@ -10,6 +10,7 @@ The command-line interface is an operational TUI for setup and day-to-day checks
 7review status --server http://localhost:8080
 7review tui --server http://localhost:8080
 7review tui --watch --refresh 5s --server http://localhost:8080
+7review sessions --server http://localhost:8080
 7review history <project!mr> --server http://localhost:8080
 7review history <project!mr> --type chat_message --limit 20 --server http://localhost:8080
 7review chat
@@ -40,6 +41,12 @@ loaded skills, and tool count. It reads live agent endpoints only: `/ready`,
 `list_provider_status`, and `list_skills`. With `--watch`, it refreshes in place
 until interrupted.
 
+`sessions` renders a compact human-readable list of persisted review sessions
+from the run store. It uses the same authenticated `list_runs` tool as the TUI,
+orders sessions newest first, and shows the run id, provider, status, update
+time, history count, title, and normalized change id. `runs` remains available
+for raw JSON output.
+
 `history` renders a run timeline from `/run?id=<run-id>`, including lifecycle
 events and persisted run-chat events. Use `--type` to filter one event type and
 `--limit` to show only the latest matching events.
@@ -64,9 +71,9 @@ model sees the stored draft report, validated findings, status, and SCM URL for
 that specific review run. Inside chat, local commands stay in the terminal flow:
 `/status` checks agent readiness, `/tools` lists implemented agent tools,
 `/providers` shows model provider and role routing, `/config` shows redacted
-runtime configuration, `/skills` lists loaded agent skills, `/run` shows the
-current session summary, `/diff` shows changed files and patch summary,
-`/history` shows the run timeline, and
+runtime configuration, `/skills` lists loaded agent skills, `/sessions` lists
+review sessions, `/run` shows the current session summary, `/diff` shows
+changed files and patch summary, `/history` shows the run timeline, and
 `/history chat_message 20` shows the latest persisted chat messages without
 sending that command to the model. `/memory` previews the approved MemPalace
 proposal. `/draft` prints the current draft report, and `/draft final.md` writes

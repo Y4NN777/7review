@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -51,6 +52,13 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "runs" {
 		runListRuns()
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "sessions" {
+		if err := runSessions(os.Args[2:], os.Stdout, operatorRequestHTTPClient()); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "run" {
@@ -93,6 +101,16 @@ func runListRuns() {
 		os.Exit(1)
 	}
 	fmt.Println(body)
+}
+
+func runSessions(args []string, out io.Writer, client *http.Client) error {
+	serverURL := commandServerURL(args)
+	var runs []remoteRunRow
+	if err := executeRemoteTool(client, serverURL, "list_runs", nil, &runs); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, renderSessionsSummary(runs))
+	return nil
 }
 
 func runGetRun() {
@@ -258,6 +276,13 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 				return true, err
 			}
 			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderSkillStatusSummary(skills)}, opts.Plain))
+			return true, nil
+		case "/sessions":
+			var runs []remoteRunRow
+			if err := executeRemoteTool(client, serverURL, "list_runs", nil, &runs); err != nil {
+				return true, err
+			}
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderSessionsSummary(runs)}, opts.Plain))
 			return true, nil
 		case "/diff":
 			if runID == "" {
@@ -425,6 +450,7 @@ func chatCommandHelp(hasRun bool) string {
 		"/providers show model providers and role routes",
 		"/config    show redacted runtime configuration",
 		"/skills    show loaded agent skills",
+		"/sessions  list review sessions",
 		"quit       exit chat",
 	}
 	if hasRun {
@@ -573,6 +599,77 @@ func renderDiffSummary(summary remoteDiffSummary) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderSessionsSummary(runs []remoteRunRow) string {
+	if len(runs) == 0 {
+		return "sessions 0"
+	}
+	sorted := append([]remoteRunRow(nil), runs...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].UpdatedAt.Equal(sorted[j].UpdatedAt) {
+			return sorted[i].ID < sorted[j].ID
+		}
+		if sorted[i].UpdatedAt.IsZero() {
+			return false
+		}
+		if sorted[j].UpdatedAt.IsZero() {
+			return true
+		}
+		return sorted[i].UpdatedAt.After(sorted[j].UpdatedAt)
+	})
+	lines := []string{fmt.Sprintf("sessions %d", len(sorted))}
+	for _, run := range firstRunRows(sorted, 12) {
+		status := strings.TrimSpace(run.Status)
+		if status == "" {
+			status = "unknown"
+		}
+		if run.HILApproved {
+			status += "+approved"
+		}
+		updated := "-"
+		if !run.UpdatedAt.IsZero() {
+			updated = run.UpdatedAt.UTC().Format("2006-01-02 15:04Z")
+		}
+		history := ""
+		if run.EventCount > 0 {
+			history = fmt.Sprintf(" history=%d", run.EventCount)
+		}
+		change := strings.TrimSpace(run.ProjectID)
+		if run.ChangeID != "" {
+			if change == "" {
+				change = strings.TrimSpace(run.ChangeID)
+			} else {
+				change = strings.TrimSpace(change + "!" + run.ChangeID)
+			}
+		}
+		if change == "" {
+			change = "-"
+		}
+		title := trimCommandLine(firstNonEmptyCommand(run.Title, run.ID), 42)
+		lines = append(lines, fmt.Sprintf("%-20s %-8s %-18s %-20s%s %s", trimCommandLine(run.ID, 20), trimCommandLine(run.Provider, 8), trimCommandLine(status, 18), updated, history, title))
+		lines = append(lines, "  change "+trimCommandLine(change, 96))
+	}
+	if len(sorted) > 12 {
+		lines = append(lines, fmt.Sprintf("%d more sessions", len(sorted)-12))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func firstRunRows(values []remoteRunRow, limit int) []remoteRunRow {
+	if len(values) <= limit {
+		return values
+	}
+	return values[:limit]
+}
+
+func firstNonEmptyCommand(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func renderSkillStatusSummary(skills []remoteSkillStatus) string {

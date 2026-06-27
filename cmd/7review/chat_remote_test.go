@@ -292,6 +292,33 @@ func TestChatCommandHandlerRendersSkillStatus(t *testing.T) {
 	}
 }
 
+func TestChatCommandHandlerRendersSessions(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost || req.URL.Path != "/tools/execute" {
+			t.Fatalf("unexpected sessions request: %s %s", req.Method, req.URL.String())
+		}
+		body, _ := io.ReadAll(req.Body)
+		if !strings.Contains(string(body), `"name":"list_runs"`) {
+			t.Fatalf("unexpected sessions request body: %s", string(body))
+		}
+		return jsonResponse(http.StatusOK, `{"name":"list_runs","result":[{"id":"owner/repo!6","provider":"github","project_id":"owner/repo","change_id":"6","title":"Older change","status":"finalized","updated_at":"2026-06-27T11:00:00Z","event_count":2,"hil_approved":true},{"id":"owner/repo!7","provider":"github","project_id":"owner/repo","change_id":"7","title":"Fix validation","status":"drafted","updated_at":"2026-06-27T12:00:00Z","event_count":3}]}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "", client)(context.Background(), "/sessions", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"sessions 2", "owner/repo!7", "Fix validation", "history=3", "owner/repo!6", "finalized+approved", "change owner/repo!6"} {
+		if !handled || !strings.Contains(out.String(), want) {
+			t.Fatalf("sessions command output missing %q handled=%t:\n%s", want, handled, out.String())
+		}
+	}
+	if strings.Index(out.String(), "owner/repo!7") > strings.Index(out.String(), "owner/repo!6") {
+		t.Fatalf("sessions were not rendered newest first:\n%s", out.String())
+	}
+}
+
 func TestChatCommandHandlerPrintsDraftReport(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusOK, `{"id":"owner/repo!7","status":"drafted","draft_report":"draft body"}`), nil
@@ -519,6 +546,33 @@ func TestRequestAgentSendsMethodAndBody(t *testing.T) {
 	}
 	if out != "queued" {
 		t.Fatalf("unexpected response %q", out)
+	}
+}
+
+func TestRunSessionsUsesListRunsTool(t *testing.T) {
+	t.Setenv("REVIEW_API_TOKEN", "agent-token")
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost || req.URL.String() != "http://agent/tools/execute" {
+			t.Fatalf("unexpected sessions request: %s %s", req.Method, req.URL.String())
+		}
+		if req.Header.Get("Authorization") != "Bearer agent-token" {
+			t.Fatalf("missing auth header: %#v", req.Header)
+		}
+		body, _ := io.ReadAll(req.Body)
+		if !strings.Contains(string(body), `"name":"list_runs"`) {
+			t.Fatalf("unexpected sessions request body: %s", string(body))
+		}
+		return jsonResponse(http.StatusOK, `{"name":"list_runs","result":[{"id":"owner/repo!7","provider":"github","project_id":"owner/repo","change_id":"7","title":"Fix validation","status":"drafted","updated_at":"2026-06-27T12:00:00Z","event_count":3}]}`), nil
+	})}
+
+	var out strings.Builder
+	if err := runSessions([]string{"--server", "http://agent"}, &out, client); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"sessions 1", "owner/repo!7", "github", "drafted", "Fix validation", "change owner/repo!7"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("sessions output missing %q:\n%s", want, out.String())
+		}
 	}
 }
 
