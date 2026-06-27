@@ -160,6 +160,41 @@ func TestChatCommandHandlerRendersRunSummary(t *testing.T) {
 	}
 }
 
+func TestChatCommandHandlerPrintsDraftReport(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"id":"owner/repo!7","status":"drafted","draft_report":"draft body"}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "owner/repo!7", client)(context.Background(), "/draft", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !handled || !strings.Contains(out.String(), "agent: draft body") {
+		t.Fatalf("unexpected draft command handled=%t out=%s", handled, out.String())
+	}
+}
+
+func TestChatCommandHandlerWritesDraftReportToQuotedPath(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"id":"owner/repo!7","status":"drafted","draft_report":"draft body"}`), nil
+	})}
+	path := filepath.Join(t.TempDir(), "draft report.md")
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "owner/repo!7", client)(context.Background(), `/draft "`+path+`"`, &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !handled || string(data) != "draft body" || !strings.Contains(out.String(), "draft report written to") {
+		t.Fatalf("unexpected draft write handled=%t data=%q out=%s", handled, string(data), out.String())
+	}
+}
+
 func TestChatCommandHandlerApprovesRunFromReportFile(t *testing.T) {
 	reportPath := filepath.Join(t.TempDir(), "final report.md")
 	if err := os.WriteFile(reportPath, []byte("approved final"), 0o644); err != nil {

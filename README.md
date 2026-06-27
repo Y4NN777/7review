@@ -161,7 +161,7 @@ background work. Request handlers do not run review work inline.
 7review chat
 7review chat <run-id> --server http://localhost:8080
 7review chat --run <run-id> --server http://localhost:8080
-# inside run chat: /run, /history, /approve --report-file final.md
+# inside run chat: /run, /draft final.md, /approve --report-file final.md
 7review approve --run <run-id> --report-file final.md --server http://localhost:8080
 7review publish-final --run <run-id> --report-file final.md --server http://localhost:8080
 ```

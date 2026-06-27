@@ -254,6 +254,20 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 			}
 			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderRunSnapshot(detail)}, opts.Plain))
 			return true, nil
+		case "/draft":
+			if runID == "" {
+				return true, fmt.Errorf("/draft requires chat <run-id> or --run <run-id>")
+			}
+			detail, err := fetchRemoteRunDetail(client, serverURL, runID)
+			if err != nil {
+				return true, err
+			}
+			message, err := renderOrWriteDraft(detail, fields[1:])
+			if err != nil {
+				return true, err
+			}
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: message}, opts.Plain))
+			return true, nil
 		case "/approve":
 			if runID == "" {
 				return true, fmt.Errorf("/approve requires chat <run-id> or --run <run-id>")
@@ -359,6 +373,8 @@ func chatCommandHelp(hasRun bool) string {
 	if hasRun {
 		lines = append(lines,
 			"/run       show current run summary",
+			"/draft     show current draft report",
+			"/draft final.md   write current draft report to a file",
 			"/history   show current run timeline",
 			"/history chat_message 20   show latest chat messages",
 			"/approve --report-file final.md   approve and publish final",
@@ -366,6 +382,27 @@ func chatCommandHelp(hasRun bool) string {
 		)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderOrWriteDraft(run remoteRunDetail, args []string) (string, error) {
+	draft := strings.TrimSpace(run.DraftReport)
+	if draft == "" {
+		return "", fmt.Errorf("run %s has no draft report", run.ID)
+	}
+	if len(args) == 0 {
+		return draft, nil
+	}
+	if len(args) > 1 {
+		return "", fmt.Errorf("/draft accepts at most one output path")
+	}
+	path := strings.TrimSpace(args[0])
+	if path == "" {
+		return "", fmt.Errorf("/draft output path is empty")
+	}
+	if err := os.WriteFile(path, []byte(draft), 0o600); err != nil {
+		return "", fmt.Errorf("write draft report: %w", err)
+	}
+	return fmt.Sprintf("draft report written to %s (%d bytes)", path, len(draft)), nil
 }
 
 func hasFlag(args []string, name string) bool {
