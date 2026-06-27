@@ -53,6 +53,26 @@ func (r appToolRunner) ConfigStatus(context.Context) (any, error) {
 	return configStatus(r.server.cfg), nil
 }
 
+func (r appToolRunner) ListSkills(context.Context) (any, error) {
+	if r.server == nil || r.server.pipeline == nil || r.server.pipeline.SkillLoader == nil {
+		return []skillStatusDTO{}, nil
+	}
+	out := make([]skillStatusDTO, 0, len(r.server.pipeline.SkillLoader.Skills))
+	for _, skill := range r.server.pipeline.SkillLoader.Skills {
+		out = append(out, skillStatusDTO{
+			Name:          skill.Name,
+			Description:   skill.Description,
+			License:       skill.License,
+			Compatibility: skill.Compatibility,
+			AllowedTools:  skill.AllowedTools,
+			Metadata:      skill.Metadata,
+			Path:          skill.Path,
+			Loaded:        true,
+		})
+	}
+	return out, nil
+}
+
 func (s *Server) handleToolExecute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -79,6 +99,7 @@ func (s *Server) handleToolExecute(w http.ResponseWriter, r *http.Request) {
 		Actions: appToolRunner{server: s},
 		Ready:   appToolRunner{server: s},
 		Config:  appToolRunner{server: s},
+		Skills:  appToolRunner{server: s},
 	}).Execute(r.Context(), req)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -162,6 +183,17 @@ type configStatusDTO struct {
 	WebhookQueueSize int    `json:"webhook_queue_size"`
 }
 
+type skillStatusDTO struct {
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	License       string            `json:"license,omitempty"`
+	Compatibility string            `json:"compatibility,omitempty"`
+	AllowedTools  string            `json:"allowed_tools,omitempty"`
+	Metadata      map[string]string `json:"metadata,omitempty"`
+	Path          string            `json:"path"`
+	Loaded        bool              `json:"loaded"`
+}
+
 func configStatus(cfg *config.Config) configStatusDTO {
 	if cfg == nil {
 		return configStatusDTO{}
@@ -195,3 +227,4 @@ var _ tools.RunReader = appToolRunner{}
 var _ tools.RunActions = appToolRunner{}
 var _ tools.ReadyChecker = appToolRunner{}
 var _ tools.ConfigStatusReader = appToolRunner{}
+var _ tools.SkillLister = appToolRunner{}

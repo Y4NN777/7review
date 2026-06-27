@@ -51,9 +51,15 @@ func (fakeConfig) ConfigStatus(context.Context) (any, error) {
 	return map[string]any{"provider": "openrouter"}, nil
 }
 
+type fakeSkills struct{}
+
+func (fakeSkills) ListSkills(context.Context) (any, error) {
+	return []string{"methodology-review"}, nil
+}
+
 func TestToolExecutorExecutesReadOnlyTools(t *testing.T) {
 	runs := &fakeRunTools{}
-	executor := ToolExecutor{Runs: runs, Ready: fakeReady{}, Config: fakeConfig{}}
+	executor := ToolExecutor{Runs: runs, Ready: fakeReady{}, Config: fakeConfig{}, Skills: fakeSkills{}}
 
 	if _, err := executor.Execute(context.Background(), ExecuteRequest{Name: "list_runs"}); err != nil {
 		t.Fatal(err)
@@ -69,7 +75,7 @@ func TestToolExecutorExecutesReadOnlyTools(t *testing.T) {
 		t.Fatalf("unexpected get_run id %q", runs.gotID)
 	}
 
-	for _, name := range []string{"check_ready", "get_config_status"} {
+	for _, name := range []string{"check_ready", "get_config_status", "list_skills"} {
 		if _, err := executor.Execute(context.Background(), ExecuteRequest{Name: name}); err != nil {
 			t.Fatalf("%s failed: %v", name, err)
 		}

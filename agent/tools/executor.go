@@ -12,6 +12,7 @@ type ToolExecutor struct {
 	Actions RunActions
 	Ready   ReadyChecker
 	Config  ConfigStatusReader
+	Skills  SkillLister
 }
 
 type RunReader interface {
@@ -30,6 +31,10 @@ type ReadyChecker interface {
 
 type ConfigStatusReader interface {
 	ConfigStatus(context.Context) (any, error)
+}
+
+type SkillLister interface {
+	ListSkills(context.Context) (any, error)
 }
 
 type ExecuteRequest struct {
@@ -79,6 +84,12 @@ func (e ToolExecutor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteR
 			return ExecuteResponse{}, fmt.Errorf("tools: config status reader is not configured")
 		}
 		result, err := e.Config.ConfigStatus(ctx)
+		return ExecuteResponse{Name: name, Result: result}, err
+	case "list_skills":
+		if e.Skills == nil {
+			return ExecuteResponse{}, fmt.Errorf("tools: skill lister is not configured")
+		}
+		result, err := e.Skills.ListSkills(ctx)
 		return ExecuteResponse{Name: name, Result: result}, err
 	case "approve_run":
 		if e.Actions == nil {

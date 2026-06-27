@@ -14,6 +14,7 @@ import (
 	"github.com/Y4NN777/7review/agent/orchestrator"
 	"github.com/Y4NN777/7review/agent/pipeline"
 	"github.com/Y4NN777/7review/agent/review"
+	"github.com/Y4NN777/7review/agent/skills"
 )
 
 func TestHandleReadyReportsRequiredDependencies(t *testing.T) {
@@ -516,6 +517,45 @@ func TestHandleToolExecuteGetConfigStatusRedactsSecrets(t *testing.T) {
 	}
 	if !strings.Contains(body, `"has_github":true`) || !strings.Contains(body, `"has_openrouter":true`) || !strings.Contains(body, `"has_deepseek":true`) {
 		t.Fatalf("config status missing provider booleans: %s", body)
+	}
+}
+
+func TestHandleToolExecuteListSkills(t *testing.T) {
+	s := &Server{
+		pipeline: &pipeline.Pipeline{
+			Jobs: pipeline.NewMemoryRunStore(),
+			SkillLoader: &skills.Loader{Skills: []skills.Skill{{
+				Name:          "methodology-review",
+				Description:   "Use for review methodology.",
+				License:       "Apache-2.0",
+				Compatibility: "go",
+				AllowedTools:  "bash",
+				Metadata:      map[string]string{"version": "1.0.0"},
+				Path:          "agent/skills/methodology-review/SKILL.md",
+			}}},
+		},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(`{"name":"list_skills"}`))
+	rec := httptest.NewRecorder()
+
+	s.handleToolExecute(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Name   string           `json:"name"`
+		Result []skillStatusDTO `json:"result"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Name != "list_skills" || len(resp.Result) != 1 {
+		t.Fatalf("unexpected skill response: %#v", resp)
+	}
+	got := resp.Result[0]
+	if got.Name != "methodology-review" || !got.Loaded || got.Metadata["version"] != "1.0.0" {
+		t.Fatalf("unexpected skill metadata: %#v", got)
 	}
 }
 
