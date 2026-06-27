@@ -50,3 +50,15 @@ func TestRunChat_RendersResponderError(t *testing.T) {
 		t.Fatalf("unexpected output:\n%s", out.String())
 	}
 }
+
+func TestRenderChatIntroStyledUsesTerminalComposer(t *testing.T) {
+	out := RenderChatIntro(ChatContext{ConfigLoaded: true}, false)
+	for _, want := range []string{"7review", "| ask about setup, status, reviews, or next steps", "Chat  7review", "tab switch agent"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("styled chat intro missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "7review chat\nconfig loaded") {
+		t.Fatalf("styled chat intro kept old banner layout:\n%s", out)
+	}
+}

@@ -62,4 +62,7 @@ func TestRenderConsolePopulatedShowsRunAndRail(t *testing.T) {
 			t.Fatalf("console output missing %q:\n%s", want, out)
 		}
 	}
+	if strings.Contains(out, "| 7review") || strings.Contains(out, "+---") {
+		t.Fatalf("console should not render boxed dashboard or right-rail app heading:\n%s", out)
+	}
 }

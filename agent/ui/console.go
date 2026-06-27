@@ -130,8 +130,12 @@ func renderConsoleMain(view ConsoleView) string {
 			if run.HILApproved {
 				status += " approved"
 			}
+			marker := " "
+			if view.ActiveRun != nil && run.ID == view.ActiveRun.ID {
+				marker = ">"
+			}
 			title := trimTo(firstNonEmpty(run.Title, run.ID), 34)
-			line := fmt.Sprintf("%-24s %-18s %-10s %s", trimTo(run.ID, 24), trimTo(run.Provider, 18), trimTo(status, 10), title)
+			line := fmt.Sprintf("%s %-22s %-18s %-10s %s", marker, trimTo(run.ID, 22), trimTo(run.Provider, 18), trimTo(status, 10), title)
 			lines = append(lines, line)
 		}
 		if len(view.Runs) > 8 {
@@ -160,7 +164,7 @@ func renderConsoleMain(view ConsoleView) string {
 			lines = append(lines, trimTo(warning, 78))
 		}
 	}
-	return renderConsolePanel("", lines, 82, view.Plain)
+	return renderConsoleSurface(lines, 82, view.Plain)
 }
 
 func renderConsoleRail(view ConsoleView) string {
@@ -168,9 +172,15 @@ func renderConsoleRail(view ConsoleView) string {
 	if view.Ready {
 		state = "READY"
 	}
+	title := "No active run"
+	if view.ActiveRun != nil {
+		title = firstNonEmpty(view.ActiveRun.Title, view.ActiveRun.ID)
+	}
 	lines := []string{
-		"7review",
-		"server " + view.Server,
+		trimTo(title, 28),
+		"",
+		"Context",
+		"server " + trimTo(view.Server, 24),
 		"state  " + state,
 	}
 	if !view.RefreshedAt.IsZero() {
@@ -226,23 +236,17 @@ func renderConsoleRail(view ConsoleView) string {
 			lines = append(lines, fmt.Sprintf("%-22s %s", trimTo(skill.Name, 22), status))
 		}
 	}
-	return renderConsolePanel("", lines, 34, view.Plain)
+	return renderConsoleSurface(lines, 34, view.Plain)
 }
 
-func renderConsolePanel(title string, body []string, width int, plain bool) string {
+func renderConsoleSurface(body []string, width int, plain bool) string {
 	if width < 24 {
 		width = 24
 	}
 	var lines []string
-	top := "+" + strings.Repeat("-", width-2) + "+"
-	if title != "" && len(title)+4 < width {
-		top = "+ " + title + " " + strings.Repeat("-", width-len(title)-4) + "+"
-	}
-	lines = append(lines, top)
 	for _, line := range body {
-		lines = append(lines, "| "+padRight(trimTo(stripANSINoise(line), width-4), width-4)+" |")
+		lines = append(lines, padRight(trimTo(stripANSINoise(line), width), width))
 	}
-	lines = append(lines, "+"+strings.Repeat("-", width-2)+"+")
 	out := strings.Join(lines, "\n")
 	if plain {
 		return out

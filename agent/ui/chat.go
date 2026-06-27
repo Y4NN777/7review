@@ -91,9 +91,27 @@ func RenderChatIntro(ctx ChatContext, plain bool) string {
 	if plain {
 		return text
 	}
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39")).Render(lines[0])
-	body := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Render(strings.Join(lines[1:], "\n"))
-	return title + "\n" + body
+	var body []string
+	body = append(body,
+		"",
+		centerText("7review", 72),
+		"",
+		"  "+status,
+	)
+	if ctx.ConfigError != "" {
+		body = append(body, "  config: "+ctx.ConfigError)
+	}
+	body = append(body,
+		"",
+		"  "+composerLine("ask about setup, status, reviews, or next steps"),
+		"  Chat  7review",
+		"",
+		"                                            tab switch agent  ctrl+c commands",
+	)
+	return lipgloss.NewStyle().
+		Background(lipgloss.Color("#000000")).
+		Foreground(lipgloss.Color("#D0D0D0")).
+		Render(strings.Join(body, "\n"))
 }
 
 func RenderChatMessage(msg ChatMessage, plain bool) string {
@@ -115,7 +133,14 @@ func prompt(plain bool) string {
 	if plain {
 		return "you> "
 	}
-	return lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Render("you> ")
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Render("\n| ")
+}
+
+func composerLine(text string) string {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#D0D0D0")).
+		Background(lipgloss.Color("#1A1A1A")).
+		Render("| " + text)
 }
 
 func isQuit(text string) bool {
