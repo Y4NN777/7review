@@ -661,9 +661,54 @@ func reviewChatSystemPrompt(run pipeline.Run) string {
 			b.WriteString("\n")
 		}
 	}
+	if history := renderRecentRunEvents(run.Events, 8); history != "" {
+		b.WriteString("\nRecent run events:\n")
+		b.WriteString(history)
+	}
 	if run.DraftReport != "" {
 		b.WriteString("\nDraft report:\n")
 		b.WriteString(run.DraftReport)
 	}
 	return b.String()
+}
+
+func renderRecentRunEvents(events []pipeline.RunEvent, limit int) string {
+	if limit <= 0 || len(events) == 0 {
+		return ""
+	}
+	start := len(events) - limit
+	if start < 0 {
+		start = 0
+	}
+	var lines []string
+	for _, event := range events[start:] {
+		eventType := strings.TrimSpace(event.Type)
+		if eventType == "" {
+			eventType = "event"
+		}
+		parts := []string{eventType}
+		if event.Status != "" {
+			parts = append(parts, string(event.Status))
+		}
+		if message := truncatePromptEventMessage(event.Message); message != "" {
+			parts = append(parts, message)
+		}
+		if role := strings.TrimSpace(event.Meta["role"]); role != "" {
+			parts = append(parts, "role="+role)
+		}
+		lines = append(lines, "- "+strings.Join(parts, " | "))
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func truncatePromptEventMessage(message string) string {
+	message = strings.TrimSpace(message)
+	const maxPromptEventMessage = 240
+	if len(message) <= maxPromptEventMessage {
+		return message
+	}
+	if maxPromptEventMessage <= 3 {
+		return message[:maxPromptEventMessage]
+	}
+	return message[:maxPromptEventMessage-3] + "..."
 }
