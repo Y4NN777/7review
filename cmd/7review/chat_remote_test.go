@@ -370,7 +370,7 @@ func TestRemoteConsoleViewUsesAgentEndpoints(t *testing.T) {
 			case "list_skills":
 				return jsonResponse(http.StatusOK, `{"name":"list_skills","result":[{"name":"traceability-review","path":"agent/skills/traceability-review/SKILL.md","loaded":true}]}`), nil
 			case "get_run":
-				return jsonResponse(http.StatusOK, `{"name":"get_run","result":{"id":"owner/repo!7","provider":"github","project_id":"owner/repo","change_id":"7","title":"Fix validation","status":"drafted","updated_at":"2026-06-27T12:00:00Z","findings":[{"id":"F-1"}],"draft_report":"draft"}}`), nil
+				return jsonResponse(http.StatusOK, `{"name":"get_run","result":{"id":"owner/repo!7","provider":"github","project_id":"owner/repo","change_id":"7","title":"Fix validation","status":"drafted","updated_at":"2026-06-27T12:00:00Z","event_count":3,"events":[{"type":"run_started","status":"running"},{"type":"status_changed","status":"drafted"}],"findings":[{"id":"F-1"}],"draft_report":"draft"}}`), nil
 			default:
 				t.Fatalf("unexpected tool call %q", call.Name)
 			}
@@ -383,7 +383,7 @@ func TestRemoteConsoleViewUsesAgentEndpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := ui.RenderConsole(view)
-	for _, want := range []string{"owner/repo!7", "Fix validation", "openrouter", "traceability-review", "tools     2", "refresh 5s", "watch every 5s"} {
+	for _, want := range []string{"owner/repo!7", "Fix validation", "history    3 events", "latest     status_changed drafted", "openrouter", "traceability-review", "tools     2", "refresh 5s", "watch every 5s"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("console output missing %q:\n%s", want, out)
 		}

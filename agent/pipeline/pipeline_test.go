@@ -310,6 +310,12 @@ func TestFileRunStorePersistsRunsAcrossInstances(t *testing.T) {
 	if got.Status != StatusFinalized || !got.HILApproved || got.DraftReport != "draft" || got.FinalReport != "final" || got.WebURL == "" {
 		t.Fatalf("run did not persist correctly: %#v", got)
 	}
+	if len(got.Events) < 3 {
+		t.Fatalf("expected persisted run events, got %#v", got.Events)
+	}
+	if got.Events[0].Type != "run_started" || got.Events[len(got.Events)-1].Status != StatusFinalized {
+		t.Fatalf("unexpected persisted run event timeline: %#v", got.Events)
+	}
 	if got.Context == nil || got.Context.Source.SCM == nil || got.Context.Source.SCM.ProjectID != "p" {
 		t.Fatalf("persisted context/source not restored: %#v", got.Context)
 	}
@@ -319,6 +325,9 @@ func TestFileRunStorePersistsRunsAcrossInstances(t *testing.T) {
 	}
 	if len(listed) != 1 || listed[0].ID != run.ID {
 		t.Fatalf("unexpected persisted run list: %#v", listed)
+	}
+	if len(listed[0].Events) != len(got.Events) {
+		t.Fatalf("listed run lost events: listed=%#v got=%#v", listed[0].Events, got.Events)
 	}
 }
 

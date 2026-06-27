@@ -55,6 +55,8 @@ type RunDetail struct {
 	DraftBytes  int
 	FinalBytes  int
 	ReportReady bool
+	EventCount  int
+	LatestEvent string
 }
 
 type ProviderRow struct {
@@ -149,8 +151,12 @@ func renderConsoleMain(view ConsoleView) string {
 			"status     "+view.ActiveRun.Status,
 			"change     "+firstNonEmpty(view.ActiveRun.ProjectID, "-")+" "+firstNonEmpty(view.ActiveRun.ChangeID, "-"),
 			fmt.Sprintf("findings   %d", view.ActiveRun.Findings),
+			fmt.Sprintf("history    %d events", view.ActiveRun.EventCount),
 			fmt.Sprintf("report     draft=%d bytes final=%d bytes", view.ActiveRun.DraftBytes, view.ActiveRun.FinalBytes),
 		)
+		if view.ActiveRun.LatestEvent != "" {
+			lines = append(lines, "latest     "+view.ActiveRun.LatestEvent)
+		}
 		if view.ActiveRun.WebURL != "" {
 			lines = append(lines, "url        "+view.ActiveRun.WebURL)
 		}

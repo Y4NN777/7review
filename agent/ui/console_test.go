@@ -48,16 +48,18 @@ func TestRenderConsolePopulatedShowsRunAndRail(t *testing.T) {
 			UpdatedAt: time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC),
 		}},
 		ActiveRun: &RunDetail{
-			RunRow:     RunRow{ID: "owner/repo!7", Status: "drafted", ProjectID: "owner/repo", ChangeID: "7"},
-			Findings:   2,
-			DraftBytes: 144,
+			RunRow:      RunRow{ID: "owner/repo!7", Status: "drafted", ProjectID: "owner/repo", ChangeID: "7"},
+			Findings:    2,
+			DraftBytes:  144,
+			EventCount:  3,
+			LatestEvent: "status_changed drafted",
 		},
 		Providers: []ProviderRow{{Name: "openrouter", Configured: true}},
 		Roles:     []RoleRow{{Role: "reasoner", Primary: "openrouter/deepseek"}},
 		Skills:    []SkillRow{{Name: "traceability-review", Loaded: true}},
 		Tools:     []ToolRow{{Name: "list_runs", LifecycleStage: "observe", Implemented: true}},
 	})
-	for _, want := range []string{"owner/repo!7", "Fix validation", "findings   2", "depth     1/8", "openrouter", "reasoner", "skills    1", "tools     1", "refreshed 2026-06-27T12:01:02Z", "watch every 5s"} {
+	for _, want := range []string{"owner/repo!7", "Fix validation", "findings   2", "history    3 events", "latest     status_changed drafted", "depth     1/8", "openrouter", "reasoner", "skills    1", "tools     1", "refreshed 2026-06-27T12:01:02Z", "watch every 5s"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("console output missing %q:\n%s", want, out)
 		}

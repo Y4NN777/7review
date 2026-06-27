@@ -368,7 +368,7 @@ func TestHandleRunEndpointsExposeStoredReviewContext(t *testing.T) {
 	if err := json.NewDecoder(listRec.Body).Decode(&listed); err != nil {
 		t.Fatal(err)
 	}
-	if len(listed) != 1 || listed[0].ID != "p!7" || len(listed[0].Findings) != 0 {
+	if len(listed) != 1 || listed[0].ID != "p!7" || len(listed[0].Findings) != 0 || listed[0].EventCount == 0 || len(listed[0].Events) != 0 {
 		t.Fatalf("unexpected list response: %#v", listed)
 	}
 
@@ -382,8 +382,11 @@ func TestHandleRunEndpointsExposeStoredReviewContext(t *testing.T) {
 	if err := json.NewDecoder(getRec.Body).Decode(&detail); err != nil {
 		t.Fatal(err)
 	}
-	if detail.DraftReport != "draft body" || len(detail.Findings) != 1 {
+	if detail.DraftReport != "draft body" || len(detail.Findings) != 1 || detail.EventCount == 0 || len(detail.Events) != detail.EventCount {
 		t.Fatalf("unexpected detail response: %#v", detail)
+	}
+	if detail.Events[0].Type != "run_started" {
+		t.Fatalf("detail response missing run timeline: %#v", detail.Events)
 	}
 }
 
@@ -478,7 +481,7 @@ func TestHandleToolExecuteListRuns(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Name != "list_runs" || len(resp.Result) != 1 || resp.Result[0].ID != "owner/repo!7" {
+	if resp.Name != "list_runs" || len(resp.Result) != 1 || resp.Result[0].ID != "owner/repo!7" || resp.Result[0].EventCount == 0 {
 		t.Fatalf("unexpected tool response: %#v", resp)
 	}
 }

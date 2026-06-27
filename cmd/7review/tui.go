@@ -33,6 +33,8 @@ type remoteRunRow struct {
 	Error       string    `json:"error"`
 	WebURL      string    `json:"web_url"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	EventCount  int       `json:"event_count"`
+	Events      []any     `json:"events"`
 	Findings    []any     `json:"findings"`
 	DraftReport string    `json:"draft_report"`
 	FinalReport string    `json:"final_report"`
@@ -281,7 +283,41 @@ func toUIRunDetail(run remoteRunRow) *ui.RunDetail {
 		DraftBytes:  len(run.DraftReport),
 		FinalBytes:  len(run.FinalReport),
 		ReportReady: strings.TrimSpace(run.DraftReport) != "" || strings.TrimSpace(run.FinalReport) != "",
+		EventCount:  run.EventCount,
+		LatestEvent: latestRemoteRunEvent(run.Events),
 	}
+}
+
+func latestRemoteRunEvent(events []any) string {
+	if len(events) == 0 {
+		return ""
+	}
+	raw, ok := events[len(events)-1].(map[string]any)
+	if !ok {
+		return ""
+	}
+	eventType, _ := raw["type"].(string)
+	status, _ := raw["status"].(string)
+	message, _ := raw["message"].(string)
+	parts := []string{strings.TrimSpace(eventType)}
+	if strings.TrimSpace(status) != "" {
+		parts = append(parts, strings.TrimSpace(status))
+	}
+	if strings.TrimSpace(message) != "" {
+		parts = append(parts, strings.TrimSpace(message))
+	}
+	return strings.Join(nonEmptyStrings(parts), " ")
+}
+
+func nonEmptyStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func toUIProviderRows(rows []remoteProviderStatusRow) []ui.ProviderRow {

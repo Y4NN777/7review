@@ -38,6 +38,15 @@ type Run struct {
 	Findings    []review.Finding
 	WebURL      string
 	UpdatedAt   time.Time
+	Events      []RunEvent
+}
+
+type RunEvent struct {
+	At      time.Time         `json:"at"`
+	Type    string            `json:"type"`
+	Status  RunStatus         `json:"status,omitempty"`
+	Message string            `json:"message,omitempty"`
+	Meta    map[string]string `json:"meta,omitempty"`
 }
 
 type RunStore interface {
@@ -63,6 +72,11 @@ func (s *MemoryRunStore) Start(_ context.Context, req review.Request) (*Run, err
 
 	id := requestRunID(req)
 	run := &Run{ID: id, Request: req, Status: StatusRunning, UpdatedAt: time.Now().UTC()}
+	appendRunEvent(run, "run_started", StatusRunning, "", map[string]string{
+		"provider": req.Provider,
+		"project":  req.ProjectID,
+		"change":   firstNonEmpty(req.ChangeID, strconv.Itoa(req.MRIID)),
+	})
 	s.runs[id] = run
 	return run, nil
 }
@@ -83,6 +97,7 @@ func (s *MemoryRunStore) Update(_ context.Context, id string, status RunStatus, 
 		run.Error = ""
 	}
 	run.UpdatedAt = time.Now().UTC()
+	appendRunEvent(run, "status_changed", status, run.Error, nil)
 	return nil
 }
 
@@ -107,6 +122,7 @@ func (s *MemoryRunStore) SaveContext(_ context.Context, id string, rc *review.Co
 		run.WebURL = rc.WebURL
 	}
 	run.UpdatedAt = time.Now().UTC()
+	appendContextSavedEvent(run)
 	return nil
 }
 
@@ -120,6 +136,7 @@ func (s *MemoryRunStore) Get(_ context.Context, id string) (*Run, error) {
 	}
 	copy := *run
 	copy.Findings = append([]review.Finding(nil), run.Findings...)
+	copy.Events = copyRunEvents(run.Events)
 	return &copy, nil
 }
 
@@ -131,6 +148,7 @@ func (s *MemoryRunStore) List(_ context.Context) ([]Run, error) {
 	for _, run := range s.runs {
 		copy := *run
 		copy.Findings = append([]review.Finding(nil), run.Findings...)
+		copy.Events = copyRunEvents(run.Events)
 		out = append(out, copy)
 	}
 	return out, nil
@@ -156,6 +174,11 @@ func (s *FileRunStore) Start(ctx context.Context, req review.Request) (*Run, err
 	}
 	id := requestRunID(req)
 	run := &Run{ID: id, Request: req, Status: StatusRunning, UpdatedAt: time.Now().UTC()}
+	appendRunEvent(run, "run_started", StatusRunning, "", map[string]string{
+		"provider": req.Provider,
+		"project":  req.ProjectID,
+		"change":   firstNonEmpty(req.ChangeID, strconv.Itoa(req.MRIID)),
+	})
 	if err := s.writeLocked(run); err != nil {
 		return nil, err
 	}
@@ -177,6 +200,7 @@ func (s *FileRunStore) Update(_ context.Context, id string, status RunStatus, er
 		run.Error = ""
 	}
 	run.UpdatedAt = time.Now().UTC()
+	appendRunEvent(run, "status_changed", status, run.Error, nil)
 	return s.writeLocked(run)
 }
 
@@ -199,6 +223,7 @@ func (s *FileRunStore) SaveContext(_ context.Context, id string, rc *review.Cont
 		run.Source = &rc.Source
 	}
 	run.UpdatedAt = time.Now().UTC()
+	appendContextSavedEvent(run)
 	return s.writeLocked(run)
 }
 
@@ -311,6 +336,7 @@ func (s *FileRunStore) copyRun(run *Run) *Run {
 	copy := *run
 	copy.Context = contextForPersistedRun(&copy)
 	copy.Findings = append([]review.Finding(nil), run.Findings...)
+	copy.Events = copyRunEvents(run.Events)
 	return &copy
 }
 
@@ -346,6 +372,72 @@ func requestRunID(req review.Request) string {
 		changeID = strconv.Itoa(req.MRIID)
 	}
 	return req.ProjectID + "!" + changeID
+}
+
+func appendContextSavedEvent(run *Run) {
+	if run == nil {
+		return
+	}
+	appendRunEvent(run, "context_saved", run.Status, "", map[string]string{
+		"draft_bytes": strconv.Itoa(len(run.DraftReport)),
+		"final_bytes": strconv.Itoa(len(run.FinalReport)),
+		"findings":    strconv.Itoa(len(run.Findings)),
+		"hil":         strconv.FormatBool(run.HILApproved),
+	})
+}
+
+func appendRunEvent(run *Run, eventType string, status RunStatus, message string, meta map[string]string) {
+	if run == nil {
+		return
+	}
+	eventType = strings.TrimSpace(eventType)
+	if eventType == "" {
+		eventType = "event"
+	}
+	event := RunEvent{
+		At:      time.Now().UTC(),
+		Type:    eventType,
+		Status:  status,
+		Message: strings.TrimSpace(message),
+		Meta:    cleanEventMeta(meta),
+	}
+	run.Events = append(run.Events, event)
+}
+
+func cleanEventMeta(meta map[string]string) map[string]string {
+	out := make(map[string]string)
+	for key, value := range meta {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		out[key] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func copyRunEvents(events []RunEvent) []RunEvent {
+	out := make([]RunEvent, 0, len(events))
+	for _, event := range events {
+		copy := event
+		copy.Meta = cleanEventMeta(event.Meta)
+		out = append(out, copy)
+	}
+	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" && value != "0" {
+			return value
+		}
+	}
+	return ""
 }
 
 type Recall = review.MemoryRecall
