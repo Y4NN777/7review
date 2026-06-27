@@ -12,6 +12,7 @@ import (
 
 	"github.com/Y4NN777/7review/agent/tools"
 	"github.com/Y4NN777/7review/agent/ui"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type tuiCommandOptions struct {
@@ -152,14 +153,105 @@ func runTUI(args []string, out io.Writer) error {
 		fmt.Fprintln(out, ui.RenderConsole(view))
 		return err
 	}
-	for {
-		view, _ := remoteConsoleView(client, opts)
-		if opts.clearOnRefresh {
-			fmt.Fprint(out, "\x1b[2J\x1b[H")
-		}
-		fmt.Fprintln(out, ui.RenderConsole(view))
-		time.Sleep(opts.refreshEvery)
+	program := tea.NewProgram(newConsoleTUIModel(client, opts), tea.WithOutput(out), tea.WithAltScreen())
+	_, err := program.Run()
+	return err
+}
+
+type consoleTUIModel struct {
+	client  *http.Client
+	opts    tuiCommandOptions
+	view    ui.ConsoleView
+	err     error
+	loading bool
+	help    bool
+	message string
+}
+
+type consoleViewMsg struct {
+	view ui.ConsoleView
+	err  error
+}
+
+type consoleTickMsg time.Time
+
+func newConsoleTUIModel(client *http.Client, opts tuiCommandOptions) consoleTUIModel {
+	if opts.refreshEvery <= 0 {
+		opts.refreshEvery = 2 * time.Second
 	}
+	opts.watch = true
+	opts.once = false
+	return consoleTUIModel{client: client, opts: opts, loading: true, message: "loading"}
+}
+
+func (m consoleTUIModel) Init() tea.Cmd {
+	return fetchConsoleViewCmd(m.client, m.opts)
+}
+
+func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q", "esc":
+			return m, tea.Quit
+		case "r":
+			m.loading = true
+			m.message = "refreshing"
+			return m, fetchConsoleViewCmd(m.client, m.opts)
+		case "?":
+			m.help = !m.help
+			return m, nil
+		}
+	case consoleViewMsg:
+		m.view = msg.view
+		m.err = msg.err
+		m.loading = false
+		if msg.err != nil {
+			m.message = msg.err.Error()
+		} else {
+			m.message = "updated " + time.Now().UTC().Format(time.RFC3339)
+		}
+		return m, consoleTick(m.opts.refreshEvery)
+	case consoleTickMsg:
+		m.loading = true
+		return m, fetchConsoleViewCmd(m.client, m.opts)
+	}
+	return m, nil
+}
+
+func (m consoleTUIModel) View() string {
+	if m.view.Server == "" {
+		m.view = ui.ConsoleView{
+			Server:       strings.TrimRight(m.opts.serverURL, "/"),
+			Watch:        true,
+			RefreshEvery: m.opts.refreshEvery,
+			Warnings:     []string{m.message},
+		}
+	}
+	out := ui.RenderConsole(m.view)
+	if m.loading {
+		out += "\nloading"
+	}
+	if m.err != nil {
+		out += "\nlast error: " + m.err.Error()
+	}
+	if m.help {
+		out += "\nkeys: r refresh now  ? hide help  q/esc/ctrl+c exit"
+	}
+	return out
+}
+
+func fetchConsoleViewCmd(client *http.Client, opts tuiCommandOptions) tea.Cmd {
+	return func() tea.Msg {
+		view, err := remoteConsoleView(client, opts)
+		return consoleViewMsg{view: view, err: err}
+	}
+}
+
+func consoleTick(interval time.Duration) tea.Cmd {
+	return tea.Tick(interval, func(t time.Time) tea.Msg {
+		return consoleTickMsg(t)
+	})
 }
 
 func parseTUIArgs(args []string) tuiCommandOptions {

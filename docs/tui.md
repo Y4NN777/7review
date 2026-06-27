@@ -9,7 +9,8 @@ The command-line interface is an operational TUI for setup and day-to-day checks
 7review status
 7review status --server http://localhost:8080
 7review tui --server http://localhost:8080
-7review tui --watch --refresh 5s --server http://localhost:8080
+7review tui --refresh 5s --server http://localhost:8080
+7review tui --once --server http://localhost:8080
 7review sessions --server http://localhost:8080
 7review sessions --status drafted --provider github --limit 10 --server http://localhost:8080
 7review sessions --query validation --server http://localhost:8080
@@ -42,8 +43,10 @@ on the left, the current run and exact follow-up commands below it, and a compac
 right rail for dependency state, queue state, provider routing, review progress,
 loaded skills, and tool count. It reads live agent endpoints only: `/ready`,
 `/tools`, and `/tools/execute` for `list_runs`, `get_run`,
-`list_provider_status`, and `list_skills`. With `--watch`, it refreshes in place
-until interrupted.
+`list_provider_status`, and `list_skills`. It runs as an interactive Bubble Tea
+program by default: press `r` to refresh immediately, `?` to show or hide key
+help, and `q`, `esc`, or `ctrl+c` to exit. Use `--once` for a single
+non-interactive snapshot.
 
 `sessions` renders a compact human-readable list of persisted review sessions
 from the run store. It uses the same authenticated `list_runs` tool as the TUI,

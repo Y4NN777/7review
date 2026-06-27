@@ -102,9 +102,9 @@ func RenderConsole(view ConsoleView) string {
 	left := renderConsoleMain(view)
 	right := renderConsoleRail(view)
 	body := joinColumns(left, right, 2)
-	footer := "ctrl+c exit  chat: 7review chat --run <run-id> --server " + view.Server
+	footer := "r refresh  ? help  q/ctrl+c exit  chat: 7review chat --run <run-id> --server " + view.Server
 	if view.Watch && view.RefreshEvery > 0 {
-		footer = fmt.Sprintf("live refresh %s  ctrl+c exit  chat: 7review chat --run <run-id> --server %s", view.RefreshEvery, view.Server)
+		footer = fmt.Sprintf("live refresh %s  r refresh  ? help  q/ctrl+c exit  chat: 7review chat --run <run-id> --server %s", view.RefreshEvery, view.Server)
 	}
 	if view.Plain {
 		return body + "\n" + footer

@@ -15,6 +15,7 @@ import (
 
 	"github.com/Y4NN777/7review/agent/tools"
 	"github.com/Y4NN777/7review/agent/ui"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestReadSSEEmitsDeltas(t *testing.T) {
@@ -767,6 +768,28 @@ func TestParseTUIArgsDefaultsToLiveAndSupportsOnce(t *testing.T) {
 	once := parseTUIArgs([]string{"--once"})
 	if once.watch || !once.once || once.clearOnRefresh {
 		t.Fatalf("tui --once should render one snapshot: %#v", once)
+	}
+}
+
+func TestConsoleTUIModelHandlesInteractiveKeys(t *testing.T) {
+	model := newConsoleTUIModel(nil, tuiCommandOptions{serverURL: "http://agent", refreshEvery: time.Second})
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	model = updated.(consoleTUIModel)
+	if !model.help || cmd != nil || !strings.Contains(model.View(), "keys:") {
+		t.Fatalf("help key did not toggle help view: model=%#v cmd=%v view=%s", model, cmd, model.View())
+	}
+
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	model = updated.(consoleTUIModel)
+	if !model.loading || cmd == nil {
+		t.Fatalf("refresh key did not schedule fetch: model=%#v cmd=%v", model, cmd)
+	}
+
+	updated, cmd = model.Update(consoleViewMsg{view: ui.ConsoleView{Server: "http://agent", Ready: true, Watch: true, RefreshEvery: time.Second}})
+	model = updated.(consoleTUIModel)
+	if model.loading || model.err != nil || cmd == nil || !strings.Contains(model.View(), "7REVIEW") {
+		t.Fatalf("view update did not render dashboard and schedule tick: model=%#v cmd=%v view=%s", model, cmd, model.View())
 	}
 }
 
