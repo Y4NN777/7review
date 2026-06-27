@@ -48,6 +48,10 @@ func (r appToolRunner) PublishFinal(ctx context.Context, run string, report stri
 	return r.server.pipeline.PublishFinal(ctx, run, report)
 }
 
+func (r appToolRunner) SuppressFinding(ctx context.Context, run string, findingID string, reason string) error {
+	return r.server.pipeline.SuppressFinding(ctx, run, findingID, reason)
+}
+
 func (r appToolRunner) CheckReady(ctx context.Context) (any, error) {
 	return r.server.readiness(ctx), nil
 }

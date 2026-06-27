@@ -614,6 +614,50 @@ func TestPublishFinalWritesMemoryBeforeFinalizing(t *testing.T) {
 	}
 }
 
+func TestSuppressFindingUpdatesDraftAndRejectedIDs(t *testing.T) {
+	store := NewMemoryRunStore()
+	req := review.Request{Provider: "github", ProjectID: "owner/repo", ChangeID: "7"}
+	run, err := store.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := review.NewContext(req)
+	rc.Findings = []review.Finding{
+		{ID: "F1", Severity: review.SeverityHigh, Title: "Keep", Confidence: 0.9},
+		{ID: "F2", Severity: review.SeverityLow, Title: "Suppress", Confidence: 0.8},
+	}
+	rc.Source.Findings = rc.Findings
+	rc.DraftReport = renderReport(rc)
+	rc.Source.Report.Draft = rc.DraftReport
+	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(context.Background(), run.ID, StatusDrafted, nil); err != nil {
+		t.Fatal(err)
+	}
+	p := &Pipeline{Jobs: store}
+
+	if err := p.SuppressFinding(context.Background(), run.ID, "F2", "covered by existing validation"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Findings) != 1 || updated.Findings[0].ID != "F1" {
+		t.Fatalf("finding was not suppressed: %#v", updated.Findings)
+	}
+	if strings.Contains(updated.DraftReport, "Suppress") || !strings.Contains(updated.DraftReport, "Keep") {
+		t.Fatalf("draft report was not regenerated correctly:\n%s", updated.DraftReport)
+	}
+	if updated.Context == nil || len(updated.Context.HILRejectedIDs) != 1 || updated.Context.HILRejectedIDs[0] != "F2" {
+		t.Fatalf("rejected IDs not persisted: %#v", updated.Context)
+	}
+	if len(updated.Context.HILAddedNotes) != 1 || !strings.Contains(updated.Context.HILAddedNotes[0], "covered by existing validation") {
+		t.Fatalf("suppression reason not persisted: %#v", updated.Context.HILAddedNotes)
+	}
+}
+
 func TestRunPostHILConvertsDraftFallbackToFinalReport(t *testing.T) {
 	store := NewMemoryRunStore()
 	req := review.Request{Provider: "gitlab", ProjectID: "p", MRIID: 7, ChangeID: "7"}

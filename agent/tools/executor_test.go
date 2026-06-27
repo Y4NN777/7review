@@ -21,10 +21,13 @@ func (f *fakeRunTools) GetRun(_ context.Context, id string) (any, error) {
 }
 
 type fakeActions struct {
-	approvedRun     string
-	approvedReport  string
-	publishedRun    string
-	publishedReport string
+	approvedRun      string
+	approvedReport   string
+	publishedRun     string
+	publishedReport  string
+	suppressedRun    string
+	suppressedID     string
+	suppressedReason string
 }
 
 func (f *fakeActions) ApproveRun(_ context.Context, run string, report string) error {
@@ -36,6 +39,13 @@ func (f *fakeActions) ApproveRun(_ context.Context, run string, report string) e
 func (f *fakeActions) PublishFinal(_ context.Context, run string, report string) error {
 	f.publishedRun = run
 	f.publishedReport = report
+	return nil
+}
+
+func (f *fakeActions) SuppressFinding(_ context.Context, run string, findingID string, reason string) error {
+	f.suppressedRun = run
+	f.suppressedID = findingID
+	f.suppressedReason = reason
 	return nil
 }
 
@@ -155,6 +165,16 @@ func TestToolExecutorExecutesApprovalAndPublish(t *testing.T) {
 	}
 	if actions.publishedRun != "p!7" || actions.publishedReport != "final" {
 		t.Fatalf("unexpected publish call: %#v", actions)
+	}
+
+	if _, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:  "suppress_finding",
+		Input: map[string]any{"run": "p!7", "finding_id": "F1", "reason": "false positive"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if actions.suppressedRun != "p!7" || actions.suppressedID != "F1" || actions.suppressedReason != "false positive" {
+		t.Fatalf("unexpected suppress call: %#v", actions)
 	}
 }
 

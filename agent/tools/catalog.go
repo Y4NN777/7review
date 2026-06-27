@@ -128,11 +128,13 @@ func Catalog() []ToolSpec {
 			}),
 		},
 		{
-			Name:           "suppress_finding",
-			Description:    "Suppress or reject one finding with an explicit engineer reason so it is excluded from final output and memory.",
-			LifecycleStage: "iterate",
-			Implemented:    false,
-			SideEffects:    true,
+			Name:             "suppress_finding",
+			Description:      "Suppress or reject one finding with an explicit engineer reason so it is excluded from final output and memory.",
+			LifecycleStage:   "iterate",
+			Implemented:      true,
+			Executor:         "POST /tools/execute {\"name\":\"suppress_finding\"}",
+			SideEffects:      true,
+			RequiresApproval: true,
 			InputSchema: objectSchema(map[string]any{
 				"run":        stringSchema("Run ID containing the finding."),
 				"finding_id": stringSchema("Finding ID to suppress."),

@@ -24,6 +24,7 @@ type RunReader interface {
 type RunActions interface {
 	ApproveRun(context.Context, string, string) error
 	PublishFinal(context.Context, string, string) error
+	SuppressFinding(context.Context, string, string, string) error
 }
 
 type ReadyChecker interface {
@@ -175,6 +176,26 @@ func (e ToolExecutor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteR
 			return ExecuteResponse{}, err
 		}
 		return ExecuteResponse{Name: name, Result: map[string]any{"accepted": true, "run": run}}, nil
+	case "suppress_finding":
+		if e.Actions == nil {
+			return ExecuteResponse{}, fmt.Errorf("tools: run actions are not configured")
+		}
+		run := stringInput(req.Input, "run")
+		findingID := stringInput(req.Input, "finding_id")
+		reason := stringInput(req.Input, "reason")
+		if run == "" {
+			return ExecuteResponse{}, fmt.Errorf("tools: suppress_finding requires run")
+		}
+		if findingID == "" {
+			return ExecuteResponse{}, fmt.Errorf("tools: suppress_finding requires finding_id")
+		}
+		if reason == "" {
+			return ExecuteResponse{}, fmt.Errorf("tools: suppress_finding requires reason")
+		}
+		if err := e.Actions.SuppressFinding(ctx, run, findingID, reason); err != nil {
+			return ExecuteResponse{}, err
+		}
+		return ExecuteResponse{Name: name, Result: map[string]any{"accepted": true, "run": run, "finding_id": findingID}}, nil
 	case "stream_run_chat":
 		return ExecuteResponse{}, fmt.Errorf("tools: stream_run_chat is executed through POST /chat/stream?run=<id>")
 	default:

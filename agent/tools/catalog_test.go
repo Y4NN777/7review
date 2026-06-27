@@ -75,12 +75,12 @@ func TestCatalogImplementationStatusIsExplicit(t *testing.T) {
 	for _, tool := range catalog {
 		byName[tool.Name] = tool
 	}
-	for _, name := range []string{"list_runs", "get_run", "stream_run_chat", "check_ready", "get_config_status", "list_skills", "get_selected_context", "get_diff_summary", "list_provider_status", "get_publish_status", "preview_memory_proposal", "approve_run", "publish_final"} {
+	for _, name := range []string{"list_runs", "get_run", "stream_run_chat", "check_ready", "get_config_status", "list_skills", "get_selected_context", "get_diff_summary", "list_provider_status", "get_publish_status", "preview_memory_proposal", "suppress_finding", "approve_run", "publish_final"} {
 		if !byName[name].Implemented {
 			t.Fatalf("%s should be marked implemented: %#v", name, byName[name])
 		}
 	}
-	for _, name := range []string{"revise_draft", "suppress_finding", "rerun_review"} {
+	for _, name := range []string{"revise_draft", "rerun_review"} {
 		if byName[name].Implemented {
 			t.Fatalf("%s should not be marked implemented until executor exists: %#v", name, byName[name])
 		}

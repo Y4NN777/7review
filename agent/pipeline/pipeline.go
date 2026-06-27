@@ -243,6 +243,54 @@ func (p *Pipeline) PublishFinal(ctx context.Context, id string, report string) e
 	return p.Jobs.Update(ctx, id, StatusFinalized, nil)
 }
 
+func (p *Pipeline) SuppressFinding(ctx context.Context, id string, findingID string, reason string) error {
+	if p == nil {
+		return fmt.Errorf("pipeline: not configured")
+	}
+	p.withDefaults()
+	findingID = strings.TrimSpace(findingID)
+	reason = strings.TrimSpace(reason)
+	if findingID == "" {
+		return fmt.Errorf("pipeline: finding id is required")
+	}
+	if reason == "" {
+		return fmt.Errorf("pipeline: suppression reason is required")
+	}
+
+	run, err := p.Jobs.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	switch run.Status {
+	case StatusDrafted, StatusFailed:
+	default:
+		return fmt.Errorf("pipeline: run status %q cannot suppress findings", run.Status)
+	}
+	rc := contextForRun(run)
+	var kept []review.Finding
+	found := false
+	for _, finding := range rc.Findings {
+		if strings.EqualFold(strings.TrimSpace(finding.ID), findingID) {
+			found = true
+			continue
+		}
+		kept = append(kept, finding)
+	}
+	if !found {
+		return fmt.Errorf("pipeline: finding %q not found", findingID)
+	}
+	rc.Findings = kept
+	rc.Source.Findings = kept
+	rc.HILRejectedIDs = appendUnique(rc.HILRejectedIDs, findingID)
+	rc.HILAddedNotes = append(rc.HILAddedNotes, fmt.Sprintf("suppressed %s: %s", findingID, reason))
+	rc.DraftReport = renderReport(rc)
+	rc.Source.Report.Draft = rc.DraftReport
+	if err := p.Jobs.SaveContext(ctx, id, rc); err != nil {
+		return err
+	}
+	return p.Jobs.Update(ctx, id, StatusDrafted, nil)
+}
+
 func (p *Pipeline) publishFinal(ctx context.Context, rc *review.Context, finalReport string) error {
 	if rc == nil || !rc.HILApproved {
 		return fmt.Errorf("pipeline: HIL approval required before final publish")
@@ -297,6 +345,15 @@ func finalizeReport(report string) string {
 	}
 	report = strings.Replace(report, "## 7review Draft", "## 7review Final", 1)
 	return report
+}
+
+func appendUnique(items []string, item string) []string {
+	for _, existing := range items {
+		if strings.EqualFold(strings.TrimSpace(existing), item) {
+			return items
+		}
+	}
+	return append(items, item)
 }
 
 func (p *Pipeline) withDefaults() {

@@ -23,12 +23,11 @@ Implemented:
 - Docker Compose runtime with agent, Headroom bridge, and MemPalace bridge
 - Tool execution for run listing, run details, skills, selected context, diff
   summary, provider status, publish status, readiness, config status, HIL
-  approval, final publishing, and memory proposal preview
+  approval, finding suppression, final publishing, and memory proposal preview
 
 Still intentionally marked as not implemented in the tool catalog:
 
 - draft revision
-- finding suppression
 - review rerun
 
 ## Architecture

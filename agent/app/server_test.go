@@ -667,6 +667,52 @@ func TestHandleToolExecuteObservabilityTools(t *testing.T) {
 	}
 }
 
+func TestHandleToolExecuteSuppressFinding(t *testing.T) {
+	store := pipeline.NewMemoryRunStore()
+	reqRun := review.Request{Provider: "github", ProjectID: "owner/repo", ChangeID: "7"}
+	run, err := store.Start(context.Background(), reqRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := review.NewContext(reqRun)
+	rc.Findings = []review.Finding{
+		{ID: "F1", Severity: review.SeverityHigh, Title: "Keep", Confidence: 0.9},
+		{ID: "F2", Severity: review.SeverityLow, Title: "Suppress", Confidence: 0.8},
+	}
+	rc.Source.Findings = rc.Findings
+	rc.DraftReport = "draft with Suppress"
+	rc.Source.Report.Draft = rc.DraftReport
+	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(context.Background(), run.ID, pipeline.StatusDrafted, nil); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{pipeline: &pipeline.Pipeline{Jobs: store}}
+	body := `{"name":"suppress_finding","input":{"run":"owner/repo!7","finding_id":"F2","reason":"false positive"}}`
+	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	s.handleToolExecute(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	updated, err := store.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Findings) != 1 || updated.Findings[0].ID != "F1" {
+		t.Fatalf("finding was not suppressed: %#v", updated.Findings)
+	}
+	if updated.Context == nil || len(updated.Context.HILRejectedIDs) != 1 || updated.Context.HILRejectedIDs[0] != "F2" {
+		t.Fatalf("suppression was not persisted: %#v", updated.Context)
+	}
+	if !strings.Contains(rec.Body.String(), `"accepted":true`) || !strings.Contains(rec.Body.String(), `"finding_id":"F2"`) {
+		t.Fatalf("unexpected suppress response: %s", rec.Body.String())
+	}
+}
+
 func TestHandleToolExecuteRejectsUnimplementedTool(t *testing.T) {
 	s := &Server{pipeline: &pipeline.Pipeline{Jobs: pipeline.NewMemoryRunStore()}}
 	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(`{"name":"rerun_review","input":{"run":"p!7"}}`))
