@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Y4NN777/7review/agent/tools"
 	"github.com/Y4NN777/7review/agent/ui"
 )
 
@@ -318,6 +321,83 @@ func TestRunStatusRemoteReturnsErrorWhenAgentNotReady(t *testing.T) {
 	if !strings.Contains(out.String(), "agent") || !strings.Contains(out.String(), "down") {
 		t.Fatalf("expected rendered down status, got:\n%s", out.String())
 	}
+}
+
+func TestParseTUIArgsAcceptsRunServerAndPlain(t *testing.T) {
+	opts := parseTUIArgs([]string{"owner/repo!7", "--server", "http://agent", "--plain"})
+	if opts.runID != "owner/repo!7" || opts.serverURL != "http://agent" || !opts.plain {
+		t.Fatalf("unexpected tui options: %#v", opts)
+	}
+}
+
+func TestRemoteConsoleViewUsesAgentEndpoints(t *testing.T) {
+	t.Setenv("REVIEW_API_TOKEN", "agent-token")
+	var toolNames []string
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Header.Get("Authorization") != "Bearer agent-token" {
+			t.Fatalf("missing auth header on %s", req.URL.String())
+		}
+		switch req.URL.Path {
+		case "/ready":
+			return jsonResponse(http.StatusOK, `{"ready":true,"dependencies":{"headroom":"ok","mempalace":"ok","queue":"ok depth=1 capacity=8"},"queue":{"depth":1,"capacity":8,"available":7,"enqueued":4,"completed":3,"failed":0}}`), nil
+		case "/tools":
+			return jsonResponse(http.StatusOK, `[{"name":"list_runs","lifecycle_stage":"observe","implemented":true},{"name":"approve_run","lifecycle_stage":"hil","implemented":true,"requires_approval":true}]`), nil
+		case "/tools/execute":
+			body, _ := io.ReadAll(req.Body)
+			var call tools.ExecuteRequest
+			if err := json.Unmarshal(body, &call); err != nil {
+				t.Fatal(err)
+			}
+			toolNames = append(toolNames, call.Name)
+			switch call.Name {
+			case "list_runs":
+				return jsonResponse(http.StatusOK, `{"name":"list_runs","result":[{"id":"owner/repo!7","provider":"github","project_id":"owner/repo","change_id":"7","title":"Fix validation","status":"drafted","updated_at":"2026-06-27T12:00:00Z"}]}`), nil
+			case "list_provider_status":
+				return jsonResponse(http.StatusOK, `{"name":"list_provider_status","result":{"mode":"orchestrator","providers":[{"name":"openrouter","configured":true}],"roles":[{"role":"reasoner","primary":"openrouter/deepseek","max_tokens":4096}]}}`), nil
+			case "list_skills":
+				return jsonResponse(http.StatusOK, `{"name":"list_skills","result":[{"name":"traceability-review","path":"agent/skills/traceability-review/SKILL.md","loaded":true}]}`), nil
+			case "get_run":
+				return jsonResponse(http.StatusOK, `{"name":"get_run","result":{"id":"owner/repo!7","provider":"github","project_id":"owner/repo","change_id":"7","title":"Fix validation","status":"drafted","updated_at":"2026-06-27T12:00:00Z","findings":[{"id":"F-1"}],"draft_report":"draft"}}`), nil
+			default:
+				t.Fatalf("unexpected tool call %q", call.Name)
+			}
+		}
+		t.Fatalf("unexpected request path %s", req.URL.Path)
+		return nil, nil
+	})}
+	view, err := remoteConsoleView(client, tuiCommandOptions{serverURL: "http://agent", plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := ui.RenderConsole(view)
+	for _, want := range []string{"owner/repo!7", "Fix validation", "openrouter", "traceability-review", "tools     2"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("console output missing %q:\n%s", want, out)
+		}
+	}
+	for _, want := range []string{"list_runs", "list_provider_status", "list_skills", "get_run"} {
+		if !containsString(toolNames, want) {
+			t.Fatalf("missing tool call %q in %#v", want, toolNames)
+		}
+	}
+}
+
+func jsonResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Status:     fmt.Sprintf("%d %s", status, http.StatusText(status)),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

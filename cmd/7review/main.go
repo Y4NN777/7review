@@ -42,6 +42,13 @@ func main() {
 		runChat()
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "tui" {
+		if err := runTUI(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "runs" {
 		runListRuns()
 		return
