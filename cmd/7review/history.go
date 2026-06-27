@@ -44,12 +44,14 @@ func runHistory() {
 		fmt.Fprintln(os.Stderr, "decode run history:", err)
 		os.Exit(1)
 	}
-	fmt.Println(renderRunHistory(detail))
+	fmt.Println(renderRunHistory(detail, opts))
 }
 
 type historyCommandOptions struct {
 	serverURL string
 	runID     string
+	eventType string
+	limit     int
 }
 
 func parseHistoryArgs(args []string) historyCommandOptions {
@@ -61,6 +63,10 @@ func parseHistoryArgs(args []string) historyCommandOptions {
 			opts.serverURL = flagValue(args, &i)
 		case "--run":
 			opts.runID = flagValue(args, &i)
+		case "--type":
+			opts.eventType = strings.TrimSpace(flagValue(args, &i))
+		case "--limit":
+			opts.limit = parsePositiveInt(flagValue(args, &i))
 		default:
 			if !strings.HasPrefix(arg, "-") && opts.runID == "" {
 				opts.runID = arg
@@ -70,19 +76,34 @@ func parseHistoryArgs(args []string) historyCommandOptions {
 	return opts
 }
 
-func renderRunHistory(run remoteRunDetail) string {
+func renderRunHistory(run remoteRunDetail, opts historyCommandOptions) string {
 	title := strings.TrimSpace(run.Title)
 	if title == "" {
 		title = run.ID
 	}
+	events := filterRunEvents(run.Events, opts)
 	var lines []string
 	lines = append(lines, fmt.Sprintf("%s  %s", run.ID, run.Status))
 	lines = append(lines, title)
-	lines = append(lines, fmt.Sprintf("history %d events", len(run.Events)))
-	for _, event := range run.Events {
+	lines = append(lines, fmt.Sprintf("history %d/%d events", len(events), len(run.Events)))
+	for _, event := range events {
 		lines = append(lines, renderRunEvent(event))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func filterRunEvents(events []remoteRunEvent, opts historyCommandOptions) []remoteRunEvent {
+	out := make([]remoteRunEvent, 0, len(events))
+	for _, event := range events {
+		if opts.eventType != "" && !strings.EqualFold(strings.TrimSpace(event.Type), opts.eventType) {
+			continue
+		}
+		out = append(out, event)
+	}
+	if opts.limit <= 0 || len(out) <= opts.limit {
+		return out
+	}
+	return out[len(out)-opts.limit:]
 }
 
 func renderRunEvent(event remoteRunEvent) string {
@@ -126,6 +147,18 @@ func nonEmptyHistoryParts(parts []string) []string {
 		if part != "" {
 			out = append(out, part)
 		}
+	}
+	return out
+}
+
+func parsePositiveInt(value string) int {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	var out int
+	if _, err := fmt.Sscanf(value, "%d", &out); err != nil || out < 0 {
+		return 0
 	}
 	return out
 }

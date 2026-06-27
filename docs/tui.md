@@ -11,6 +11,7 @@ The command-line interface is an operational TUI for setup and day-to-day checks
 7review tui --server http://localhost:8080
 7review tui --watch --refresh 5s --server http://localhost:8080
 7review history <project!mr> --server http://localhost:8080
+7review history <project!mr> --type chat_message --limit 20 --server http://localhost:8080
 7review chat
 7review chat --run <project!mr> --server http://localhost:8080
 ```
@@ -37,7 +38,8 @@ and `/tools/execute` for `list_runs`, `get_run`, `list_provider_status`, and
 `list_skills`. With `--watch`, it refreshes in place until interrupted.
 
 `history` renders a run timeline from `/run?id=<run-id>`, including lifecycle
-events and persisted run-chat events.
+events and persisted run-chat events. Use `--type` to filter one event type and
+`--limit` to show only the latest matching events.
 
 `chat` is an interactive, streaming, model-driven operator surface for setup,
 status, Docker, sidecars, webhooks, review iteration, and next steps. It uses

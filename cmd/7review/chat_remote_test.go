@@ -332,8 +332,8 @@ func TestParseTUIArgsAcceptsRunServerAndPlain(t *testing.T) {
 }
 
 func TestParseHistoryArgsAcceptsRunServerAndPositional(t *testing.T) {
-	opts := parseHistoryArgs([]string{"owner/repo!7", "--server", "http://agent"})
-	if opts.runID != "owner/repo!7" || opts.serverURL != "http://agent" {
+	opts := parseHistoryArgs([]string{"owner/repo!7", "--server", "http://agent", "--type", "chat_message", "--limit", "3"})
+	if opts.runID != "owner/repo!7" || opts.serverURL != "http://agent" || opts.eventType != "chat_message" || opts.limit != 3 {
 		t.Fatalf("unexpected history options: %#v", opts)
 	}
 }
@@ -350,11 +350,29 @@ func TestRenderRunHistoryFormatsTimeline(t *testing.T) {
 			Message: "explain F1",
 			Meta:    map[string]string{"role": "engineer"},
 		}},
-	})
-	for _, want := range []string{"owner/repo!7  drafted", "Fix checkout", "history 1 events", "2026-06-27T12:00:00Z", "chat_message", "role=engineer"} {
+	}, historyCommandOptions{})
+	for _, want := range []string{"owner/repo!7  drafted", "Fix checkout", "history 1/1 events", "2026-06-27T12:00:00Z", "chat_message", "role=engineer"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("history output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestRenderRunHistoryFiltersAndLimitsEvents(t *testing.T) {
+	out := renderRunHistory(remoteRunDetail{
+		ID:     "owner/repo!7",
+		Status: "drafted",
+		Events: []remoteRunEvent{
+			{Type: "run_started", Message: "start"},
+			{Type: "chat_message", Message: "first"},
+			{Type: "chat_message", Message: "second"},
+		},
+	}, historyCommandOptions{eventType: "chat_message", limit: 1})
+	if !strings.Contains(out, "history 1/3 events") || !strings.Contains(out, "second") {
+		t.Fatalf("filtered history missing latest chat event:\n%s", out)
+	}
+	if strings.Contains(out, "run_started") || strings.Contains(out, "first") {
+		t.Fatalf("filtered history included excluded events:\n%s", out)
 	}
 }
 
