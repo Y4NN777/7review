@@ -177,28 +177,14 @@ func runSetup() {
 }
 
 func runChat() {
-	opts := ui.ChatOptions{}
-	serverURL := "http://localhost:8080"
-	runID := ""
-	args := os.Args[2:]
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch flagName(arg) {
-		case "--plain":
-			opts.Plain = true
-		case "--server":
-			serverURL = flagValue(args, &i)
-		case "--run":
-			runID = flagValue(args, &i)
-		}
-	}
-	chatCtx := ui.ChatContext{}
+	opts, serverURL, runID := parseChatArgs(os.Args[2:])
+	chatCtx := ui.ChatContext{ServerURL: serverURL}
 	var responder ui.ChatResponder
 	if runID != "" {
 		chatCtx.ConfigLoaded = true
 		chatCtx.RunID = runID
 		responder = &remoteRunChatResponder{
-			serverURL:  strings.TrimRight(serverURL, "/"),
+			serverURL:  serverURL,
 			runID:      runID,
 			httpClient: operatorStreamHTTPClient(),
 		}
@@ -228,6 +214,29 @@ func runChat() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func parseChatArgs(args []string) (ui.ChatOptions, string, string) {
+	opts := ui.ChatOptions{}
+	serverURL := "http://localhost:8080"
+	runID := ""
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch flagName(arg) {
+		case "--plain":
+			opts.Plain = true
+		case "--server":
+			serverURL = flagValue(args, &i)
+		case "--run":
+			runID = flagValue(args, &i)
+		default:
+			if !strings.HasPrefix(arg, "-") && runID == "" {
+				runID = arg
+			}
+		}
+	}
+	serverURL = strings.TrimRight(serverURL, "/")
+	return opts, serverURL, runID
 }
 
 type remoteRunChatResponder struct {

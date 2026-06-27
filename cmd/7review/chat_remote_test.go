@@ -92,6 +92,13 @@ func TestRemoteRunChatResponderStreamsFromServer(t *testing.T) {
 	}
 }
 
+func TestParseChatArgsAcceptsPositionalRunAndServer(t *testing.T) {
+	opts, serverURL, runID := parseChatArgs([]string{"owner/repo!7", "--server", "http://agent/", "--plain"})
+	if !opts.Plain || serverURL != "http://agent" || runID != "owner/repo!7" {
+		t.Fatalf("unexpected chat args: opts=%#v server=%q run=%q", opts, serverURL, runID)
+	}
+}
+
 func TestParseApprovalArgsAcceptsSpaceAndEqualsFlags(t *testing.T) {
 	dir := t.TempDir()
 	reportPath := filepath.Join(dir, "final.md")

@@ -39,6 +39,25 @@ func TestRunChat_UsesResponderAndExitsOnQuit(t *testing.T) {
 	}
 }
 
+func TestRunChat_PlainRunPromptShowsSession(t *testing.T) {
+	responder := &fakeResponder{}
+	var out strings.Builder
+	err := RunChat(context.Background(), strings.NewReader("explain\nquit\n"), &out, ChatContext{
+		ConfigLoaded: true,
+		RunID:        "owner/repo!7",
+		ServerURL:    "http://agent",
+	}, responder, ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := out.String()
+	for _, want := range []string{"run: owner/repo!7", "server: http://agent", "owner/repo!7> ", "agent: model reply: explain"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("run chat output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func TestRunChat_RendersResponderError(t *testing.T) {
 	responder := &fakeResponder{err: fmt.Errorf("model unavailable")}
 	var out strings.Builder
@@ -55,10 +74,11 @@ func TestRenderChatIntroStyledUsesTerminalComposer(t *testing.T) {
 	out := RenderChatIntro(ChatContext{
 		ConfigLoaded: true,
 		RunID:        "owner/repo!7",
+		ServerURL:    "http://agent",
 		HeadroomURL:  "http://headroom:8787",
 		MemPalaceURL: "http://mempalace:8788",
 	}, false)
-	for _, want := range []string{"7review", "| ask about setup, status, reviews, or next steps", "Chat  7review", "tab switch agent", "Context", "mode      run", "run       owner/repo!7", "headroom  connected", "mempalace connected"} {
+	for _, want := range []string{"7review", "| ask about run owner/repo!7", "Chat  owner/repo!7", "tab switch agent", "Context", "mode      run", "run       owner/repo!7", "server    http://agent", "headroom  connected", "mempalace connected"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("styled chat intro missing %q:\n%s", want, out)
 		}

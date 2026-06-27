@@ -20,6 +20,7 @@ type ChatContext struct {
 	HeadroomURL  string
 	MemPalaceURL string
 	RunID        string
+	ServerURL    string
 }
 
 type ChatResponder interface {
@@ -46,7 +47,7 @@ func RunChat(ctx context.Context, in io.Reader, out io.Writer, meta ChatContext,
 	fmt.Fprintln(out, RenderChatIntro(meta, opts.Plain))
 	reader := bufio.NewReader(in)
 	for {
-		fmt.Fprint(out, prompt(opts.Plain))
+		fmt.Fprint(out, prompt(meta, opts.Plain))
 		line, err := reader.ReadString('\n')
 		if err != nil && strings.TrimSpace(line) == "" {
 			if err == io.EOF {
@@ -85,6 +86,12 @@ func RenderChatIntro(ctx ChatContext, plain bool) string {
 		status,
 		"Ask about setup, status, Docker, sidecars, webhooks, or next steps. Type quit to exit.",
 	}
+	if ctx.RunID != "" {
+		lines = append(lines, "run: "+ctx.RunID)
+	}
+	if ctx.ServerURL != "" {
+		lines = append(lines, "server: "+ctx.ServerURL)
+	}
 	if ctx.ConfigError != "" {
 		lines = append(lines, "config: "+ctx.ConfigError)
 	}
@@ -111,12 +118,26 @@ func renderChatMain(status string, ctx ChatContext) string {
 	}
 	lines = append(lines,
 		"",
-		"  "+composerLine("ask about setup, status, reviews, or next steps"),
-		"  Chat  7review",
+		"  "+composerLine(chatComposerText(ctx)),
+		"  Chat  "+chatContextLabel(ctx),
 		"",
 		"                                            tab switch agent  ctrl+c commands",
 	)
 	return renderConsoleSurface(lines, 78, false)
+}
+
+func chatComposerText(ctx ChatContext) string {
+	if ctx.RunID != "" {
+		return "ask about run " + ctx.RunID
+	}
+	return "ask about setup, status, reviews, or next steps"
+}
+
+func chatContextLabel(ctx ChatContext) string {
+	if ctx.RunID != "" {
+		return trimTo(ctx.RunID, 32)
+	}
+	return "7review"
 }
 
 func renderChatRail(ctx ChatContext) string {
@@ -132,6 +153,9 @@ func renderChatRail(ctx ChatContext) string {
 	}
 	if ctx.RunID != "" {
 		lines = append(lines, "run       "+trimTo(ctx.RunID, 20))
+	}
+	if ctx.ServerURL != "" {
+		lines = append(lines, "server    "+trimTo(ctx.ServerURL, 20))
 	}
 	if ctx.HeadroomURL != "" {
 		lines = append(lines, "", "MCP", "headroom  connected")
@@ -169,8 +193,11 @@ func RenderChatMessagePrefix(role string, plain bool) string {
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#5F6368")).Render("7review\n  ")
 }
 
-func prompt(plain bool) string {
+func prompt(ctx ChatContext, plain bool) string {
 	if plain {
+		if ctx.RunID != "" {
+			return ctx.RunID + "> "
+		}
 		return "you> "
 	}
 	return lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Render("\n| ")

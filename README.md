@@ -159,6 +159,7 @@ background work. Request handlers do not run review work inline.
 7review history <run-id> --server http://localhost:8080
 7review history <run-id> --type chat_message --limit 20 --server http://localhost:8080
 7review chat
+7review chat <run-id> --server http://localhost:8080
 7review chat --run <run-id> --server http://localhost:8080
 7review approve --run <run-id> --report-file final.md --server http://localhost:8080
 7review publish-final --run <run-id> --report-file final.md --server http://localhost:8080

@@ -13,6 +13,7 @@ The command-line interface is an operational TUI for setup and day-to-day checks
 7review history <project!mr> --server http://localhost:8080
 7review history <project!mr> --type chat_message --limit 20 --server http://localhost:8080
 7review chat
+7review chat <project!mr> --server http://localhost:8080
 7review chat --run <project!mr> --server http://localhost:8080
 ```
 
@@ -54,6 +55,7 @@ operator to run setup and status first.
 For iterative review, pass a run ID:
 
 ```sh
+7review chat project!42 --server http://localhost:8080
 7review chat --run project!42 --server http://localhost:8080
 ```
 
