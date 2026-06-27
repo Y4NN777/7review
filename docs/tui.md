@@ -12,6 +12,7 @@ The command-line interface is an operational TUI for setup and day-to-day checks
 7review tui --watch --refresh 5s --server http://localhost:8080
 7review sessions --server http://localhost:8080
 7review sessions --status drafted --provider github --limit 10 --server http://localhost:8080
+7review session <project!mr> --server http://localhost:8080
 7review history <project!mr> --server http://localhost:8080
 7review history <project!mr> --type chat_message --limit 20 --server http://localhost:8080
 7review chat
@@ -48,6 +49,10 @@ orders sessions newest first, and shows the run id, provider, status, update
 time, history count, title, and normalized change id. Filter with `--status`,
 `--provider`, and `--limit`; `7review runs` remains available for raw JSON
 output.
+
+`session` renders one persisted review session as a readable operator summary.
+It shows the same run fields used by chat `/run`, then prints exact follow-up
+commands for chat, timeline inspection, TUI focus, approval, and final publish.
 
 `history` renders a run timeline from `/run?id=<run-id>`, including lifecycle
 events and persisted run-chat events. Use `--type` to filter one event type and

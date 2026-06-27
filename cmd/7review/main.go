@@ -61,6 +61,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "session" {
+		if err := runSession(os.Args[2:], os.Stdout, operatorRequestHTTPClient()); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "run" {
 		runGetRun()
 		return
@@ -110,6 +117,19 @@ func runSessions(args []string, out io.Writer, client *http.Client) error {
 		return err
 	}
 	fmt.Fprintln(out, renderSessionsSummary(runs, opts))
+	return nil
+}
+
+func runSession(args []string, out io.Writer, client *http.Client) error {
+	opts := parseHistoryArgs(args)
+	if opts.runID == "" {
+		return fmt.Errorf("missing session run id")
+	}
+	detail, err := fetchRemoteRunDetail(client, opts.serverURL, opts.runID)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(out, renderSessionDetail(detail, opts.serverURL))
 	return nil
 }
 

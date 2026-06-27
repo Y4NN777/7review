@@ -129,6 +129,31 @@ func renderRunSnapshot(run remoteRunDetail) string {
 	return strings.Join(lines, "\n")
 }
 
+func renderSessionDetail(run remoteRunDetail, serverURL string) string {
+	serverURL = strings.TrimRight(serverURL, "/")
+	if serverURL == "" {
+		serverURL = "http://localhost:8080"
+	}
+	lines := []string{renderRunSnapshot(run)}
+	lines = append(lines,
+		"",
+		"commands",
+		"7review chat --run "+run.ID+" --server "+serverURL,
+		"7review history "+run.ID+" --server "+serverURL,
+		"7review history "+run.ID+" --type chat_message --limit 20 --server "+serverURL,
+		"7review tui --run "+run.ID+" --server "+serverURL,
+	)
+	if strings.TrimSpace(run.DraftReport) != "" {
+		lines = append(lines, "7review chat --run "+run.ID+" --server "+serverURL+"  then /diff or /draft")
+	}
+	if strings.TrimSpace(run.FinalReport) == "" {
+		lines = append(lines, "7review approve --run "+run.ID+" --report-file final.md --server "+serverURL)
+	} else {
+		lines = append(lines, "7review publish-final --run "+run.ID+" --report-file final.md --server "+serverURL)
+	}
+	return strings.Join(lines, "\n")
+}
+
 func firstNonEmptyHistory(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {

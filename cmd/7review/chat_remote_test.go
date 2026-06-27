@@ -581,6 +581,29 @@ func TestRunSessionsUsesListRunsTool(t *testing.T) {
 	}
 }
 
+func TestRunSessionRendersReadableRunDetail(t *testing.T) {
+	t.Setenv("REVIEW_API_TOKEN", "agent-token")
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet || req.URL.String() != "http://agent/run?id=owner%2Frepo%217" {
+			t.Fatalf("unexpected session request: %s %s", req.Method, req.URL.String())
+		}
+		if req.Header.Get("Authorization") != "Bearer agent-token" {
+			t.Fatalf("missing auth header: %#v", req.Header)
+		}
+		return jsonResponse(http.StatusOK, `{"id":"owner/repo!7","provider":"github","project_id":"owner/repo","change_id":"7","status":"drafted","title":"Fix validation","web_url":"https://example.test/pr/7","events":[{"type":"run_started"},{"type":"chat_message","message":"explain F1"}],"findings":[{"id":"F1"}],"draft_report":"draft"}`), nil
+	})}
+
+	var out strings.Builder
+	if err := runSession([]string{"owner/repo!7", "--server", "http://agent"}, &out, client); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"owner/repo!7  drafted", "Fix validation", "provider github", "findings 1", "history  2 events", "draft=5 bytes", "commands", "7review chat --run owner/repo!7 --server http://agent", "7review history owner/repo!7 --type chat_message --limit 20 --server http://agent", "7review approve --run owner/repo!7 --report-file final.md --server http://agent"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("session output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestRunHealthcheckUsesDefaultHealthEndpoint(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.Method != http.MethodGet || req.URL.String() != "http://127.0.0.1:8080/health" {
