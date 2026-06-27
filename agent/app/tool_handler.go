@@ -104,6 +104,19 @@ func (r appToolRunner) SelectedContext(ctx context.Context, id string) (any, err
 	}, nil
 }
 
+func (r appToolRunner) RunTimeline(ctx context.Context, id string) (any, error) {
+	run, err := r.server.pipeline.Jobs.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return runTimelineDTO{
+		Run:        run.ID,
+		Status:     run.Status,
+		EventCount: len(run.Events),
+		Events:     append([]pipeline.RunEvent(nil), run.Events...),
+	}, nil
+}
+
 func (r appToolRunner) DiffSummary(ctx context.Context, id string) (any, error) {
 	run, err := r.server.pipeline.Jobs.Get(ctx, id)
 	if err != nil {
@@ -342,6 +355,13 @@ type selectedContextStatusDTO struct {
 	SkillSections  []sectionStatusDTO  `json:"skill_sections"`
 	Memory         review.MemoryRecall `json:"memory"`
 	Warnings       []string            `json:"warnings,omitempty"`
+}
+
+type runTimelineDTO struct {
+	Run        string              `json:"run"`
+	Status     pipeline.RunStatus  `json:"status"`
+	EventCount int                 `json:"event_count"`
+	Events     []pipeline.RunEvent `json:"events"`
 }
 
 type sectionStatusDTO struct {

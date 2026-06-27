@@ -85,6 +85,7 @@ func (fakeSkills) ListSkills(context.Context) (any, error) {
 
 type fakeObservatory struct {
 	selectedRun string
+	timelineRun string
 	diffRun     string
 	publishRun  string
 	providerHit bool
@@ -93,6 +94,11 @@ type fakeObservatory struct {
 func (f *fakeObservatory) SelectedContext(_ context.Context, run string) (any, error) {
 	f.selectedRun = run
 	return map[string]any{"run": run}, nil
+}
+
+func (f *fakeObservatory) RunTimeline(_ context.Context, run string) (any, error) {
+	f.timelineRun = run
+	return map[string]any{"run": run, "events": []string{"run_started"}}, nil
 }
 
 func (f *fakeObservatory) DiffSummary(_ context.Context, run string) (any, error) {
@@ -145,6 +151,7 @@ func TestToolExecutorExecutesObservabilityTools(t *testing.T) {
 
 	for _, req := range []ExecuteRequest{
 		{Name: "get_selected_context", Input: map[string]any{"run": "p!7"}},
+		{Name: "get_run_timeline", Input: map[string]any{"id": "p!7"}},
 		{Name: "get_diff_summary", Input: map[string]any{"id": "p!7"}},
 		{Name: "list_provider_status"},
 		{Name: "get_publish_status", Input: map[string]any{"run": "p!7"}},
@@ -154,7 +161,7 @@ func TestToolExecutorExecutesObservabilityTools(t *testing.T) {
 			t.Fatalf("%s failed: %v", req.Name, err)
 		}
 	}
-	if observatory.selectedRun != "p!7" || observatory.diffRun != "p!7" || observatory.publishRun != "p!7" || !observatory.providerHit {
+	if observatory.selectedRun != "p!7" || observatory.timelineRun != "p!7" || observatory.diffRun != "p!7" || observatory.publishRun != "p!7" || !observatory.providerHit {
 		t.Fatalf("observability tools were not called correctly: %#v", observatory)
 	}
 }

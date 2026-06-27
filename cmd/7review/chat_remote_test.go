@@ -331,6 +331,33 @@ func TestParseTUIArgsAcceptsRunServerAndPlain(t *testing.T) {
 	}
 }
 
+func TestParseHistoryArgsAcceptsRunServerAndPositional(t *testing.T) {
+	opts := parseHistoryArgs([]string{"owner/repo!7", "--server", "http://agent"})
+	if opts.runID != "owner/repo!7" || opts.serverURL != "http://agent" {
+		t.Fatalf("unexpected history options: %#v", opts)
+	}
+}
+
+func TestRenderRunHistoryFormatsTimeline(t *testing.T) {
+	out := renderRunHistory(remoteRunDetail{
+		ID:     "owner/repo!7",
+		Status: "drafted",
+		Title:  "Fix checkout",
+		Events: []remoteRunEvent{{
+			At:      time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC),
+			Type:    "chat_message",
+			Status:  "drafted",
+			Message: "explain F1",
+			Meta:    map[string]string{"role": "engineer"},
+		}},
+	})
+	for _, want := range []string{"owner/repo!7  drafted", "Fix checkout", "history 1 events", "2026-06-27T12:00:00Z", "chat_message", "role=engineer"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("history output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestParseRefreshIntervalAcceptsSecondsAndDuration(t *testing.T) {
 	if got := parseRefreshInterval("3", time.Second); got != 3*time.Second {
 		t.Fatalf("unexpected seconds interval: %s", got)

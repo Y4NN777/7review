@@ -10,6 +10,7 @@ func TestCatalogContainsModelFacingReviewTools(t *testing.T) {
 	want := map[string]bool{
 		"list_runs":               false,
 		"get_run":                 false,
+		"get_run_timeline":        false,
 		"stream_run_chat":         false,
 		"check_ready":             false,
 		"get_config_status":       false,
@@ -61,7 +62,7 @@ func TestCatalogMarksHILSideEffects(t *testing.T) {
 			t.Fatalf("%s must be side-effecting and approval-gated: %#v", name, tool)
 		}
 	}
-	for _, name := range []string{"list_runs", "get_run", "stream_run_chat", "check_ready", "get_config_status", "list_skills", "get_selected_context", "get_diff_summary", "list_provider_status", "get_publish_status", "preview_memory_proposal"} {
+	for _, name := range []string{"list_runs", "get_run", "get_run_timeline", "stream_run_chat", "check_ready", "get_config_status", "list_skills", "get_selected_context", "get_diff_summary", "list_provider_status", "get_publish_status", "preview_memory_proposal"} {
 		tool := byName[name]
 		if tool.SideEffects || tool.RequiresApproval {
 			t.Fatalf("%s should be read-only/non-gated: %#v", name, tool)
@@ -75,7 +76,7 @@ func TestCatalogImplementationStatusIsExplicit(t *testing.T) {
 	for _, tool := range catalog {
 		byName[tool.Name] = tool
 	}
-	for _, name := range []string{"list_runs", "get_run", "stream_run_chat", "check_ready", "get_config_status", "list_skills", "get_selected_context", "get_diff_summary", "list_provider_status", "get_publish_status", "preview_memory_proposal", "suppress_finding", "revise_draft", "rerun_review", "approve_run", "publish_final"} {
+	for _, name := range []string{"list_runs", "get_run", "get_run_timeline", "stream_run_chat", "check_ready", "get_config_status", "list_skills", "get_selected_context", "get_diff_summary", "list_provider_status", "get_publish_status", "preview_memory_proposal", "suppress_finding", "revise_draft", "rerun_review", "approve_run", "publish_final"} {
 		if !byName[name].Implemented {
 			t.Fatalf("%s should be marked implemented: %#v", name, byName[name])
 		}

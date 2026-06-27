@@ -43,6 +43,7 @@ type SkillLister interface {
 
 type Observatory interface {
 	SelectedContext(context.Context, string) (any, error)
+	RunTimeline(context.Context, string) (any, error)
 	DiffSummary(context.Context, string) (any, error)
 	ProviderStatus(context.Context) (any, error)
 	PublishStatus(context.Context, string) (any, error)
@@ -112,6 +113,16 @@ func (e ToolExecutor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteR
 			return ExecuteResponse{}, fmt.Errorf("tools: get_selected_context requires run")
 		}
 		result, err := e.Observatory.SelectedContext(ctx, run)
+		return ExecuteResponse{Name: name, Result: result}, err
+	case "get_run_timeline":
+		if e.Observatory == nil {
+			return ExecuteResponse{}, fmt.Errorf("tools: observatory is not configured")
+		}
+		run := stringInput(req.Input, "run", "id")
+		if run == "" {
+			return ExecuteResponse{}, fmt.Errorf("tools: get_run_timeline requires run")
+		}
+		result, err := e.Observatory.RunTimeline(ctx, run)
 		return ExecuteResponse{Name: name, Result: result}, err
 	case "get_diff_summary":
 		if e.Observatory == nil {

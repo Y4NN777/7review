@@ -36,6 +36,17 @@ func Catalog() []ToolSpec {
 			}),
 		},
 		{
+			Name:           "get_run_timeline",
+			Description:    "Fetch the persisted event timeline for one review run, including lifecycle and chat events.",
+			LifecycleStage: "observe",
+			Implemented:    true,
+			Executor:       "POST /tools/execute {\"name\":\"get_run_timeline\"}",
+			SideEffects:    false,
+			InputSchema: objectSchema(map[string]any{
+				"run": stringSchema("Provider-neutral run ID whose timeline should be inspected."),
+			}),
+		},
+		{
 			Name:           "stream_run_chat",
 			Description:    "Stream model-driven chat for one review run using stored findings and draft context.",
 			LifecycleStage: "iterate",

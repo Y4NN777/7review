@@ -156,6 +156,7 @@ background work. Request handlers do not run review work inline.
 7review tui --watch --refresh 5s --server http://localhost:8080
 7review runs --server http://localhost:8080
 7review run <run-id> --server http://localhost:8080
+7review history <run-id> --server http://localhost:8080
 7review chat
 7review chat --run <run-id> --server http://localhost:8080
 7review approve --run <run-id> --report-file final.md --server http://localhost:8080

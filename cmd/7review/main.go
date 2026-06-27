@@ -57,6 +57,10 @@ func main() {
 		runGetRun()
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "history" {
+		runHistory()
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "approve" {
 		runApprove()
 		return

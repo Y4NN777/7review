@@ -505,6 +505,37 @@ func TestHandleToolExecuteListRuns(t *testing.T) {
 	}
 }
 
+func TestHandleToolExecuteRunTimeline(t *testing.T) {
+	store := pipeline.NewMemoryRunStore()
+	reqRun := review.Request{Provider: "github", ProjectID: "owner/repo", ChangeID: "7", MRIID: 7, Title: "Fix checkout"}
+	run, err := store.Start(context.Background(), reqRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AppendEvent(context.Background(), run.ID, pipeline.RunEvent{Type: "chat_message", Status: pipeline.StatusDrafted, Message: "explain F1"}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{pipeline: &pipeline.Pipeline{Jobs: store}}
+	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(`{"name":"get_run_timeline","input":{"run":"owner/repo!7"}}`))
+	rec := httptest.NewRecorder()
+
+	s.handleToolExecute(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Name   string         `json:"name"`
+		Result runTimelineDTO `json:"result"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Name != "get_run_timeline" || resp.Result.Run != "owner/repo!7" || resp.Result.EventCount != 2 || resp.Result.Events[1].Type != "chat_message" {
+		t.Fatalf("unexpected timeline response: %#v", resp)
+	}
+}
+
 func TestHandleToolExecuteGetConfigStatusRedactsSecrets(t *testing.T) {
 	s := &Server{
 		cfg: &config.Config{
