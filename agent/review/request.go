@@ -4,8 +4,16 @@ package review
 // Adapters such as GitLab webhooks should convert provider payloads into this
 // shape before entering the pipeline.
 type Request struct {
+	Provider     string
+	DeliveryID   string
+	EventAction  string
 	ProjectID    string
 	MRIID        int
+	Repository   string
+	ChangeID     string
+	Title        string
+	Description  string
+	WebURL       string
 	SourceSHA    string
 	TargetSHA    string
 	SourceBranch string

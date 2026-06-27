@@ -2,21 +2,52 @@ package review
 
 import (
 	"sync"
-
-	"github.com/Y4NN777/7review/agent/knowledge"
-	"github.com/Y4NN777/7review/agent/scm"
-	diffanalyzer "github.com/Y4NN777/7review/agent/subagents/diff_analyzer"
+	"time"
 )
 
-// ReviewContext is assembled once per MR and passed through every pipeline step.
-// Each step reads what it needs and writes its output back here.
-// It is the single source of truth for in-flight review state.
-//
-// Steps are sequential by default. Step 5 (Review Agent) may populate
-// Findings via multiple parallel calls — all writes go through AddFindings().
+// Source is the single source of truth for one review run.
+// The pipeline progressively enriches it from webhook input through SCM data,
+// changed files, selected corpus, skills, memory, model findings, report, and
+// run metadata.
+type Source struct {
+	Request Request
+	SCM     *SCMContext
+
+	ChangedFiles   []ChangedFile
+	Diff           *StructuredDiff
+	CorpusSections []Section
+	SkillSections  []Section
+	Memory         MemoryRecall
+
+	Findings []Finding
+	Report   Report
+	Run      RunMetadata
+}
+
+type MemoryRecall struct {
+	Conventions []string
+	Decisions   []string
+	History     []string
+}
+
+type Report struct {
+	Draft string
+	Final string
+}
+
+type RunMetadata struct {
+	ID             string
+	StartedAt      time.Time
+	StepProviders  map[string]string
+	AvailableTools []string
+	Warnings       []string
+}
+
+// Context is kept as a compatibility alias for older package interfaces.
 type Context struct {
 	mu sync.Mutex
 
+	Source
 	Request Request
 
 	// ── Inputs (populated by Step 1) ─────────────────────────────────────
@@ -25,10 +56,10 @@ type Context struct {
 	MRTitle   string
 	MRAuthor  string
 	WebURL    string
-	DiffRefs  scm.DiffRefs
+	DiffRefs  DiffRefs
 
 	// ── Structured diff (populated by Step 2) ────────────────────────────
-	Diff *diffanalyzer.StructuredDiff
+	Diff *StructuredDiff
 
 	// ── Retrieved context (populated by Step 3) ──────────────────────────
 	Conventions string // formatted content of conventions.json
@@ -36,7 +67,8 @@ type Context struct {
 
 	// ── Contract sections (populated by Step 4) ──────────────────────────
 	// Keyed by section identifier (e.g. "architecture/controller_rules.md").
-	ContractSections []knowledge.Section
+	ContractSections []Section
+	SkillSections    []Section
 
 	// ── Review findings (populated by Step 5, thread-safe) ───────────────
 	// Each parallel batch appends its raw findings string here.
@@ -53,23 +85,32 @@ type Context struct {
 	HILRejectedIDs []string
 	HILAddedNotes  []string
 
-	// ── Compaction output (populated by Step 7) ──────────────────────────
+	// ── Memory update proposal (populated after approval) ────────────────
 	NewConventions      []string
 	PhilosophyAdditions []string
 
 	// ── Execution metadata ────────────────────────────────────────────────
 	// Which provider+model handled each step — written to the report footer.
-	StepProviders map[string]string // e.g. {"step5": "anthropic/claude-sonnet-4-6"}
+	StepProviders  map[string]string // e.g. {"step5": "anthropic/claude-sonnet-4-6"}
+	AvailableTools []string
 }
 
 // NewReviewContext initialises a context for one MR review run.
 func NewContext(req Request) *Context {
-	return &Context{
+	rc := &Context{
 		Request:       req,
 		ProjectID:     req.ProjectID,
 		MRIID:         req.MRIID,
 		StepProviders: make(map[string]string),
 	}
+	rc.Source = Source{
+		Request: req,
+		Run: RunMetadata{
+			StartedAt:     time.Now().UTC(),
+			StepProviders: rc.StepProviders,
+		},
+	}
+	return rc
 }
 
 // AddFindings appends raw findings from one parallel batch.
@@ -94,16 +135,27 @@ func (rc *Context) RecordProvider(step, providerAndModel string) {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 	rc.StepProviders[step] = providerAndModel
+	rc.Run.StepProviders = rc.StepProviders
+}
+
+func (rc *Context) AddWarning(warning string) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.Run.Warnings = append(rc.Run.Warnings, warning)
 }
 
 // ChangedPaths returns the list of file paths in the structured diff.
 // Convenience method used by Steps 3 and 4.
 func (rc *Context) ChangedPaths() []string {
-	if rc.Diff == nil {
+	diff := rc.Diff
+	if diff == nil {
+		diff = rc.Source.Diff
+	}
+	if diff == nil {
 		return nil
 	}
-	paths := make([]string, len(rc.Diff.Files))
-	for i, f := range rc.Diff.Files {
+	paths := make([]string, len(diff.Files))
+	for i, f := range diff.Files {
 		paths[i] = f.Path
 	}
 	return paths

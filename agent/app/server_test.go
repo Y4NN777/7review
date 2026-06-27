@@ -1,0 +1,793 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Y4NN777/7review/agent/config"
+	"github.com/Y4NN777/7review/agent/orchestrator"
+	"github.com/Y4NN777/7review/agent/pipeline"
+	"github.com/Y4NN777/7review/agent/review"
+)
+
+func TestHandleReadyReportsRequiredDependencies(t *testing.T) {
+	s := &Server{
+		pipeline: &pipeline.Pipeline{
+			ContextReducer: fakeReducer{err: errors.New("headroom down")},
+			Memory:         fakeMemory{},
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	rec := httptest.NewRecorder()
+
+	s.handleReady(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", rec.Code)
+	}
+	var status readinessStatus
+	if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Ready || status.Dependencies["headroom"] == "ok" || status.Dependencies["mempalace"] != "ok" {
+		t.Fatalf("unexpected readiness: %#v", status)
+	}
+}
+
+func TestHandleReadyReportsHealthyRuntime(t *testing.T) {
+	orch := orchestrator.NewOrchestrator(orchestrator.DefaultOrchestratorConfig("large", "small", "fake"), map[string]orchestrator.LLMProvider{
+		"fake": streamingProvider{},
+	})
+	s := &Server{
+		pipeline: &pipeline.Pipeline{
+			Orchestrator:     orch,
+			Jobs:             pipeline.NewMemoryRunStore(),
+			ContextReducer:   fakeReducer{},
+			Memory:           fakeMemory{},
+			SCM:              fakeAppSCM{},
+			FindingValidator: pipeline.DefaultFindingValidator{},
+		},
+		work: make(chan workItem, 3),
+	}
+	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	rec := httptest.NewRecorder()
+
+	s.handleReady(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var status readinessStatus
+	if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	for _, dep := range []string{"pipeline", "orchestrator", "queue", "run_store", "headroom", "mempalace"} {
+		if status.Dependencies[dep] == "" {
+			t.Fatalf("missing dependency %q in %#v", dep, status)
+		}
+	}
+	if status.Queue.Depth != 0 || status.Queue.Capacity != 3 || status.Queue.Available != 3 {
+		t.Fatalf("unexpected queue status: %#v", status.Queue)
+	}
+	if !status.Ready {
+		t.Fatalf("expected ready status, got %#v", status)
+	}
+}
+
+func TestHandleReadyReportsMissingCoreDependencies(t *testing.T) {
+	s := &Server{pipeline: &pipeline.Pipeline{}}
+	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	rec := httptest.NewRecorder()
+
+	s.handleReady(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var status readinessStatus
+	if err := json.NewDecoder(rec.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	for _, dep := range []string{"orchestrator", "queue", "run_store", "headroom", "mempalace"} {
+		if status.Dependencies[dep] == "" || status.Dependencies[dep] == "ok" {
+			t.Fatalf("expected dependency %q down in %#v", dep, status)
+		}
+	}
+}
+
+func TestHandleReadyMethod(t *testing.T) {
+	s := &Server{pipeline: &pipeline.Pipeline{}}
+	req := httptest.NewRequest(http.MethodPost, "/ready", nil)
+	rec := httptest.NewRecorder()
+
+	s.handleReady(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rec.Code)
+	}
+}
+
+func TestHTTPServerUsesConfiguredTimeouts(t *testing.T) {
+	s := &Server{
+		cfg: &config.Config{
+			ListenAddr:        ":9090",
+			ReadHeaderTimeout: 7000,
+			ReadTimeout:       31000,
+			WriteTimeout:      121000,
+			IdleTimeout:       122000,
+		},
+		mux: http.NewServeMux(),
+	}
+
+	server := s.httpServer()
+
+	if server.Addr != ":9090" || server.Handler != s.mux {
+		t.Fatalf("unexpected server wiring: %#v", server)
+	}
+	if server.ReadHeaderTimeout != 7*time.Second ||
+		server.ReadTimeout != 31*time.Second ||
+		server.WriteTimeout != 121*time.Second ||
+		server.IdleTimeout != 122*time.Second {
+		t.Fatalf("unexpected timeouts: header=%s read=%s write=%s idle=%s", server.ReadHeaderTimeout, server.ReadTimeout, server.WriteTimeout, server.IdleTimeout)
+	}
+}
+
+func TestRunWorkItemCancelsAtConfiguredTimeout(t *testing.T) {
+	s := &Server{cfg: &config.Config{WebhookJobTimeout: 1}}
+
+	err := s.runWorkItem(1, workItem{
+		name: "timeout",
+		run: func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	})
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got %v", err)
+	}
+}
+
+func TestRunWorkItemConvertsPanicToError(t *testing.T) {
+	s := &Server{cfg: &config.Config{WebhookJobTimeout: 1000}}
+
+	err := s.runWorkItem(1, workItem{
+		name: "panic-job",
+		run: func(ctx context.Context) error {
+			panic("broken adapter")
+		},
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "panic processing panic-job") {
+		t.Fatalf("expected panic error, got %v", err)
+	}
+}
+
+func TestQueueStatusTracksWorkerOutcomes(t *testing.T) {
+	s := &Server{
+		cfg:  &config.Config{WebhookJobTimeout: 1000},
+		work: make(chan workItem, 2),
+	}
+	if err := s.enqueue(workItem{name: "ok", run: func(context.Context) error { return nil }}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.queueStatus(); got.Depth != 1 || got.Capacity != 2 || got.Available != 1 || got.Enqueued != 1 {
+		t.Fatalf("unexpected queued status: %#v", got)
+	}
+	item := <-s.work
+	if err := s.runWorkItem(1, item); err != nil {
+		t.Fatal(err)
+	}
+	s.stats.completed.Add(1)
+	if err := s.runWorkItem(1, workItem{name: "bad", run: func(context.Context) error { return errors.New("boom") }}); err == nil {
+		t.Fatal("expected worker error")
+	}
+	s.stats.failed.Add(1)
+
+	got := s.queueStatus()
+	if got.Depth != 0 || got.Completed != 1 || got.Failed != 1 || got.Enqueued != 1 {
+		t.Fatalf("unexpected final queue status: %#v", got)
+	}
+}
+
+func TestRequireAuthRejectsMissingOperatorToken(t *testing.T) {
+	s := &Server{cfg: &config.Config{APIToken: "secret"}}
+	req := httptest.NewRequest(http.MethodGet, "/runs", nil)
+	rec := httptest.NewRecorder()
+
+	s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestRequireAuthAcceptsBearerToken(t *testing.T) {
+	s := &Server{cfg: &config.Config{APIToken: "secret"}}
+	req := httptest.NewRequest(http.MethodGet, "/runs", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+
+	s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", rec.Code)
+	}
+}
+
+func TestClaimDeliveryDeduplicatesAndCanRelease(t *testing.T) {
+	s := &Server{}
+	if !s.claimDelivery("github:delivery-1") {
+		t.Fatal("first delivery should be accepted")
+	}
+	if s.claimDelivery("github:delivery-1") {
+		t.Fatal("duplicate delivery should be rejected")
+	}
+	s.releaseDelivery("github:delivery-1")
+	if !s.claimDelivery("github:delivery-1") {
+		t.Fatal("released delivery should be accepted again")
+	}
+}
+
+func TestClaimDeliveryPurgesExpiredEntries(t *testing.T) {
+	s := &Server{
+		seen: map[string]time.Time{
+			"github:old": time.Now().UTC().Add(-deliveryRetention - time.Minute),
+		},
+	}
+
+	if !s.claimDelivery("github:old") {
+		t.Fatal("expired delivery should be accepted again")
+	}
+	if len(s.seen) != 1 {
+		t.Fatalf("expired delivery map was not compacted: %#v", s.seen)
+	}
+}
+
+func TestDeliveryKeyReleasedWhenQueuedWebhookRunFails(t *testing.T) {
+	s := &Server{
+		cfg:      &config.Config{GitLabURL: "https://gitlab.example.com", GitLabToken: "token", WebhookSecret: "secret"},
+		pipeline: &pipeline.Pipeline{},
+		mux:      http.NewServeMux(),
+		work:     make(chan workItem, 1),
+		seen:     make(map[string]time.Time),
+	}
+	s.routes()
+	body := `{
+		"object_kind":"merge_request",
+		"event_type":"merge_request",
+		"project":{"id":42},
+		"object_attributes":{"iid":7,"action":"update","title":"Fix auth"}
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/webhook/gitlab", strings.NewReader(body))
+	req.Header.Set("X-Gitlab-Token", "secret")
+	req.Header.Set("X-Gitlab-Event-UUID", "delivery-fail")
+	rec := httptest.NewRecorder()
+
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	item := <-s.work
+	if err := item.run(context.Background()); err == nil {
+		t.Fatal("expected pipeline failure")
+	}
+	if !s.claimDelivery("gitlab:delivery-fail") {
+		t.Fatal("failed delivery should be retryable")
+	}
+}
+
+func TestRoutesDisableUnconfiguredProviderWebhooks(t *testing.T) {
+	s := &Server{
+		cfg:  &config.Config{GitHubAPIURL: "https://api.github.com", GitHubToken: "token", GitHubWebhookSecret: "github-secret"},
+		mux:  http.NewServeMux(),
+		work: make(chan workItem, 1),
+		seen: make(map[string]time.Time),
+	}
+	s.routes()
+	req := httptest.NewRequest(http.MethodPost, "/webhook/gitlab", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected inactive GitLab route to return 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(s.work) != 0 {
+		t.Fatal("inactive webhook should not enqueue work")
+	}
+}
+
+func TestRoutesEnableOnlyConfiguredGitHubWebhook(t *testing.T) {
+	body := `{
+		"action":"opened",
+		"number":7,
+		"repository":{"full_name":"o/r"},
+		"pull_request":{"title":"Fix","head":{"sha":"abc"},"base":{"sha":"def"}}
+	}`
+	s := &Server{
+		cfg:      &config.Config{GitHubAPIURL: "https://api.github.com", GitHubToken: "token", GitHubWebhookSecret: "github-secret"},
+		pipeline: &pipeline.Pipeline{},
+		mux:      http.NewServeMux(),
+		work:     make(chan workItem, 1),
+		seen:     make(map[string]time.Time),
+	}
+	s.routes()
+	req := httptest.NewRequest(http.MethodPost, "/webhook/github", strings.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "pull_request")
+	req.Header.Set("X-Hub-Signature-256", githubSignature("github-secret", body))
+	rec := httptest.NewRecorder()
+
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected configured GitHub route to accept, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(s.work) != 1 {
+		t.Fatal("configured GitHub route should enqueue work")
+	}
+}
+
+func TestHandleRunEndpointsExposeStoredReviewContext(t *testing.T) {
+	store := pipeline.NewMemoryRunStore()
+	req := review.Request{Provider: "gitlab", ProjectID: "p", MRIID: 7, ChangeID: "7", Title: "Fix checkout"}
+	run, err := store.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := review.NewContext(req)
+	rc.DraftReport = "draft body"
+	rc.Findings = []review.Finding{{ID: "F1", Severity: review.SeverityHigh, Title: "bug"}}
+	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(context.Background(), run.ID, pipeline.StatusDrafted, nil); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{pipeline: &pipeline.Pipeline{Jobs: store}}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/runs", nil)
+	listRec := httptest.NewRecorder()
+	s.handleRuns(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d: %s", listRec.Code, listRec.Body.String())
+	}
+	var listed []runDTO
+	if err := json.NewDecoder(listRec.Body).Decode(&listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].ID != "p!7" || len(listed[0].Findings) != 0 {
+		t.Fatalf("unexpected list response: %#v", listed)
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/run?id=p!7", nil)
+	getRec := httptest.NewRecorder()
+	s.handleRun(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected get 200, got %d: %s", getRec.Code, getRec.Body.String())
+	}
+	var detail runDTO
+	if err := json.NewDecoder(getRec.Body).Decode(&detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.DraftReport != "draft body" || len(detail.Findings) != 1 {
+		t.Fatalf("unexpected detail response: %#v", detail)
+	}
+}
+
+func TestHandleChatStreamStreamsAgainstStoredRun(t *testing.T) {
+	store := pipeline.NewMemoryRunStore()
+	req := review.Request{Provider: "gitlab", ProjectID: "p", MRIID: 7, ChangeID: "7", Title: "Fix checkout"}
+	run, err := store.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := review.NewContext(req)
+	rc.DraftReport = "draft body"
+	rc.Findings = []review.Finding{{ID: "F1", Severity: review.SeverityHigh, Title: "bug"}}
+	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
+		t.Fatal(err)
+	}
+	orch := orchestrator.NewOrchestrator(orchestrator.DefaultOrchestratorConfig("large", "small", "fake"), map[string]orchestrator.LLMProvider{
+		"fake": streamingProvider{},
+	})
+	s := &Server{pipeline: &pipeline.Pipeline{Jobs: store, Orchestrator: orch}}
+
+	reqHTTP := httptest.NewRequest(http.MethodPost, "/chat/stream?run=p!7", strings.NewReader(`{"message":"explain F1"}`))
+	rec := httptest.NewRecorder()
+	s.handleChatStream(rec, reqHTTP)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	out := rec.Body.String()
+	if !strings.Contains(out, `event: done`) || !strings.Contains(out, `"delta":"stream "`) || !strings.Contains(out, `"delta":"reply"`) {
+		t.Fatalf("unexpected stream response:\n%s", out)
+	}
+}
+
+func TestHandleChatStreamRejectsOversizedMessage(t *testing.T) {
+	store := pipeline.NewMemoryRunStore()
+	reqRun := review.Request{Provider: "gitlab", ProjectID: "p", MRIID: 7, ChangeID: "7", Title: "Fix checkout"}
+	if _, err := store.Start(context.Background(), reqRun); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{pipeline: &pipeline.Pipeline{Jobs: store}}
+	reqHTTP := httptest.NewRequest(http.MethodPost, "/chat/stream?run=p!7", strings.NewReader(strings.Repeat("x", int(chatMaxBodyBytes)+1)))
+	rec := httptest.NewRecorder()
+
+	s.handleChatStream(rec, reqHTTP)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleToolsReturnsToolCatalog(t *testing.T) {
+	s := &Server{}
+	req := httptest.NewRequest(http.MethodGet, "/tools", nil)
+	rec := httptest.NewRecorder()
+
+	s.handleTools(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "get_run") || !strings.Contains(rec.Body.String(), "approve_run") {
+		t.Fatalf("unexpected tools response: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "lifecycle_stage") || !strings.Contains(rec.Body.String(), "requires_approval") {
+		t.Fatalf("tools response missing lifecycle metadata: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "implemented") || !strings.Contains(rec.Body.String(), "/tools/execute") {
+		t.Fatalf("tools response missing implementation metadata: %s", rec.Body.String())
+	}
+}
+
+func TestHandleToolExecuteListRuns(t *testing.T) {
+	store := pipeline.NewMemoryRunStore()
+	reqRun := review.Request{Provider: "github", ProjectID: "owner/repo", ChangeID: "7", MRIID: 7, Title: "Fix checkout"}
+	if _, err := store.Start(context.Background(), reqRun); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{pipeline: &pipeline.Pipeline{Jobs: store}}
+	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(`{"name":"list_runs"}`))
+	rec := httptest.NewRecorder()
+
+	s.handleToolExecute(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Name   string   `json:"name"`
+		Result []runDTO `json:"result"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Name != "list_runs" || len(resp.Result) != 1 || resp.Result[0].ID != "owner/repo!7" {
+		t.Fatalf("unexpected tool response: %#v", resp)
+	}
+}
+
+func TestHandleToolExecuteGetConfigStatusRedactsSecrets(t *testing.T) {
+	s := &Server{
+		cfg: &config.Config{
+			ListenAddr:             ":8080",
+			GitHubAPIURL:           "https://api.github.com",
+			GitHubToken:            "github-token",
+			GitHubWebhookSecret:    "github-secret",
+			OpenRouterAPIKey:       "openrouter-token",
+			DeepSeekAPIKey:         "deepseek-token",
+			HeadroomURL:            "http://headroom:8787",
+			MemPalaceURL:           "http://mempalace:8788",
+			WebhookWorkers:         2,
+			WebhookQueueSize:       10,
+			OrchestratorConfigPath: "orchestrator.yaml",
+		},
+		pipeline: &pipeline.Pipeline{Jobs: pipeline.NewMemoryRunStore()},
+		work:     make(chan workItem, 10),
+	}
+	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(`{"name":"get_config_status"}`))
+	rec := httptest.NewRecorder()
+
+	s.handleToolExecute(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, secret := range []string{"github-token", "github-secret", "openrouter-token", "deepseek-token"} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("config status leaked secret %q in %s", secret, body)
+		}
+	}
+	if !strings.Contains(body, `"has_github":true`) || !strings.Contains(body, `"has_openrouter":true`) || !strings.Contains(body, `"has_deepseek":true`) {
+		t.Fatalf("config status missing provider booleans: %s", body)
+	}
+}
+
+func TestHandleToolExecuteRejectsUnimplementedTool(t *testing.T) {
+	s := &Server{pipeline: &pipeline.Pipeline{Jobs: pipeline.NewMemoryRunStore()}}
+	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(`{"name":"get_selected_context","input":{"run":"p!7"}}`))
+	rec := httptest.NewRecorder()
+
+	s.handleToolExecute(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "cataloged but not implemented") {
+		t.Fatalf("unexpected error: %s", rec.Body.String())
+	}
+}
+
+func TestRoutesExposeToolExecute(t *testing.T) {
+	s := &Server{
+		cfg:      &config.Config{},
+		pipeline: &pipeline.Pipeline{Jobs: pipeline.NewMemoryRunStore()},
+		mux:      http.NewServeMux(),
+		work:     make(chan workItem, 1),
+		seen:     make(map[string]time.Time),
+	}
+	s.routes()
+	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(`{"name":"list_runs"}`))
+	rec := httptest.NewRecorder()
+
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected routed tool execution, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlePublishFinalEnqueuesRunPublish(t *testing.T) {
+	called := make(chan struct{}, 1)
+	store := pipeline.NewMemoryRunStore()
+	reqRun := review.Request{Provider: "gitlab", ProjectID: "p", MRIID: 7, ChangeID: "7"}
+	run, err := store.Start(context.Background(), reqRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := review.NewContext(reqRun)
+	rc.HILApproved = true
+	rc.FinalReport = "old final"
+	rc.Source.SCM = &review.SCMContext{Provider: "gitlab", ProjectID: "p", MRIID: 7, ChangeID: "7"}
+	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(context.Background(), run.ID, pipeline.StatusDrafted, nil); err != nil {
+		t.Fatal(err)
+	}
+	publisher := &fakeAppPublisher{}
+	s := &Server{
+		pipeline: &pipeline.Pipeline{
+			Jobs:         store,
+			SCMPublisher: publisher,
+			Memory:       fakeMemory{},
+		},
+		work: make(chan workItem, 1),
+	}
+	s.pipeline.SCM = fakeAppSCM{}
+	req := httptest.NewRequest(http.MethodPost, "/publish/final?run=p!7", strings.NewReader("final report"))
+	rec := httptest.NewRecorder()
+
+	s.handlePublishFinal(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	item := <-s.work
+	go func() {
+		_ = item.run(context.Background())
+		called <- struct{}{}
+	}()
+	<-called
+	if publisher.finalReport != "final report" {
+		t.Fatalf("final report was not published: %#v", publisher)
+	}
+}
+
+func TestHandlePublishFinalRejectsOversizedReport(t *testing.T) {
+	s := &Server{
+		pipeline: &pipeline.Pipeline{Jobs: pipeline.NewMemoryRunStore()},
+		work:     make(chan workItem, 1),
+	}
+	req := httptest.NewRequest(http.MethodPost, "/publish/final?run=p!7", strings.NewReader(strings.Repeat("x", int(reportMaxBodyBytes)+1)))
+	rec := httptest.NewRecorder()
+
+	s.handlePublishFinal(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(s.work) != 0 {
+		t.Fatal("oversized final report should not enqueue work")
+	}
+}
+
+func TestHandleApproveAcceptsRunID(t *testing.T) {
+	called := make(chan struct{}, 1)
+	store := pipeline.NewMemoryRunStore()
+	reqRun := review.Request{Provider: "github", ProjectID: "owner/repo", MRIID: 7, ChangeID: "7"}
+	run, err := store.Start(context.Background(), reqRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := review.NewContext(reqRun)
+	rc.Source.SCM = &review.SCMContext{Provider: "github", Repository: "owner/repo", ProjectID: "owner/repo", MRIID: 7, ChangeID: "7"}
+	rc.DraftReport = "draft"
+	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(context.Background(), run.ID, pipeline.StatusDrafted, nil); err != nil {
+		t.Fatal(err)
+	}
+	publisher := &fakeAppPublisher{}
+	s := &Server{
+		pipeline: &pipeline.Pipeline{
+			Jobs:         store,
+			SCM:          fakeAppSCM{},
+			SCMPublisher: publisher,
+			Memory:       fakeMemory{},
+		},
+		work: make(chan workItem, 1),
+	}
+	req := httptest.NewRequest(http.MethodPost, "/approve?run=owner%2Frepo%217", strings.NewReader("approved report"))
+	rec := httptest.NewRecorder()
+
+	s.handleApprove(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	item := <-s.work
+	go func() {
+		_ = item.run(context.Background())
+		called <- struct{}{}
+	}()
+	<-called
+	if publisher.finalReport != "approved report" {
+		t.Fatalf("approved report was not published: %#v", publisher)
+	}
+	updated, err := store.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.HILApproved || updated.Status != pipeline.StatusFinalized {
+		t.Fatalf("run was not approved through run id: %#v", updated)
+	}
+}
+
+func TestHandleApproveDoesNotPublishUndraftedRun(t *testing.T) {
+	store := pipeline.NewMemoryRunStore()
+	reqRun := review.Request{Provider: "github", ProjectID: "owner/repo", MRIID: 7, ChangeID: "7"}
+	run, err := store.Start(context.Background(), reqRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := review.NewContext(reqRun)
+	rc.Source.SCM = &review.SCMContext{Provider: "github", Repository: "owner/repo", ProjectID: "owner/repo", MRIID: 7, ChangeID: "7"}
+	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
+		t.Fatal(err)
+	}
+	publisher := &fakeAppPublisher{}
+	s := &Server{
+		pipeline: &pipeline.Pipeline{
+			Jobs:         store,
+			SCM:          fakeAppSCM{},
+			SCMPublisher: publisher,
+			Memory:       fakeMemory{},
+		},
+		work: make(chan workItem, 1),
+	}
+	req := httptest.NewRequest(http.MethodPost, "/approve?run=owner%2Frepo%217", strings.NewReader("approved report"))
+	rec := httptest.NewRecorder()
+
+	s.handleApprove(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected queued approval, got %d: %s", rec.Code, rec.Body.String())
+	}
+	item := <-s.work
+	if err := item.run(context.Background()); err == nil || !strings.Contains(err.Error(), "draft report required") {
+		t.Fatalf("expected draft requirement error, got %v", err)
+	}
+	if publisher.finalReport != "" {
+		t.Fatalf("publisher should not run for undrafted approval: %#v", publisher)
+	}
+}
+
+func TestHandleApproveRejectsOversizedReport(t *testing.T) {
+	s := &Server{
+		pipeline: &pipeline.Pipeline{Jobs: pipeline.NewMemoryRunStore()},
+		work:     make(chan workItem, 1),
+	}
+	req := httptest.NewRequest(http.MethodPost, "/approve?run=owner%2Frepo%217", strings.NewReader(strings.Repeat("x", int(reportMaxBodyBytes)+1)))
+	rec := httptest.NewRecorder()
+
+	s.handleApprove(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(s.work) != 0 {
+		t.Fatal("oversized approval report should not enqueue work")
+	}
+}
+
+type fakeReducer struct {
+	err error
+}
+
+func (f fakeReducer) Reduce(context.Context, *review.Context) error {
+	return f.err
+}
+
+func (f fakeReducer) Check(context.Context) error {
+	return f.err
+}
+
+type fakeMemory struct{}
+
+func (fakeMemory) Recall(context.Context, review.Request) (pipeline.Recall, error) {
+	return pipeline.Recall{}, nil
+}
+
+func (fakeMemory) ProposeUpdate(context.Context, *review.Context) (pipeline.UpdateProposal, error) {
+	return pipeline.UpdateProposal{}, nil
+}
+
+func (fakeMemory) Write(context.Context, pipeline.UpdateProposal) error {
+	return nil
+}
+
+func (fakeMemory) Check(context.Context) error {
+	return nil
+}
+
+type streamingProvider struct{}
+
+func (streamingProvider) Name() string { return "fake" }
+
+func (streamingProvider) Complete(context.Context, orchestrator.LLMRequest) (string, error) {
+	return "complete", nil
+}
+
+func (streamingProvider) Stream(_ context.Context, _ orchestrator.LLMRequest, emit orchestrator.StreamHandler) error {
+	if err := emit("stream "); err != nil {
+		return err
+	}
+	return emit("reply")
+}
+
+type fakeAppSCM struct{}
+
+func (fakeAppSCM) Enrich(context.Context, review.Request) (*review.SCMContext, error) {
+	return &review.SCMContext{Provider: "gitlab", ProjectID: "p", MRIID: 7, ChangeID: "7"}, nil
+}
+
+type fakeAppPublisher struct {
+	finalReport string
+}
+
+func (fakeAppPublisher) PublishDraft(context.Context, *review.SCMContext, string) error {
+	return nil
+}
+
+func (p *fakeAppPublisher) PublishFinal(_ context.Context, _ *review.SCMContext, report string) error {
+	p.finalReport = report
+	return nil
+}
