@@ -667,6 +667,41 @@ func TestHandleToolExecuteObservabilityTools(t *testing.T) {
 	}
 }
 
+func TestHandleToolExecuteProviderStatusUsesLoadedOrchestrator(t *testing.T) {
+	orch := orchestrator.NewOrchestrator(&orchestrator.OrchestratorConfig{
+		Roles: map[orchestrator.ModelRole]orchestrator.RoleConfig{
+			orchestrator.RoleReasoner: {
+				Primary:   orchestrator.ModelSpec{Model: "claude-sonnet", Provider: "anthropic"},
+				Fallbacks: []orchestrator.ModelSpec{{Model: "qwen2.5-coder:32b", Provider: "ollama"}},
+				MaxTokens: 4096,
+				Parallel:  true,
+			},
+		},
+	}, map[string]orchestrator.LLMProvider{"ollama": staticResponseProvider{response: "ok"}})
+	s := &Server{
+		cfg: &config.Config{
+			Provider:               "anthropic",
+			OrchestratorConfigPath: "/app/orchestrator.yaml",
+			OllamaBaseURL:          "http://ollama:11434",
+		},
+		pipeline: &pipeline.Pipeline{Jobs: pipeline.NewMemoryRunStore(), Orchestrator: orch},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(`{"name":"list_provider_status"}`))
+	rec := httptest.NewRecorder()
+
+	s.handleToolExecute(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"mode":"orchestrator"`, `"active_provider":""`, `"primary":"claude-sonnet@anthropic"`, `"fallbacks":["qwen2.5-coder:32b@ollama"]`, `"name":"ollama"`, `"configured":true`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("provider status missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestHandleToolExecuteSuppressFinding(t *testing.T) {
 	store := pipeline.NewMemoryRunStore()
 	reqRun := review.Request{Provider: "github", ProjectID: "owner/repo", ChangeID: "7"}

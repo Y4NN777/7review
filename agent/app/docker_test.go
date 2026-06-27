@@ -25,6 +25,14 @@ func TestDockerCompose_WiresRequiredSidecarsOnOneNetwork(t *testing.T) {
 		"GITLAB_URL:",
 		"review-agent:",
 		"mempalace-data:",
+		"OPENROUTER_API_KEY:",
+		"OPENROUTER_BASE_URL:",
+		"DEEPSEEK_API_KEY:",
+		"DEEPSEEK_BASE_URL:",
+		"PROVIDER_API_KEY:",
+		"PROVIDER_BASE_URL:",
+		"REVIEW_MODEL:",
+		"SMALL_MODEL:",
 	}
 	for _, item := range required {
 		if !strings.Contains(data, item) {

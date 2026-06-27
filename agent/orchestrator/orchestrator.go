@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 
@@ -19,6 +20,57 @@ import (
 type Orchestrator struct {
 	cfg       *OrchestratorConfig
 	providers map[string]LLMProvider // keyed by provider name
+}
+
+type RoleStatus struct {
+	Role        string
+	Primary     string
+	Fallbacks   []string
+	MaxTokens   int
+	Parallel    bool
+	MaxParallel int
+}
+
+func (o *Orchestrator) RoleStatus() []RoleStatus {
+	if o == nil || o.cfg == nil {
+		return nil
+	}
+	return roleStatusFromConfig(o.cfg)
+}
+
+func roleStatusFromConfig(cfg *OrchestratorConfig) []RoleStatus {
+	if cfg == nil {
+		return nil
+	}
+	roles := make([]string, 0, len(cfg.Roles))
+	for role := range cfg.Roles {
+		roles = append(roles, string(role))
+	}
+	sort.Strings(roles)
+	out := make([]RoleStatus, 0, len(roles))
+	for _, role := range roles {
+		roleCfg := cfg.Roles[ModelRole(role)]
+		fallbacks := make([]string, 0, len(roleCfg.Fallbacks))
+		for _, fallback := range roleCfg.Fallbacks {
+			fallbacks = append(fallbacks, formatModelSpec(fallback))
+		}
+		out = append(out, RoleStatus{
+			Role:        role,
+			Primary:     formatModelSpec(roleCfg.Primary),
+			Fallbacks:   fallbacks,
+			MaxTokens:   roleCfg.MaxTokens,
+			Parallel:    roleCfg.Parallel,
+			MaxParallel: roleCfg.MaxParallel,
+		})
+	}
+	return out
+}
+
+func formatModelSpec(spec ModelSpec) string {
+	if spec.Model == "" && spec.Provider == "" {
+		return ""
+	}
+	return spec.Model + "@" + spec.Provider
 }
 
 func (o *Orchestrator) StreamComplete(
