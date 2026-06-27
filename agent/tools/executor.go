@@ -25,6 +25,8 @@ type RunActions interface {
 	ApproveRun(context.Context, string, string) error
 	PublishFinal(context.Context, string, string) error
 	SuppressFinding(context.Context, string, string, string) error
+	ReviseDraft(context.Context, string, string) error
+	RerunReview(context.Context, string, string) error
 }
 
 type ReadyChecker interface {
@@ -196,6 +198,38 @@ func (e ToolExecutor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteR
 			return ExecuteResponse{}, err
 		}
 		return ExecuteResponse{Name: name, Result: map[string]any{"accepted": true, "run": run, "finding_id": findingID}}, nil
+	case "revise_draft":
+		if e.Actions == nil {
+			return ExecuteResponse{}, fmt.Errorf("tools: run actions are not configured")
+		}
+		run := stringInput(req.Input, "run")
+		request := stringInput(req.Input, "request")
+		if run == "" {
+			return ExecuteResponse{}, fmt.Errorf("tools: revise_draft requires run")
+		}
+		if request == "" {
+			return ExecuteResponse{}, fmt.Errorf("tools: revise_draft requires request")
+		}
+		if err := e.Actions.ReviseDraft(ctx, run, request); err != nil {
+			return ExecuteResponse{}, err
+		}
+		return ExecuteResponse{Name: name, Result: map[string]any{"accepted": true, "run": run}}, nil
+	case "rerun_review":
+		if e.Actions == nil {
+			return ExecuteResponse{}, fmt.Errorf("tools: run actions are not configured")
+		}
+		run := stringInput(req.Input, "run")
+		reason := stringInput(req.Input, "reason")
+		if run == "" {
+			return ExecuteResponse{}, fmt.Errorf("tools: rerun_review requires run")
+		}
+		if reason == "" {
+			return ExecuteResponse{}, fmt.Errorf("tools: rerun_review requires reason")
+		}
+		if err := e.Actions.RerunReview(ctx, run, reason); err != nil {
+			return ExecuteResponse{}, err
+		}
+		return ExecuteResponse{Name: name, Result: map[string]any{"accepted": true, "run": run}}, nil
 	case "stream_run_chat":
 		return ExecuteResponse{}, fmt.Errorf("tools: stream_run_chat is executed through POST /chat/stream?run=<id>")
 	default:

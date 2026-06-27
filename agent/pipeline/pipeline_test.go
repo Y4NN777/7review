@@ -658,6 +658,92 @@ func TestSuppressFindingUpdatesDraftAndRejectedIDs(t *testing.T) {
 	}
 }
 
+func TestReviseDraftUsesFormatterAndPersistsDraft(t *testing.T) {
+	store := NewMemoryRunStore()
+	req := review.Request{Provider: "github", ProjectID: "owner/repo", ChangeID: "7"}
+	run, err := store.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := review.NewContext(req)
+	rc.DraftReport = "old draft"
+	rc.Source.Report.Draft = rc.DraftReport
+	rc.Findings = []review.Finding{{ID: "F1", Severity: review.SeverityHigh, Title: "Finding", Confidence: 0.9}}
+	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(context.Background(), run.ID, StatusDrafted, nil); err != nil {
+		t.Fatal(err)
+	}
+	p := &Pipeline{
+		Jobs: store,
+		Orchestrator: orchestrator.NewOrchestrator(
+			orchestrator.DefaultOrchestratorConfig("review", "small", "fake"),
+			map[string]orchestrator.LLMProvider{"fake": staticLLMProvider{response: "revised draft"}},
+		),
+	}
+
+	if err := p.ReviseDraft(context.Background(), run.ID, "clarify evidence"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.DraftReport != "revised draft" || updated.Context.Source.Report.Draft != "revised draft" {
+		t.Fatalf("draft was not revised: %#v", updated)
+	}
+	if len(updated.Context.HILAddedNotes) != 1 || !strings.Contains(updated.Context.HILAddedNotes[0], "clarify evidence") {
+		t.Fatalf("revision note not persisted: %#v", updated.Context.HILAddedNotes)
+	}
+}
+
+func TestRerunReviewUsesStoredRequest(t *testing.T) {
+	store := NewMemoryRunStore()
+	req := review.Request{Provider: "github", ProjectID: "owner/repo", ChangeID: "7", Title: "Fix retry"}
+	run, err := store.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := review.NewContext(req)
+	rc.DraftReport = "old draft"
+	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(context.Background(), run.ID, StatusFailed, errors.New("old failure")); err != nil {
+		t.Fatal(err)
+	}
+	publisher := &draftRecordingPublisher{}
+	p := &Pipeline{
+		Config: &config.Config{MaxDiffTokens: 6000, CorpusRoot: t.TempDir()},
+		Orchestrator: orchestrator.NewOrchestrator(
+			orchestrator.DefaultOrchestratorConfig("review", "small", "fake"),
+			map[string]orchestrator.LLMProvider{"fake": staticLLMProvider{response: `[]`}},
+		),
+		Jobs:             store,
+		SCM:              staticSCM{context: &review.SCMContext{Provider: "github", ProjectID: "owner/repo", ChangeID: "7", Files: []review.ChangedFile{{NewPath: "main.go", Patch: "@@"}}}},
+		SCMPublisher:     publisher,
+		Memory:           NoopMemoryStore{},
+		ContextReducer:   NoopContextReducer{},
+		Policy:           DefaultPolicyFilter{},
+		FindingValidator: DefaultFindingValidator{},
+	}
+
+	if err := p.RerunReview(context.Background(), run.ID, "new commits pushed"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != StatusDrafted || updated.Error != "" || !strings.Contains(updated.DraftReport, "No validated findings") {
+		t.Fatalf("run was not rerun through pipeline: %#v", updated)
+	}
+	if publisher.draftReport == "" {
+		t.Fatal("rerun did not publish a draft")
+	}
+}
+
 func TestRunPostHILConvertsDraftFallbackToFinalReport(t *testing.T) {
 	store := NewMemoryRunStore()
 	req := review.Request{Provider: "gitlab", ProjectID: "p", MRIID: 7, ChangeID: "7"}

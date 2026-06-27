@@ -120,7 +120,8 @@ func Catalog() []ToolSpec {
 			Name:           "revise_draft",
 			Description:    "Apply an explicit engineer-requested draft report revision without approving final output or writing memory.",
 			LifecycleStage: "iterate",
-			Implemented:    false,
+			Implemented:    true,
+			Executor:       "POST /tools/execute {\"name\":\"revise_draft\"}",
 			SideEffects:    true,
 			InputSchema: objectSchema(map[string]any{
 				"run":     stringSchema("Run ID whose draft should be revised."),
@@ -145,7 +146,8 @@ func Catalog() []ToolSpec {
 			Name:           "rerun_review",
 			Description:    "Rerun review for one change after new commits, updated context, or explicit engineer request.",
 			LifecycleStage: "review",
-			Implemented:    false,
+			Implemented:    true,
+			Executor:       "POST /tools/execute {\"name\":\"rerun_review\"}",
 			SideEffects:    true,
 			InputSchema: objectSchema(map[string]any{
 				"run":    stringSchema("Existing run ID to rerun from."),

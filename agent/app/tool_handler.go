@@ -52,6 +52,14 @@ func (r appToolRunner) SuppressFinding(ctx context.Context, run string, findingI
 	return r.server.pipeline.SuppressFinding(ctx, run, findingID, reason)
 }
 
+func (r appToolRunner) ReviseDraft(ctx context.Context, run string, request string) error {
+	return r.server.pipeline.ReviseDraft(ctx, run, request)
+}
+
+func (r appToolRunner) RerunReview(ctx context.Context, run string, reason string) error {
+	return r.server.pipeline.RerunReview(ctx, run, reason)
+}
+
 func (r appToolRunner) CheckReady(ctx context.Context) (any, error) {
 	return r.server.readiness(ctx), nil
 }

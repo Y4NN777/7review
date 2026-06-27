@@ -713,9 +713,94 @@ func TestHandleToolExecuteSuppressFinding(t *testing.T) {
 	}
 }
 
+func TestHandleToolExecuteReviseDraft(t *testing.T) {
+	store := pipeline.NewMemoryRunStore()
+	reqRun := review.Request{Provider: "github", ProjectID: "owner/repo", ChangeID: "7"}
+	run, err := store.Start(context.Background(), reqRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := review.NewContext(reqRun)
+	rc.DraftReport = "old draft"
+	rc.Source.Report.Draft = rc.DraftReport
+	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(context.Background(), run.ID, pipeline.StatusDrafted, nil); err != nil {
+		t.Fatal(err)
+	}
+	orch := orchestrator.NewOrchestrator(orchestrator.DefaultOrchestratorConfig("large", "small", "fake"), map[string]orchestrator.LLMProvider{
+		"fake": staticResponseProvider{response: "new draft"},
+	})
+	s := &Server{pipeline: &pipeline.Pipeline{Jobs: store, Orchestrator: orch}}
+	body := `{"name":"revise_draft","input":{"run":"owner/repo!7","request":"tighten wording"}}`
+	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	s.handleToolExecute(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	updated, err := store.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.DraftReport != "new draft" || updated.Context.Source.Report.Draft != "new draft" {
+		t.Fatalf("draft was not revised: %#v", updated)
+	}
+}
+
+func TestHandleToolExecuteRerunReview(t *testing.T) {
+	store := pipeline.NewMemoryRunStore()
+	reqRun := review.Request{Provider: "github", ProjectID: "owner/repo", ChangeID: "7", Title: "Fix retry"}
+	run, err := store.Start(context.Background(), reqRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := review.NewContext(reqRun)
+	rc.DraftReport = "old draft"
+	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(context.Background(), run.ID, pipeline.StatusFailed, errors.New("old failure")); err != nil {
+		t.Fatal(err)
+	}
+	orch := orchestrator.NewOrchestrator(orchestrator.DefaultOrchestratorConfig("large", "small", "fake"), map[string]orchestrator.LLMProvider{
+		"fake": staticResponseProvider{response: `[]`},
+	})
+	s := &Server{pipeline: &pipeline.Pipeline{
+		Config:           &config.Config{MaxDiffTokens: 6000, CorpusRoot: t.TempDir()},
+		Jobs:             store,
+		Orchestrator:     orch,
+		SCM:              fakeAppSCM{},
+		SCMPublisher:     &fakeAppPublisher{},
+		Memory:           fakeMemory{},
+		ContextReducer:   fakeReducer{},
+		Policy:           pipeline.DefaultPolicyFilter{},
+		FindingValidator: pipeline.DefaultFindingValidator{},
+	}}
+	body := `{"name":"rerun_review","input":{"run":"owner/repo!7","reason":"new commits"}}`
+	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	s.handleToolExecute(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	updated, err := store.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != pipeline.StatusDrafted || updated.Error != "" || !strings.Contains(updated.DraftReport, "No validated findings") {
+		t.Fatalf("run was not rerun: %#v", updated)
+	}
+}
+
 func TestHandleToolExecuteRejectsUnimplementedTool(t *testing.T) {
 	s := &Server{pipeline: &pipeline.Pipeline{Jobs: pipeline.NewMemoryRunStore()}}
-	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(`{"name":"rerun_review","input":{"run":"p!7"}}`))
+	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(`{"name":"not_a_tool","input":{"run":"p!7"}}`))
 	rec := httptest.NewRecorder()
 
 	s.handleToolExecute(rec, req)
@@ -723,7 +808,7 @@ func TestHandleToolExecuteRejectsUnimplementedTool(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "cataloged but not implemented") {
+	if !strings.Contains(rec.Body.String(), "unknown tool") {
 		t.Fatalf("unexpected error: %s", rec.Body.String())
 	}
 }
@@ -986,6 +1071,16 @@ func (streamingProvider) Stream(_ context.Context, _ orchestrator.LLMRequest, em
 		return err
 	}
 	return emit("reply")
+}
+
+type staticResponseProvider struct {
+	response string
+}
+
+func (p staticResponseProvider) Name() string { return "fake" }
+
+func (p staticResponseProvider) Complete(context.Context, orchestrator.LLMRequest) (string, error) {
+	return p.response, nil
 }
 
 type fakeAppSCM struct{}

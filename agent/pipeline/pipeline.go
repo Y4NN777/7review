@@ -291,6 +291,68 @@ func (p *Pipeline) SuppressFinding(ctx context.Context, id string, findingID str
 	return p.Jobs.Update(ctx, id, StatusDrafted, nil)
 }
 
+func (p *Pipeline) ReviseDraft(ctx context.Context, id string, request string) error {
+	if p == nil || p.Orchestrator == nil {
+		return fmt.Errorf("pipeline: orchestrator is not configured")
+	}
+	p.withDefaults()
+	request = strings.TrimSpace(request)
+	if request == "" {
+		return fmt.Errorf("pipeline: draft revision request is required")
+	}
+	run, err := p.Jobs.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	switch run.Status {
+	case StatusDrafted, StatusFailed:
+	default:
+		return fmt.Errorf("pipeline: run status %q cannot revise draft", run.Status)
+	}
+	rc := contextForRun(run)
+	if strings.TrimSpace(rc.DraftReport) == "" {
+		return fmt.Errorf("pipeline: draft report required before revision")
+	}
+	revised, err := p.Orchestrator.Complete(ctx, rc, orchestrator.RoleFormatter, "revise_draft", reviseDraftSystemPrompt(), reviseDraftUserMessage(rc, request))
+	if err != nil {
+		return err
+	}
+	revised = strings.TrimSpace(revised)
+	if revised == "" {
+		return fmt.Errorf("pipeline: revised draft is empty")
+	}
+	rc.DraftReport = revised
+	rc.Source.Report.Draft = revised
+	rc.HILAddedNotes = append(rc.HILAddedNotes, "draft revised: "+request)
+	if err := p.Jobs.SaveContext(ctx, id, rc); err != nil {
+		return err
+	}
+	return p.Jobs.Update(ctx, id, StatusDrafted, nil)
+}
+
+func (p *Pipeline) RerunReview(ctx context.Context, id string, reason string) error {
+	if p == nil {
+		return fmt.Errorf("pipeline: not configured")
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return fmt.Errorf("pipeline: rerun reason is required")
+	}
+	p.withDefaults()
+	run, err := p.Jobs.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	req := run.Request
+	if req.ProjectID == "" && run.Source != nil {
+		req = run.Source.Request
+	}
+	if req.ProjectID == "" {
+		return fmt.Errorf("pipeline: run request is incomplete")
+	}
+	return p.Run(ctx, req)
+}
+
 func (p *Pipeline) publishFinal(ctx context.Context, rc *review.Context, finalReport string) error {
 	if rc == nil || !rc.HILApproved {
 		return fmt.Errorf("pipeline: HIL approval required before final publish")
@@ -354,6 +416,29 @@ func appendUnique(items []string, item string) []string {
 		}
 	}
 	return append(items, item)
+}
+
+func reviseDraftSystemPrompt() string {
+	return strings.Join([]string{
+		"You revise one 7review draft report for a code-review run.",
+		"Use only the supplied draft, findings, and engineer request.",
+		"Do not approve the review, publish final output, invent new findings, or write memory.",
+		"Return the complete revised Markdown draft only.",
+	}, "\n")
+}
+
+func reviseDraftUserMessage(rc *review.Context, request string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Engineer revision request:\n%s\n\n", request)
+	if rc != nil {
+		b.WriteString("Validated findings:\n")
+		for _, finding := range rc.Findings {
+			fmt.Fprintf(&b, "- %s %s: %s\n", finding.ID, finding.Severity, finding.Title)
+		}
+		b.WriteString("\nCurrent draft:\n")
+		b.WriteString(rc.DraftReport)
+	}
+	return b.String()
 }
 
 func (p *Pipeline) withDefaults() {

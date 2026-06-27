@@ -28,6 +28,10 @@ type fakeActions struct {
 	suppressedRun    string
 	suppressedID     string
 	suppressedReason string
+	revisedRun       string
+	revisedRequest   string
+	rerunRun         string
+	rerunReason      string
 }
 
 func (f *fakeActions) ApproveRun(_ context.Context, run string, report string) error {
@@ -46,6 +50,18 @@ func (f *fakeActions) SuppressFinding(_ context.Context, run string, findingID s
 	f.suppressedRun = run
 	f.suppressedID = findingID
 	f.suppressedReason = reason
+	return nil
+}
+
+func (f *fakeActions) ReviseDraft(_ context.Context, run string, request string) error {
+	f.revisedRun = run
+	f.revisedRequest = request
+	return nil
+}
+
+func (f *fakeActions) RerunReview(_ context.Context, run string, reason string) error {
+	f.rerunRun = run
+	f.rerunReason = reason
 	return nil
 }
 
@@ -175,6 +191,26 @@ func TestToolExecutorExecutesApprovalAndPublish(t *testing.T) {
 	}
 	if actions.suppressedRun != "p!7" || actions.suppressedID != "F1" || actions.suppressedReason != "false positive" {
 		t.Fatalf("unexpected suppress call: %#v", actions)
+	}
+
+	if _, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:  "revise_draft",
+		Input: map[string]any{"run": "p!7", "request": "clarify evidence"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if actions.revisedRun != "p!7" || actions.revisedRequest != "clarify evidence" {
+		t.Fatalf("unexpected revise call: %#v", actions)
+	}
+
+	if _, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:  "rerun_review",
+		Input: map[string]any{"run": "p!7", "reason": "new commits"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if actions.rerunRun != "p!7" || actions.rerunReason != "new commits" {
+		t.Fatalf("unexpected rerun call: %#v", actions)
 	}
 }
 
