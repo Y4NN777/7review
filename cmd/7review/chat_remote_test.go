@@ -95,6 +95,35 @@ func TestRemoteRunChatResponderStreamsFromServer(t *testing.T) {
 	}
 }
 
+func TestRemoteRunChatResponderStreamsOperatorChatWithoutRun(t *testing.T) {
+	t.Setenv("REVIEW_API_TOKEN", "agent-token")
+	responder := &remoteRunChatResponder{
+		serverURL: "http://agent.test",
+		httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Path != "/chat/stream" || req.URL.RawQuery != "" {
+				t.Fatalf("unexpected request URL: %s", req.URL.String())
+			}
+			body := "data: {\"delta\":\"operator ready\"}\n\nevent: done\ndata: {}\n\n"
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		})},
+	}
+	var chunks []string
+	err := responder.StreamRespond(context.Background(), "hello", func(delta string) error {
+		chunks = append(chunks, delta)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(chunks, ""); got != "operator ready" {
+		t.Fatalf("unexpected stream: %q", got)
+	}
+}
+
 func TestParseChatArgsAcceptsPositionalRunAndServer(t *testing.T) {
 	opts, serverURL, runID := parseChatArgs([]string{"owner/repo!7", "--server", "http://agent/", "--plain"})
 	if !opts.Plain || serverURL != "http://agent" || runID != "owner/repo!7" {
@@ -864,24 +893,17 @@ func TestNormalizeConsoleCommandOutputStripsPlainChatPrefix(t *testing.T) {
 	}
 }
 
-func TestConsoleChatResponderUsesLocalModelWhenNoRunIsActive(t *testing.T) {
-	t.Setenv("GITHUB_TOKEN", "local-dev-token")
-	t.Setenv("GITHUB_WEBHOOK_SECRET", "local-dev-secret")
-	t.Setenv("REVIEW_API_TOKEN", "agent-token")
-	t.Setenv("HEADROOM_URL", "http://headroom:8787")
-	t.Setenv("MEMPALACE_URL", "http://mempalace:8788")
-	t.Setenv("PROVIDER", "ollama")
-	t.Setenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-	t.Setenv("REVIEW_MODEL", "qwen2.5-coder-7b-16k:latest")
-	t.Setenv("SMALL_MODEL", "qwen2.5-coder:1.5b")
-	t.Setenv("ORCHESTRATOR_CONFIG", "")
-
+func TestConsoleChatResponderUsesRemoteOperatorChatWhenNoRunIsActive(t *testing.T) {
 	responder, err := consoleChatResponder(tuiCommandOptions{serverURL: "http://agent"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := responder.(*modelChatResponder); !ok {
-		t.Fatalf("expected local model responder for no-run chat, got %T", responder)
+	remote, ok := responder.(*remoteRunChatResponder)
+	if !ok {
+		t.Fatalf("expected remote responder for no-run chat, got %T", responder)
+	}
+	if remote.runID != "" {
+		t.Fatalf("expected empty run id for operator chat, got %q", remote.runID)
 	}
 }
 

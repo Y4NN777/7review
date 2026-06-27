@@ -15,6 +15,7 @@ import (
 	"github.com/Y4NN777/7review/agent/pipeline"
 	"github.com/Y4NN777/7review/agent/review"
 	"github.com/Y4NN777/7review/agent/skills"
+	"github.com/Y4NN777/7review/agent/tools"
 )
 
 func TestHandleReadyReportsRequiredDependencies(t *testing.T) {
@@ -428,6 +429,66 @@ func TestHandleChatStreamStreamsAgainstStoredRun(t *testing.T) {
 	}
 	if got := updated.Events[len(updated.Events)-2].Message; got != "explain F1" {
 		t.Fatalf("chat message event stored wrong message %q", got)
+	}
+}
+
+func TestHandleChatStreamWithoutRunStreamsOperatorChat(t *testing.T) {
+	orch := orchestrator.NewOrchestrator(orchestrator.DefaultOrchestratorConfig("large", "small", "fake"), map[string]orchestrator.LLMProvider{
+		"fake": streamingProvider{},
+	})
+	s := &Server{
+		cfg: &config.Config{
+			Provider:       "ollama",
+			ReviewModel:    "qwen2.5-coder-7b-16k:latest",
+			SmallModel:     "qwen2.5-coder:1.5b",
+			EmbeddingModel: "nomic-embed-text:latest",
+		},
+		pipeline: &pipeline.Pipeline{
+			Jobs:         pipeline.NewMemoryRunStore(),
+			Orchestrator: orch,
+			Memory:       fakeMemory{},
+		},
+	}
+
+	reqHTTP := httptest.NewRequest(http.MethodPost, "/chat/stream", strings.NewReader(`{"message":"hello"}`))
+	rec := httptest.NewRecorder()
+	s.handleChatStream(rec, reqHTTP)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	out := rec.Body.String()
+	if !strings.Contains(out, `event: done`) || !strings.Contains(out, `"delta":"stream "`) || !strings.Contains(out, `"delta":"reply"`) {
+		t.Fatalf("unexpected stream response:\n%s", out)
+	}
+}
+
+func TestMemoryStoresSeparateReviewAndOperatorEmbeddingModes(t *testing.T) {
+	cfg := &config.Config{
+		MemPalaceURL:     "http://mempalace",
+		MemPalaceTimeout: 5000,
+		OllamaBaseURL:    "http://ollama:11434",
+		EmbeddingModel:   "nomic-embed-text:latest",
+	}
+
+	reviewStore := reviewMemoryStore(cfg)
+	if reviewStore.EmbedQueries {
+		t.Fatal("review recall should not use query embeddings")
+	}
+	if !reviewStore.EmbedWrites {
+		t.Fatal("review memory writes should embed approved memories")
+	}
+
+	server := &Server{cfg: cfg}
+	operatorStore, ok := server.operatorMemoryStore().(*tools.MemPalaceStore)
+	if !ok {
+		t.Fatalf("unexpected operator memory store type %T", server.operatorMemoryStore())
+	}
+	if !operatorStore.EmbedQueries {
+		t.Fatal("operator chat recall should use query embeddings")
+	}
+	if operatorStore.EmbedWrites {
+		t.Fatal("operator chat should not write embeddings")
 	}
 }
 

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -110,12 +111,33 @@ func TestRenderConsoleWorkspaceShowsTranscriptRailAndComposer(t *testing.T) {
 			{Role: "agent", Text: "sessions 1\nowner/repo!7 drafted"},
 		},
 	})
-	for _, want := range []string{"7review", "Review workspace", "run    owner/repo!7", "Transcript", "you>", "/sessions", "agent>", "sessions 1", "Context", "openrouter", "> /history", "/history chat_message 20"} {
+	for _, want := range []string{"7review", "Review workspace", "run    owner/repo!7", "Transcript 3 lines", "you>", "/sessions", "agent>", "sessions 1", "Context", "openrouter", "> /history", "up/down scroll", "/history chat_message 20"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("workspace output missing %q:\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, "chat: 7review chat") {
 		t.Fatalf("interactive workspace should not push users to a separate chat command:\n%s", out)
+	}
+}
+
+func TestRenderConsoleWorkspaceShowsTranscriptScrollPosition(t *testing.T) {
+	var transcript []ConsoleTranscriptItem
+	for i := 1; i <= 20; i++ {
+		transcript = append(transcript, ConsoleTranscriptItem{Role: "agent", Text: fmt.Sprintf("line %02d", i)})
+	}
+	out := RenderConsoleWorkspace(ConsoleWorkspace{
+		View:             ConsoleView{Server: "http://agent", Ready: true, Plain: true},
+		Transcript:       transcript,
+		Height:           30,
+		TranscriptScroll: 2,
+	})
+	for _, want := range []string{"Transcript", "scroll 2/", "agent>", "line 03"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("workspace output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "line 20") {
+		t.Fatalf("scrolled transcript should not show latest line:\n%s", out)
 	}
 }

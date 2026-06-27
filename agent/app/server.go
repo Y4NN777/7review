@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Y4NN777/7review/agent/config"
+	"github.com/Y4NN777/7review/agent/llm/providers"
 	"github.com/Y4NN777/7review/agent/orchestrator"
 	"github.com/Y4NN777/7review/agent/pipeline"
 	"github.com/Y4NN777/7review/agent/review"
@@ -93,7 +94,7 @@ func NewServer() (*Server, error) {
 	s.pipeline.SCM = router
 	s.pipeline.SCMPublisher = router
 	s.pipeline.ContextReducer = tools.NewHeadroomReducer(cfg.HeadroomURL, time.Duration(cfg.HeadroomTimeout)*time.Millisecond)
-	s.pipeline.Memory = tools.NewMemPalaceStore(cfg.MemPalaceURL, time.Duration(cfg.MemPalaceTimeout)*time.Millisecond)
+	s.pipeline.Memory = reviewMemoryStore(cfg)
 	s.startWorkers()
 	s.routes()
 	return s, nil
@@ -311,15 +312,6 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.URL.Query().Get("run")
-	if id == "" {
-		http.Error(w, "missing run", http.StatusBadRequest)
-		return
-	}
-	run, err := s.pipeline.Jobs.Get(r.Context(), id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
 	var req chatStreamRequest
 	body, err := readBoundedBody(r.Body, chatMaxBodyBytes)
 	if err != nil {
@@ -340,6 +332,15 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.pipeline.Orchestrator == nil {
 		http.Error(w, "orchestrator is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if id == "" {
+		s.handleOperatorChatStream(w, r, req.Message)
+		return
+	}
+	run, err := s.pipeline.Jobs.Get(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	flusher, ok := w.(http.Flusher)
@@ -402,6 +403,138 @@ func (s *Server) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	})
 	_, _ = fmt.Fprint(w, "event: done\ndata: {}\n\n")
 	flusher.Flush()
+}
+
+func (s *Server) handleOperatorChatStream(w http.ResponseWriter, r *http.Request, message string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming is not supported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	rc := review.NewContext(review.Request{Provider: "operator", ProjectID: "local", Repository: "operator-chat", ChangeID: "chat", Title: message})
+	system := operatorChatSystemPrompt(s.cfg)
+	user := fmt.Sprintf("Retrieved memory:\n%s\n\nEngineer message:\n%s", s.operatorMemoryBlock(r.Context(), message), message)
+	responseText, err := s.pipeline.Orchestrator.StreamComplete(r.Context(), rc, orchestrator.RoleFormatter, "operator_chat", system, user, func(delta string) error {
+		data, _ := json.Marshal(chatStreamEvent{Delta: delta})
+		if _, writeErr := fmt.Fprintf(w, "data: %s\n\n", data); writeErr != nil {
+			return writeErr
+		}
+		flusher.Flush()
+		return nil
+	})
+	_ = responseText
+	if err != nil {
+		data, _ := json.Marshal(chatStreamEvent{Error: err.Error()})
+		_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
+		flusher.Flush()
+		return
+	}
+	_, _ = fmt.Fprint(w, "event: done\ndata: {}\n\n")
+	flusher.Flush()
+}
+
+func (s *Server) operatorMemoryBlock(ctx context.Context, message string) string {
+	memory := s.operatorMemoryStore()
+	if memory == nil {
+		return "retrieval: unavailable\nreason: MemPalace memory store is not configured"
+	}
+	recall, err := memory.Recall(ctx, review.Request{
+		Provider:    "operator",
+		ProjectID:   "local",
+		Repository:  "operator-chat",
+		ChangeID:    "chat",
+		Title:       message,
+		Description: message,
+	})
+	if err != nil {
+		return "retrieval: unavailable\nreason: " + err.Error()
+	}
+	return renderOperatorMemoryRecall(recall)
+}
+
+func (s *Server) operatorMemoryStore() pipeline.MemoryStore {
+	if s == nil {
+		return nil
+	}
+	if s.cfg != nil && strings.TrimSpace(s.cfg.MemPalaceURL) != "" {
+		store := tools.NewMemPalaceStore(s.cfg.MemPalaceURL, time.Duration(s.cfg.MemPalaceTimeout)*time.Millisecond)
+		if s.cfg.EmbeddingModel != "" && s.cfg.OllamaBaseURL != "" {
+			store.EmbeddingModel = s.cfg.EmbeddingModel
+			store.Embedder = providers.NewOllama(s.cfg.OllamaBaseURL)
+			store.EmbedQueries = true
+		}
+		return store
+	}
+	if s.pipeline != nil {
+		return s.pipeline.Memory
+	}
+	return nil
+}
+
+func reviewMemoryStore(cfg *config.Config) *tools.MemPalaceStore {
+	store := tools.NewMemPalaceStore(cfg.MemPalaceURL, time.Duration(cfg.MemPalaceTimeout)*time.Millisecond)
+	if cfg.EmbeddingModel != "" && cfg.OllamaBaseURL != "" {
+		store.EmbeddingModel = cfg.EmbeddingModel
+		store.Embedder = providers.NewOllama(cfg.OllamaBaseURL)
+		store.EmbedWrites = true
+	}
+	return store
+}
+
+func operatorChatSystemPrompt(cfg *config.Config) string {
+	provider, reviewModel, smallModel, embeddingModel := "", "", "", ""
+	if cfg != nil {
+		provider = cfg.Provider
+		reviewModel = cfg.ReviewModel
+		smallModel = cfg.SmallModel
+		embeddingModel = cfg.EmbeddingModel
+	}
+	return strings.Join([]string{
+		"You are 7review's operator chat for the running code-review agent server.",
+		"Identity rules:",
+		"- Your product identity is 7review.",
+		"- Do not claim to be Codex, Claude, OpenCode, OpenAI, Anthropic, Qwen, Ollama, or any provider/harness.",
+		"- If asked who created you, say you are the 7review code-review agent running on the configured provider. Do not invent a creator.",
+		"Use the retrieved memory block as the only memory-backed knowledge. If retrieval is unavailable or empty, say so plainly.",
+		"Help with setup, status, Docker, sidecars, webhooks, review sessions, HIL approval, publishing, and next operator commands.",
+		"Keep answers concise and operational.",
+		"Configured routing:",
+		"Provider: " + provider,
+		"Review model: " + reviewModel,
+		"Small/chat model: " + smallModel,
+		"Embedding model: " + embeddingModel,
+	}, "\n")
+}
+
+func renderOperatorMemoryRecall(recall review.MemoryRecall) string {
+	var lines []string
+	lines = append(lines, "retrieval: mempalace")
+	lines = appendMemoryRecallSection(lines, "conventions", recall.Conventions)
+	lines = appendMemoryRecallSection(lines, "decisions", recall.Decisions)
+	lines = appendMemoryRecallSection(lines, "history", recall.History)
+	if len(lines) == 1 {
+		lines = append(lines, "no matching memory")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func appendMemoryRecallSection(lines []string, label string, values []string) []string {
+	if len(values) == 0 {
+		return lines
+	}
+	lines = append(lines, label+":")
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		lines = append(lines, "- "+truncatePromptEventMessage(value))
+	}
+	return lines
 }
 
 func truncateEventMessage(message string) string {

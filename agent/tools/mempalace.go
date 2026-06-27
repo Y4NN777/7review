@@ -10,13 +10,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Y4NN777/7review/agent/llm"
 	"github.com/Y4NN777/7review/agent/review"
 )
 
 type MemPalaceStore struct {
-	BaseURL    string
-	Timeout    time.Duration
-	HTTPClient *http.Client
+	BaseURL        string
+	Timeout        time.Duration
+	HTTPClient     *http.Client
+	Embedder       llm.Embedder
+	EmbeddingModel string
+	EmbedQueries   bool
+	EmbedWrites    bool
 }
 
 func NewMemPalaceStore(baseURL string, timeout time.Duration) *MemPalaceStore {
@@ -38,10 +43,16 @@ func (s *MemPalaceStore) Recall(ctx context.Context, req review.Request) (review
 	if s == nil || s.BaseURL == "" {
 		return review.MemoryRecall{}, fmt.Errorf("mempalace: missing base URL")
 	}
+	query := memoryQuery(req)
+	embedding, err := s.embed(ctx, query)
+	if err != nil {
+		return review.MemoryRecall{}, err
+	}
 	var out review.MemoryRecall
-	err := s.send(ctx, http.MethodPost, "/recall", memPalaceRecallRequest{
-		Request: req,
-		Query:   memoryQuery(req),
+	err = s.send(ctx, http.MethodPost, "/recall", memPalaceRecallRequest{
+		Request:        req,
+		Query:          query,
+		QueryEmbedding: embedding,
 	}, &out)
 	if err != nil {
 		return review.MemoryRecall{}, err
@@ -63,9 +74,23 @@ func (s *MemPalaceStore) ProposeUpdate(_ context.Context, rc *review.Context) (r
 	if rc.FinalReport != "" {
 		conventions = append(conventions, rc.FinalReport)
 	}
+	var vectors []review.Vector
+	for i, convention := range conventions {
+		vectors = append(vectors, review.Vector{
+			ID:   fmt.Sprintf("convention-%d", i+1),
+			Text: convention,
+		})
+	}
+	for i, decision := range rc.HILAddedNotes {
+		vectors = append(vectors, review.Vector{
+			ID:   fmt.Sprintf("decision-%d", i+1),
+			Text: decision,
+		})
+	}
 	return review.UpdateProposal{
 		Conventions: conventions,
 		Decisions:   append([]string(nil), rc.HILAddedNotes...),
+		Vectors:     vectors,
 	}, nil
 }
 
@@ -73,7 +98,41 @@ func (s *MemPalaceStore) Write(ctx context.Context, proposal review.UpdatePropos
 	if s == nil || s.BaseURL == "" {
 		return fmt.Errorf("mempalace: missing base URL")
 	}
-	return s.send(ctx, http.MethodPost, "/write", proposal, nil)
+	enriched, err := s.embedProposal(ctx, proposal)
+	if err != nil {
+		return err
+	}
+	return s.send(ctx, http.MethodPost, "/write", enriched, nil)
+}
+
+func (s *MemPalaceStore) embed(ctx context.Context, text string) ([]float64, error) {
+	if s == nil || !s.EmbedQueries || s.Embedder == nil || strings.TrimSpace(s.EmbeddingModel) == "" || strings.TrimSpace(text) == "" {
+		return nil, nil
+	}
+	embedding, err := s.Embedder.Embed(ctx, llm.EmbeddingRequest{Model: s.EmbeddingModel, Input: text})
+	if err != nil {
+		return nil, fmt.Errorf("mempalace: embed query with %s: %w", s.EmbeddingModel, err)
+	}
+	return embedding, nil
+}
+
+func (s *MemPalaceStore) embedProposal(ctx context.Context, proposal review.UpdateProposal) (review.UpdateProposal, error) {
+	if s == nil || !s.EmbedWrites || s.Embedder == nil || strings.TrimSpace(s.EmbeddingModel) == "" {
+		return proposal, nil
+	}
+	out := proposal
+	out.Vectors = append([]review.Vector(nil), proposal.Vectors...)
+	for i := range out.Vectors {
+		if len(out.Vectors[i].Embedding) > 0 || strings.TrimSpace(out.Vectors[i].Text) == "" {
+			continue
+		}
+		embedding, err := s.Embedder.Embed(ctx, llm.EmbeddingRequest{Model: s.EmbeddingModel, Input: out.Vectors[i].Text})
+		if err != nil {
+			return review.UpdateProposal{}, fmt.Errorf("mempalace: embed vector %s with %s: %w", out.Vectors[i].ID, s.EmbeddingModel, err)
+		}
+		out.Vectors[i].Embedding = embedding
+	}
+	return out, nil
 }
 
 func (s *MemPalaceStore) send(ctx context.Context, method, path string, in any, out any) error {
@@ -128,6 +187,7 @@ func memoryQuery(req review.Request) string {
 }
 
 type memPalaceRecallRequest struct {
-	Request review.Request `json:"request"`
-	Query   string         `json:"query"`
+	Request        review.Request `json:"request"`
+	Query          string         `json:"query"`
+	QueryEmbedding []float64      `json:"query_embedding,omitempty"`
 }

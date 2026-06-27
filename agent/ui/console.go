@@ -103,14 +103,15 @@ type ConsoleTranscriptItem struct {
 }
 
 type ConsoleWorkspace struct {
-	View       ConsoleView
-	RunID      string
-	Input      string
-	Help       bool
-	Running    bool
-	Status     string
-	Transcript []ConsoleTranscriptItem
-	Height     int
+	View             ConsoleView
+	RunID            string
+	Input            string
+	Help             bool
+	Running          bool
+	Status           string
+	Transcript       []ConsoleTranscriptItem
+	TranscriptScroll int
+	Height           int
 }
 
 func RenderConsole(view ConsoleView) string {
@@ -294,6 +295,13 @@ func RenderConsoleCommandPanel(panel ConsoleCommandPanel) string {
 func renderWorkspaceMain(workspace ConsoleWorkspace, width int) string {
 	view := workspace.View
 	runID := firstNonEmpty(workspace.RunID, activeRunID(view))
+	transcriptHeight := workspace.Height - 14
+	if transcriptHeight < 6 {
+		transcriptHeight = 6
+	}
+	if transcriptHeight > 24 {
+		transcriptHeight = 24
+	}
 	lines := []string{"Review workspace"}
 	if runID != "" {
 		lines = append(lines, "run    "+trimTo(runID, width-7))
@@ -319,28 +327,87 @@ func renderWorkspaceMain(workspace ConsoleWorkspace, width int) string {
 			lines = append(lines, trimTo(warning, width))
 		}
 	}
-	lines = append(lines, "", "Transcript")
+	lines = append(lines, "", transcriptTitle(workspace, transcriptHeight))
 	if len(workspace.Transcript) == 0 {
 		lines = append(lines,
 			"No messages yet.",
 			"Type /help, /sessions, /status, /history, /diff, /draft, or ask about the active review.",
 		)
 	} else {
-		for _, item := range lastTranscriptItems(workspace.Transcript, 12) {
-			prefix := strings.ToLower(strings.TrimSpace(item.Role))
-			if prefix == "" {
-				prefix = "agent"
-			}
-			for i, line := range wrappedLines(item.Text, width-8) {
-				if i == 0 {
-					lines = append(lines, fmt.Sprintf("%-6s %s", prefix+">", line))
-				} else {
-					lines = append(lines, "       "+line)
-				}
+		lines = append(lines, visibleTranscriptLines(workspace.Transcript, width, transcriptHeight, workspace.TranscriptScroll)...)
+	}
+	return renderConsoleSurface(lines, width, view.Plain)
+}
+
+func transcriptTitle(workspace ConsoleWorkspace, height int) string {
+	total := len(renderTranscriptLines(workspace.Transcript, 80))
+	if total == 0 {
+		return "Transcript"
+	}
+	if total <= height {
+		return fmt.Sprintf("Transcript %d lines", total)
+	}
+	scroll := workspace.TranscriptScroll
+	maxScroll := total - height
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+	start := total - height - scroll + 1
+	end := total - scroll
+	position := "latest"
+	if scroll > 0 {
+		position = fmt.Sprintf("scroll %d/%d", scroll, maxScroll)
+	}
+	return fmt.Sprintf("Transcript %d-%d/%d %s", start, end, total, position)
+}
+
+func visibleTranscriptLines(items []ConsoleTranscriptItem, width int, height int, scroll int) []string {
+	lines := renderTranscriptLines(items, width)
+	if len(lines) <= height {
+		return lines
+	}
+	maxScroll := len(lines) - height
+	if scroll < 0 {
+		scroll = 0
+	}
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+	start := len(lines) - height - scroll
+	return lines[start : start+height]
+}
+
+func renderTranscriptLines(items []ConsoleTranscriptItem, width int) []string {
+	var lines []string
+	for _, item := range items {
+		role := strings.ToLower(strings.TrimSpace(item.Role))
+		if role == "" {
+			role = "agent"
+		}
+		for i, line := range wrappedLines(item.Text, width-8) {
+			if i == 0 {
+				lines = append(lines, transcriptPrefix(role)+line)
+			} else {
+				lines = append(lines, "       "+line)
 			}
 		}
 	}
-	return renderConsoleSurface(lines, width, view.Plain)
+	return lines
+}
+
+func transcriptPrefix(role string) string {
+	label := fmt.Sprintf("%-7s", role+">")
+	switch role {
+	case "you", "user", "engineer":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#58A6FF")).Bold(true).Render(label)
+	case "agent":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#00E676")).Bold(true).Render(label)
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FFB800")).Bold(true).Render(label)
+	}
 }
 
 func renderWorkspaceComposer(workspace ConsoleWorkspace, width int) string {
@@ -358,7 +425,7 @@ func renderWorkspaceComposer(workspace ConsoleWorkspace, width int) string {
 	lines := []string{
 		"state " + state,
 		"> " + input,
-		"enter send  r refresh  ? help  q exit when input is empty",
+		"enter send  up/down scroll  pgup/pgdown page  r refresh  ? help  q exit",
 	}
 	if workspace.Help {
 		lines = append(lines,
@@ -507,7 +574,12 @@ func renderConsoleSurface(body []string, width int, plain bool) string {
 	}
 	var lines []string
 	for _, line := range body {
-		lines = append(lines, padRight(trimTo(stripANSINoise(line), width), width))
+		stripped := trimTo(stripANSINoise(line), width)
+		if line != stripANSINoise(line) && len(stripANSINoise(line)) <= width {
+			lines = append(lines, line+strings.Repeat(" ", width-len(stripANSINoise(line))))
+			continue
+		}
+		lines = append(lines, padRight(stripped, width))
 	}
 	out := strings.Join(lines, "\n")
 	if plain {

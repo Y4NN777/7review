@@ -22,3 +22,14 @@ type StreamingLLMProvider interface {
 	LLMProvider
 	Stream(ctx context.Context, req LLMRequest, emit StreamHandler) error
 }
+
+// EmbeddingRequest contains provider-neutral inputs for a vector embedding.
+type EmbeddingRequest struct {
+	Model string
+	Input string
+}
+
+// Embedder is implemented by providers that can produce vector embeddings.
+type Embedder interface {
+	Embed(ctx context.Context, req EmbeddingRequest) ([]float64, error)
+}

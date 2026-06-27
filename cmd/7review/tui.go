@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Y4NN777/7review/agent/config"
-	"github.com/Y4NN777/7review/agent/orchestrator"
 	"github.com/Y4NN777/7review/agent/tools"
 	"github.com/Y4NN777/7review/agent/ui"
 	tea "github.com/charmbracelet/bubbletea"
@@ -163,20 +161,21 @@ func runTUI(args []string, out io.Writer) error {
 }
 
 type consoleTUIModel struct {
-	client         *http.Client
-	opts           tuiCommandOptions
-	view           ui.ConsoleView
-	err            error
-	loading        bool
-	help           bool
-	message        string
-	input          string
-	commandRunning bool
-	transcript     []ui.ConsoleTranscriptItem
-	stream         <-chan consoleStreamMsg
-	cancel         context.CancelFunc
-	width          int
-	height         int
+	client           *http.Client
+	opts             tuiCommandOptions
+	view             ui.ConsoleView
+	err              error
+	loading          bool
+	help             bool
+	message          string
+	input            string
+	commandRunning   bool
+	transcript       []ui.ConsoleTranscriptItem
+	stream           <-chan consoleStreamMsg
+	cancel           context.CancelFunc
+	transcriptScroll int
+	width            int
+	height           int
 }
 
 type consoleViewMsg struct {
@@ -236,6 +235,7 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.input = ""
 			m.commandRunning = true
+			m.transcriptScroll = 0
 			m.transcript = appendTranscript(m.transcript, "you", command)
 			if !strings.HasPrefix(command, "/") {
 				ch, cancel := startConsoleChatStream(m.opts, m.effectiveRunID(), command)
@@ -248,6 +248,41 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "backspace":
 			m.input = dropLastRune(m.input)
 			return m, nil
+		case "up", "k":
+			if m.input == "" {
+				m.transcriptScroll += 1
+				return m, nil
+			}
+		case "down", "j":
+			if m.input == "" {
+				if m.transcriptScroll > 0 {
+					m.transcriptScroll -= 1
+				}
+				return m, nil
+			}
+		case "pgup":
+			if m.input == "" {
+				m.transcriptScroll += 8
+				return m, nil
+			}
+		case "pgdown":
+			if m.input == "" {
+				m.transcriptScroll -= 8
+				if m.transcriptScroll < 0 {
+					m.transcriptScroll = 0
+				}
+				return m, nil
+			}
+		case "home":
+			if m.input == "" {
+				m.transcriptScroll = len(m.transcript) * 8
+				return m, nil
+			}
+		case "end":
+			if m.input == "" {
+				m.transcriptScroll = 0
+				return m, nil
+			}
 		case "r":
 			if m.input != "" {
 				m.input += msg.String()
@@ -290,6 +325,7 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.commandRunning = false
 		m.cancel = nil
 		m.stream = nil
+		m.transcriptScroll = 0
 		if msg.err != nil {
 			m.transcript = appendTranscript(m.transcript, "agent", "error: "+msg.err.Error())
 		} else if strings.TrimSpace(msg.out) != "" {
@@ -305,12 +341,14 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.commandRunning = false
 			m.cancel = nil
 			m.stream = nil
+			m.transcriptScroll = 0
 			return m, fetchConsoleViewCmd(m.client, m.opts)
 		}
 		if msg.done {
 			m.commandRunning = false
 			m.cancel = nil
 			m.stream = nil
+			m.transcriptScroll = 0
 			return m, fetchConsoleViewCmd(m.client, m.opts)
 		}
 		return m, waitConsoleStream(m.stream)
@@ -338,14 +376,15 @@ func (m consoleTUIModel) View() string {
 		status = "last error: " + m.err.Error()
 	}
 	return ui.RenderConsoleWorkspace(ui.ConsoleWorkspace{
-		View:       m.view,
-		RunID:      m.effectiveRunID(),
-		Input:      m.input,
-		Help:       m.help,
-		Running:    m.commandRunning,
-		Status:     status,
-		Transcript: m.transcript,
-		Height:     m.height,
+		View:             m.view,
+		RunID:            m.effectiveRunID(),
+		Input:            m.input,
+		Help:             m.help,
+		Running:          m.commandRunning,
+		Status:           status,
+		Transcript:       m.transcript,
+		TranscriptScroll: m.transcriptScroll,
+		Height:           m.height,
 	})
 }
 
@@ -406,22 +445,11 @@ func startConsoleChatStream(opts tuiCommandOptions, runID string, input string) 
 }
 
 func consoleChatResponder(opts tuiCommandOptions, runID string) (ui.ChatResponder, error) {
-	if strings.TrimSpace(runID) != "" {
-		return &remoteRunChatResponder{
-			serverURL:  strings.TrimRight(opts.serverURL, "/"),
-			runID:      runID,
-			httpClient: operatorStreamHTTPClient(),
-		}, nil
-	}
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return nil, fmt.Errorf("local model chat needs config or an active run: %w", err)
-	}
-	modelOrchestrator, err := orchestrator.BuildOrchestrator(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("local model chat orchestration is not ready: %w", err)
-	}
-	return &modelChatResponder{orchestrator: modelOrchestrator, cfg: cfg}, nil
+	return &remoteRunChatResponder{
+		serverURL:  strings.TrimRight(opts.serverURL, "/"),
+		runID:      strings.TrimSpace(runID),
+		httpClient: operatorStreamHTTPClient(),
+	}, nil
 }
 
 func waitConsoleStream(ch <-chan consoleStreamMsg) tea.Cmd {

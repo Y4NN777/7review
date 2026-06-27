@@ -18,6 +18,7 @@ import (
 
 	"github.com/Y4NN777/7review/agent/app"
 	"github.com/Y4NN777/7review/agent/config"
+	"github.com/Y4NN777/7review/agent/llm/providers"
 	"github.com/Y4NN777/7review/agent/orchestrator"
 	"github.com/Y4NN777/7review/agent/review"
 	"github.com/Y4NN777/7review/agent/tools"
@@ -961,7 +962,10 @@ func (r *remoteRunChatResponder) StreamRespond(ctx context.Context, input string
 		r.httpClient = operatorStreamHTTPClient()
 	}
 	payload, _ := json.Marshal(map[string]string{"message": input})
-	endpoint := r.serverURL + "/chat/stream?run=" + url.QueryEscape(r.runID)
+	endpoint := r.serverURL + "/chat/stream"
+	if strings.TrimSpace(r.runID) != "" {
+		endpoint += "?run=" + url.QueryEscape(r.runID)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return err
@@ -1290,7 +1294,13 @@ func containsAny(value string, needles ...string) bool {
 func (r *modelChatResponder) operatorMemoryBlock(ctx context.Context, input string) string {
 	memory := r.memory
 	if memory == nil && r.cfg != nil && strings.TrimSpace(r.cfg.MemPalaceURL) != "" {
-		memory = tools.NewMemPalaceStore(r.cfg.MemPalaceURL, time.Duration(r.cfg.MemPalaceTimeout)*time.Millisecond)
+		store := tools.NewMemPalaceStore(r.cfg.MemPalaceURL, time.Duration(r.cfg.MemPalaceTimeout)*time.Millisecond)
+		if r.cfg.EmbeddingModel != "" && r.cfg.OllamaBaseURL != "" {
+			store.EmbeddingModel = r.cfg.EmbeddingModel
+			store.Embedder = providers.NewOllama(r.cfg.OllamaBaseURL)
+			store.EmbedQueries = true
+		}
+		memory = store
 	}
 	if memory == nil {
 		return "retrieval: unavailable\nreason: MemPalace is not configured for operator chat"

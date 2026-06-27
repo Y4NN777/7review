@@ -131,3 +131,40 @@ func (o *Ollama) Stream(ctx context.Context, req LLMRequest, emit StreamHandler)
 	}
 	return nil
 }
+
+func (o *Ollama) Embed(ctx context.Context, req EmbeddingRequest) ([]float64, error) {
+	payload := map[string]any{
+		"model":  req.Model,
+		"prompt": req.Input,
+	}
+	body, _ := json.Marshal(payload)
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+"/api/embeddings", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("ollama: build embedding request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("ollama: embedding http: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("ollama: embedding API error: %s: %s", resp.Status, string(raw))
+	}
+	var out struct {
+		Embedding []float64 `json:"embedding"`
+		Error     string    `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("ollama: decode embedding: %w", err)
+	}
+	if out.Error != "" {
+		return nil, fmt.Errorf("ollama: embedding API error: %s", out.Error)
+	}
+	if len(out.Embedding) == 0 {
+		return nil, fmt.Errorf("ollama: empty embedding")
+	}
+	return out.Embedding, nil
+}

@@ -69,6 +69,33 @@ class MemPalaceBridgeTests(unittest.TestCase):
         self.assertEqual(out["Decisions"], [])
         self.assertEqual(out["History"], [f"hit-{i}" for i in range(12)])
 
+    def test_recall_prefers_query_embedding_vector_hits(self):
+        self.app.require_mempalace = lambda: None
+        Path(self.tmp.name, ".mempalace-ready").write_text("ready\n", encoding="utf-8")
+        Path(self.tmp.name, "testns.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps({"kind": "vector", "text": "auth convention", "embedding": [1.0, 0.0]}),
+                    json.dumps({"kind": "vector", "text": "billing convention", "embedding": [0.0, 1.0]}),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        def fake_run_cli(args):
+            if args[0] == "search":
+                return SimpleNamespace(returncode=0, stdout="cli fallback", stderr="")
+            raise AssertionError(f"unexpected args {args}")
+
+        self.app.run_cli = fake_run_cli
+        out = self.app.recall(
+            self.app.RecallRequest(request={"ProjectID": "p"}, query="auth", query_embedding=[0.9, 0.1])
+        )
+
+        self.assertEqual(out["History"][:2], ["auth convention", "billing convention"])
+        self.assertIn("cli fallback", out["History"])
+
     def test_write_persists_conventions_decisions_vectors_and_mines(self):
         calls = []
         self.app.require_mempalace = lambda: None
@@ -91,6 +118,19 @@ class MemPalaceBridgeTests(unittest.TestCase):
         self.assertEqual([record["kind"] for record in records], ["convention", "decision", "vector"])
         self.assertIn("Headroom and MemPalace", Path(self.tmp.name, "testns-memory.md").read_text(encoding="utf-8"))
         self.assertEqual(calls, [["init", self.tmp.name, "--yes"], ["mine", self.tmp.name]])
+
+    def test_write_persists_vector_embedding(self):
+        self.app.require_mempalace = lambda: None
+        self.app.run_cli = lambda args: SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        payload = self.app.UpdateProposal(Vectors=[{"ID": "v1", "Text": "memory", "Embedding": [0.1, 0.2]}])
+        self.assertEqual(self.app.write(payload), {"status": "ok"})
+
+        records = [
+            json.loads(line)
+            for line in Path(self.tmp.name, "testns.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(records[0]["embedding"], [0.1, 0.2])
 
 
 if __name__ == "__main__":
