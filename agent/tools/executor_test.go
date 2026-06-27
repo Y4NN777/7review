@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -218,6 +219,46 @@ func TestToolExecutorExecutesApprovalAndPublish(t *testing.T) {
 	}
 	if actions.rerunRun != "p!7" || actions.rerunReason != "new commits" {
 		t.Fatalf("unexpected rerun call: %#v", actions)
+	}
+}
+
+func TestImplementedCatalogToolsHaveExecutablePath(t *testing.T) {
+	executor := ToolExecutor{
+		Runs:        &fakeRunTools{},
+		Actions:     &fakeActions{},
+		Ready:       fakeReady{},
+		Config:      fakeConfig{},
+		Skills:      fakeSkills{},
+		Observatory: &fakeObservatory{},
+	}
+	inputs := map[string]map[string]any{
+		"get_run":                 {"id": "p!7"},
+		"get_run_timeline":        {"run": "p!7"},
+		"stream_run_chat":         {"run": "p!7", "message": "hello"},
+		"get_selected_context":    {"run": "p!7"},
+		"get_diff_summary":        {"run": "p!7"},
+		"get_publish_status":      {"run": "p!7"},
+		"preview_memory_proposal": {"run": "p!7"},
+		"revise_draft":            {"run": "p!7", "request": "clarify evidence"},
+		"suppress_finding":        {"run": "p!7", "finding_id": "F1", "reason": "false positive"},
+		"rerun_review":            {"run": "p!7", "reason": "new commits"},
+		"approve_run":             {"run": "p!7", "report": "final"},
+		"publish_final":           {"run": "p!7", "report": "final"},
+	}
+	for _, tool := range Catalog() {
+		if !tool.Implemented {
+			continue
+		}
+		_, err := executor.Execute(context.Background(), ExecuteRequest{Name: tool.Name, Input: inputs[tool.Name]})
+		if tool.Name == "stream_run_chat" {
+			if err == nil || !strings.Contains(err.Error(), "/chat/stream") {
+				t.Fatalf("stream_run_chat should route to streaming endpoint guidance, got %v", err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s is marked implemented but not executable: %v", tool.Name, err)
+		}
 	}
 }
 
