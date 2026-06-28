@@ -133,7 +133,13 @@ go run ./cmd/7review status --server http://localhost:8080
 Start the Docker runtime:
 
 ```sh
-docker compose up --build
+make docker-up
+```
+
+Check the running Docker agent:
+
+```sh
+make docker-status
 ```
 
 ## Required Configuration
@@ -156,6 +162,8 @@ HEADROOM_URL=http://headroom:8787
 MEMPALACE_URL=http://mempalace:8788
 MEMORY_DIR=./.7review
 CORPUS_ROOT=.
+WEBHOOK_WORKERS=4
+WEBHOOK_QUEUE_SIZE=128
 ```
 
 GitHub:
@@ -275,8 +283,29 @@ Compose services:
 Validate Compose configuration:
 
 ```sh
-docker compose config
+make docker-config
 ```
+
+Common Docker commands:
+
+```sh
+make setup
+make docker-build
+make docker-up
+make docker-status
+make docker-logs
+make docker-tui
+make docker-down
+```
+
+Parallel review controls:
+
+- `WEBHOOK_WORKERS`: number of PR/MR review jobs the agent may process at once
+- `WEBHOOK_QUEUE_SIZE`: accepted webhook backlog
+
+For example, `WEBHOOK_WORKERS=2` lets two webhook review jobs run through the
+pipeline concurrently. Model routing itself is controlled by `orchestrator.yaml`
+or by `PROVIDER`, `REVIEW_MODEL`, and `SMALL_MODEL` overrides.
 
 Run bridge tests:
 

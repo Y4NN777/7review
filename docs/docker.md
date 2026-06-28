@@ -36,7 +36,7 @@ export GITLAB_WEBHOOK_SECRET=...
 export REVIEW_API_TOKEN=$(openssl rand -hex 32)
 export OPENAI_API_KEY=...
 export CORPUS_ROOT=/path/to/repository/context
-docker compose up --build
+make docker-up
 ```
 
 GitHub can be used instead of GitLab by setting `GITHUB_TOKEN` and
@@ -85,8 +85,28 @@ For local `go run` commands outside Docker, keep using
 If host port `8080` is already used, set `HTTP_PORT`, for example:
 
 ```sh
-HTTP_PORT=18080 docker compose up --build
+HTTP_PORT=18080 make docker-up
 ```
+
+## Make Targets
+
+The Makefile wraps the common Docker operations:
+
+```sh
+make setup           # interactive .env wizard
+make setup-force     # rewrite an existing .env
+make docker-config   # validate Compose
+make docker-build    # build images
+make docker-up       # build and start in the background
+make docker-status   # run the agent status command inside the container
+make docker-ready    # call /ready through the published host port
+make docker-logs     # follow agent logs
+make docker-tui      # open the operator TUI inside the agent container
+make docker-down     # stop the stack
+make compose-smoke   # build, wait for health, run status, then clean up
+```
+
+`docker-ready` uses `REVIEW_API_TOKEN` and `HTTP_PORT` from the environment.
 
 For a repeatable local deployment smoke test that builds the images, waits for
 all three services to become healthy, checks `/ready` from inside the agent
@@ -125,6 +145,39 @@ Compose network:
 ```sh
 curl -H "Authorization: Bearer $REVIEW_API_TOKEN" http://localhost:${HTTP_PORT:-8080}/ready
 ```
+
+## Parallel Reviews
+
+7review has two different concurrency controls:
+
+- `WEBHOOK_WORKERS`: how many PR/MR review jobs can run at the same time.
+- reasoner `max_parallel` in `orchestrator.yaml`: how many diff batches one
+  review may fan out to model calls.
+
+The default Docker setup uses:
+
+```sh
+WEBHOOK_WORKERS=4
+WEBHOOK_QUEUE_SIZE=32
+```
+
+`WEBHOOK_WORKERS=2` allows two review jobs to be active at the same time.
+`max_parallel` controls batch fan-out inside a single review.
+
+For a cloud override, use environment model overrides or a custom
+`ORCHESTRATOR_CONFIG`:
+
+```sh
+export WEBHOOK_WORKERS=2
+export PROVIDER=openrouter
+export OPENROUTER_API_KEY=...
+export REVIEW_MODEL=openai/gpt-4o
+export SMALL_MODEL=openai/gpt-4o-mini
+make docker-up
+```
+
+That keeps the current pipeline behavior while moving model execution to the
+configured cloud provider.
 
 ## Network Shape
 
