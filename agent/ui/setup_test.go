@@ -22,6 +22,7 @@ func TestConfigProfileEnvFile_DockerGitLabOpenAI(t *testing.T) {
 	for _, want := range []string{
 		"GITLAB_URL=https://gitlab.example.com",
 		"GITLAB_TOKEN=token",
+		"PROVIDER=openai",
 		"OPENAI_API_KEY=sk-test",
 		"REVIEW_API_TOKEN=agent-token",
 		"HTTP_READ_HEADER_TIMEOUT_MS=5000",
@@ -75,6 +76,9 @@ func TestRunSetupWizard_WritesEnvFile(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "GITLAB_URL=https://gitlab.example.com") {
 		t.Fatalf("unexpected env file:\n%s", string(data))
+	}
+	if !strings.Contains(string(data), "PROVIDER=openai") {
+		t.Fatalf("expected model provider in env file:\n%s", string(data))
 	}
 	if !strings.Contains(string(data), "CORPUS_ROOT=.") {
 		t.Fatalf("expected corpus root in env file:\n%s", string(data))

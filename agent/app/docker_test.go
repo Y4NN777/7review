@@ -29,6 +29,7 @@ func TestDockerCompose_WiresRequiredSidecarsOnOneNetwork(t *testing.T) {
 		"OPENROUTER_BASE_URL:",
 		"DEEPSEEK_API_KEY:",
 		"DEEPSEEK_BASE_URL:",
+		`PROVIDER: "${PROVIDER:-}"`,
 		"PROVIDER_API_KEY:",
 		"PROVIDER_BASE_URL:",
 		"REVIEW_MODEL:",

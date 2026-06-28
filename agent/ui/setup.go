@@ -259,6 +259,7 @@ func (p ConfigProfile) EnvFile() string {
 		{"GITHUB_API_URL", p.GitHubAPIURL},
 		{"GITHUB_TOKEN", p.GitHubToken},
 		{"GITHUB_WEBHOOK_SECRET", p.GitHubWebhookSecret},
+		{"PROVIDER", p.LLMProvider},
 		{"HTTP_PORT", p.HTTPPort},
 		{"LISTEN_ADDR", ":8080"},
 		{"HTTP_READ_HEADER_TIMEOUT_MS", p.HTTPReadHeaderMS},

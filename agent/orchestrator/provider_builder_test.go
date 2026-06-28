@@ -99,6 +99,42 @@ roles:
 	}
 }
 
+func TestBuildOrchestratorIgnoresEmptyComposeModelOverrides(t *testing.T) {
+	t.Setenv("PROVIDER", "ollama")
+	t.Setenv("REVIEW_MODEL", "")
+	t.Setenv("SMALL_MODEL", "")
+	cfgPath := filepath.Join(t.TempDir(), "orchestrator.yaml")
+	if err := os.WriteFile(cfgPath, []byte(`
+roles:
+  reasoner:
+    primary: "claude-sonnet@anthropic"
+    max_tokens: 4096
+  formatter:
+    primary: "claude-haiku@anthropic"
+    max_tokens: 2048
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		OrchestratorConfigPath: cfgPath,
+		Provider:               "ollama",
+		ReviewModel:            "deepseek-coder-v2:16b",
+		SmallModel:             "qwen2.5-coder-7b-16k:latest",
+		OllamaBaseURL:          "http://127.0.0.1:11434",
+	}
+
+	orch, err := BuildOrchestrator(cfg)
+	if err != nil {
+		t.Fatalf("expected provider-only override to use configured default models: %v", err)
+	}
+	if got := orch.cfg.Roles[RoleReasoner].Primary; got.Provider != "ollama" || got.Model != "deepseek-coder-v2:16b" {
+		t.Fatalf("unexpected reasoner primary: %#v", got)
+	}
+	if got := orch.cfg.Roles[RoleFormatter].Primary; got.Provider != "ollama" || got.Model != "qwen2.5-coder-7b-16k:latest" {
+		t.Fatalf("unexpected formatter primary: %#v", got)
+	}
+}
+
 func TestBuildOrchestratorUsesSingleProviderAPIKey(t *testing.T) {
 	cfg := &config.Config{
 		Provider:       "anthropic",

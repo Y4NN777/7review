@@ -104,9 +104,9 @@ func applyEnvRoleOverrides(orchCfg *OrchestratorConfig, cfg *config.Config) {
 	if orchCfg == nil {
 		return
 	}
-	provider, providerSet := os.LookupEnv("PROVIDER")
-	reviewModel, reviewSet := os.LookupEnv("REVIEW_MODEL")
-	smallModel, smallSet := os.LookupEnv("SMALL_MODEL")
+	provider, providerSet := lookupNonEmptyEnv("PROVIDER")
+	reviewModel, reviewSet := lookupNonEmptyEnv("REVIEW_MODEL")
+	smallModel, smallSet := lookupNonEmptyEnv("SMALL_MODEL")
 	if !providerSet && !reviewSet && !smallSet {
 		return
 	}
@@ -121,6 +121,15 @@ func applyEnvRoleOverrides(orchCfg *OrchestratorConfig, cfg *config.Config) {
 	}
 	overrideRolePrimary(orchCfg, RoleReasoner, ModelSpec{Model: reviewModel, Provider: provider})
 	overrideRolePrimary(orchCfg, RoleFormatter, ModelSpec{Model: smallModel, Provider: provider})
+}
+
+func lookupNonEmptyEnv(key string) (string, bool) {
+	value, ok := os.LookupEnv(key)
+	value = strings.TrimSpace(value)
+	if !ok || value == "" {
+		return "", false
+	}
+	return value, true
 }
 
 func overrideRolePrimary(orchCfg *OrchestratorConfig, role ModelRole, primary ModelSpec) {
