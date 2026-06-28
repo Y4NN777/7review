@@ -208,6 +208,44 @@ func TestExpandGraphEvidence_RespectsDepthAndPerSeedLimit(t *testing.T) {
 	}
 }
 
+func TestExpandGraphHierarchyEvidence_ExplainsParentPath(t *testing.T) {
+	sections := []corpusSection{
+		{
+			Section:     review.Section{Path: "docs/DESIGN.md", Title: "Composer", Content: "Composer design contract.", Kind: review.KindDesign},
+			Authority:   "design",
+			HeadingPath: []string{"Composer"},
+			Level:       1,
+			Ordinal:     0,
+		},
+		{
+			Section:     review.Section{Path: "docs/DESIGN.md", Title: "Accessibility", Content: "Accessibility requirements.", Kind: review.KindDesign},
+			Authority:   "design",
+			HeadingPath: []string{"Composer", "Accessibility"},
+			Level:       2,
+			Ordinal:     1,
+		},
+		{
+			Section:     review.Section{Path: "docs/DESIGN.md", Title: "Keyboard navigation", Content: "Keyboard focus stays visible.", Kind: review.KindDesign},
+			Authority:   "design",
+			HeadingPath: []string{"Composer", "Accessibility", "Keyboard navigation"},
+			Level:       3,
+			Ordinal:     2,
+		},
+	}
+	graph := buildCorpusGraph(sections)
+	initial := []scoredCorpusSection{{
+		section:        sections[2],
+		score:          90,
+		matchedSignals: []string{"keyboard"},
+		reason:         "design: query term keyboard",
+	}}
+
+	expanded := expandGraphHierarchyEvidence(graph, initial, graphExpansionLimits{PerSeed: 2})
+
+	assertScoredSectionReason(t, expanded, "docs/DESIGN.md", "Accessibility", "hierarchy: parent Accessibility selected with docs/DESIGN.md#Keyboard navigation")
+	assertScoredSectionReason(t, expanded, "docs/DESIGN.md", "Composer", "hierarchy: parent Composer selected with docs/DESIGN.md#Accessibility")
+}
+
 func TestSplitCorpusDocument_OpenAPIYAMLSections(t *testing.T) {
 	doc := corpusDocument{
 		Path:      "docs/openapi.yaml",
@@ -406,6 +444,45 @@ paths:
 	assertManifestContainsReason(t, manifest, "docs/CONTRACT.md", "OPC-LOGIN", "identifier OPC-LOGIN")
 	assertManifestContainsReason(t, manifest, "docs/openapi.yaml", "paths./sessions", "API route /sessions")
 	assertManifestContainsReason(t, manifest, "RULES/code/python.md", "PY-1", "baseline code-zone rules")
+}
+
+func TestSelectCorpus_ManifestExplainsGraphTracePaths(t *testing.T) {
+	root := t.TempDir()
+	writeCorpusFile(t, root, "docs/openapi.yaml", `openapi: 3.0.0
+paths:
+  /sessions:
+    post:
+      operationId: createSession
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+components:
+  schemas:
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+`)
+	rc := review.NewContext(review.Request{
+		Provider:    "github",
+		ProjectID:   "generic-api",
+		ChangeID:    "51",
+		Title:       "Update session creation",
+		Description: "POST /sessions",
+	})
+
+	sections, manifest, err := selectCorpus(context.Background(), root, rc, defaultMaxSupportingCorpusSections)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertSelectedContent(t, sections, []string{"/sessions", "Session"})
+	assertManifestContainsReason(t, manifest, "docs/openapi.yaml", "paths./sessions", "API route /sessions")
+	assertManifestContainsReason(t, manifest, "docs/openapi.yaml", "schemas.Session", "interface_trace: session -> docs/openapi.yaml#schemas.Session")
 }
 
 func TestSelectCorpus_MessengerWebAndGatewayRouting(t *testing.T) {
@@ -708,6 +785,19 @@ func assertManifestContainsReason(t *testing.T, manifest []review.EvidenceItem, 
 		}
 	}
 	t.Fatalf("manifest missing item %s/%s in %#v", source, heading, manifest)
+}
+
+func assertScoredSectionReason(t *testing.T, scored []scoredCorpusSection, source, heading, reason string) {
+	t.Helper()
+	for _, item := range scored {
+		if item.section.Path == source && item.section.Title == heading {
+			if !strings.Contains(item.reason, reason) {
+				t.Fatalf("scored item %s/%s reason %q does not contain %q", source, heading, item.reason, reason)
+			}
+			return
+		}
+	}
+	t.Fatalf("scored items missing %s/%s in %#v", source, heading, scored)
 }
 
 func containsString(values []string, want string) bool {
