@@ -28,23 +28,61 @@ Implemented:
 
 ## Architecture
 
-The runtime lifecycle is:
+7review is split into two planes:
+
+- review plane: webhook intake, SCM enrichment, context selection, model review,
+  finding validation, draft publishing, HIL, final publishing, and memory write
+- operator plane: authenticated tools, run inspection, context audit, chat, CLI,
+  and TUI
+
+System overview:
+
+```mermaid
+flowchart TB
+    GitHub[GitHub PRs] --> Webhooks[agent/app webhooks]
+    GitLab[GitLab MRs] --> Webhooks
+
+    Webhooks --> Queue[bounded worker queue]
+    Queue --> Pipeline[agent/pipeline]
+
+    Pipeline --> SCM[GitHub/GitLab enrichment and publishing]
+    Pipeline --> Corpus[repository knowledge graph from CORPUS_ROOT]
+    Pipeline --> Skills[SKILL.md review procedures]
+    Pipeline <--> MemPalace[MemPalace memory sidecar]
+    Pipeline --> Headroom[Headroom context reducer]
+    Pipeline --> Orchestrator[role-based model orchestrator]
+    Orchestrator --> Providers[OpenAI/Anthropic/OpenRouter/DeepSeek/Mistral/Gemini/Ollama]
+    Pipeline <--> Runs[MEMORY_DIR/runs JSON store]
+
+    Operator[CLI/TUI/chat] --> Tools[authenticated operator tool API]
+    Tools --> Runs
+    Tools --> Pipeline
+```
+
+Review lifecycle:
 
 ```mermaid
 flowchart LR
-    Webhook[webhook] --> SCM[SCM enrichment]
-    SCM --> Context[diff and context]
-    Context --> Memory[memory recall]
-    Memory --> Headroom[Headroom reduction]
-    Headroom --> Model[model review]
-    Model --> Validation[finding validation]
-    Validation --> Draft[draft report]
-    Draft --> HIL[HIL approval]
+    Request[normalized request] --> Enrich[SCM enrichment]
+    Enrich --> Diff[structured diff]
+    Diff --> Context[skills + graph corpus + memory]
+    Context --> Reduce[Headroom reduction]
+    Reduce --> Review[model reasoner]
+    Review --> Validate[finding validation]
+    Validate --> Draft[draft publish]
+    Draft --> HIL[human approval]
     HIL --> Final[final publish]
-    Final --> MemPalace[MemPalace memory write]
+    Final --> Memory[approved memory write]
 ```
 
-Package layout:
+Repository knowledge is selected by an in-process graph. The graph builds nodes
+from split documentation sections, indexes IDs/routes/schemas/entities/components
+and terms, creates typed edges such as `requirement_trace`, `constraint_trace`,
+`interface_trace`, `data_trace`, `ui_trace`, `ownership_trace`, and `hierarchy`,
+then expands only from exact review signals. The selected sections are exposed
+with an `evidence_manifest` so operators can see why each section was included.
+
+Package map:
 
 - `cmd/7review`: server and operator CLI entrypoint
 - `agent/app`: HTTP routes, webhooks, run endpoints, chat streaming, tool
