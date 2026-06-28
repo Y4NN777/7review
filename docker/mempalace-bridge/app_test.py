@@ -42,6 +42,8 @@ class MemPalaceBridgeTests(unittest.TestCase):
 
         def fake_run_cli(args):
             calls.append(args)
+            if args[0] == "init":
+                Path(self.tmp.name, "palace").mkdir()
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         self.app.require_mempalace = lambda: None
@@ -51,6 +53,24 @@ class MemPalaceBridgeTests(unittest.TestCase):
         self.assertEqual(self.app.health(), {"status": "ok"})
         self.assertEqual(calls, [["init", self.tmp.name, "--yes"]])
         self.assertEqual(Path(self.tmp.name, ".mempalace-ready").read_text(encoding="utf-8"), "ready\n")
+
+    def test_run_cli_uses_configured_palace_path(self):
+        captured = {}
+
+        def fake_run(command, **kwargs):
+            captured["command"] = command
+            captured["env"] = kwargs["env"]
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        self.app.subprocess.run = fake_run
+
+        self.app.run_cli(["search", "auth"])
+
+        self.assertEqual(
+            captured["command"],
+            ["mempalace", "--palace", str(Path(self.tmp.name, "palace")), "search", "auth"],
+        )
+        self.assertEqual(captured["env"]["MEMPALACE_HOME"], str(Path(self.tmp.name, "home")))
 
     def test_recall_returns_bounded_history_from_cli(self):
         self.app.require_mempalace = lambda: None
@@ -69,9 +89,26 @@ class MemPalaceBridgeTests(unittest.TestCase):
         self.assertEqual(out["Decisions"], [])
         self.assertEqual(out["History"], [f"hit-{i}" for i in range(12)])
 
+    def test_recall_returns_empty_history_before_first_memory_write(self):
+        self.app.require_mempalace = lambda: None
+
+        def fake_run_cli(args):
+            if args[0] == "init":
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            if args[0] == "search":
+                return SimpleNamespace(returncode=1, stdout="", stderr="No palace found at /data/palace")
+            raise AssertionError(f"unexpected args {args}")
+
+        self.app.run_cli = fake_run_cli
+
+        out = self.app.recall(self.app.RecallRequest(request={"ProjectID": "p"}, query="auth"))
+
+        self.assertEqual(out["History"], [])
+
     def test_recall_prefers_query_embedding_vector_hits(self):
         self.app.require_mempalace = lambda: None
         Path(self.tmp.name, ".mempalace-ready").write_text("ready\n", encoding="utf-8")
+        Path(self.tmp.name, "palace").mkdir()
         Path(self.tmp.name, "testns.jsonl").write_text(
             "\n".join(
                 [

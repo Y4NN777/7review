@@ -53,9 +53,10 @@ def memory_text_path() -> Path:
 
 def run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    env.setdefault("MEMPALACE_HOME", str(data_dir()))
+    env.setdefault("MEMPALACE_HOME", str(data_dir() / "home"))
+    palace = data_dir() / "palace"
     return subprocess.run(
-        ["mempalace", *args],
+        ["mempalace", "--palace", str(palace), *args],
         check=False,
         capture_output=True,
         text=True,
@@ -66,7 +67,8 @@ def run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 def init_workspace() -> None:
     marker = data_dir() / ".mempalace-ready"
-    if marker.exists():
+    palace = data_dir() / "palace"
+    if marker.exists() and palace.exists():
         return
     result = run_cli(["init", str(data_dir()), "--yes"])
     if result.returncode != 0:
@@ -95,6 +97,9 @@ def write_item(kind: str, text: str, embedding: list[float] | None = None) -> No
 def recall_from_cli(query: str) -> list[str]:
     result = run_cli(["search", query])
     if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip()
+        if "No palace found" in message:
+            return []
         raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "mempalace search failed")
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     return lines[:12]

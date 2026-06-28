@@ -40,8 +40,8 @@ func (c *GitLabClient) Enrich(ctx context.Context, req review.Request) (*review.
 		return nil, err
 	}
 
-	var diffs []gitLabDiff
-	if err := c.getAll(ctx, fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/diffs?per_page=100", url.PathEscape(projectID), mrIID), &diffs); err != nil {
+	diffs, err := c.fetchMergeRequestDiffs(ctx, projectID, mrIID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -104,6 +104,22 @@ func (c *GitLabClient) Enrich(ctx context.Context, req review.Request) (*review.
 
 func (c *GitLabClient) PublishDraft(ctx context.Context, source *review.SCMContext, report string) error {
 	return c.upsertNote(ctx, source, report, "draft")
+}
+
+func (c *GitLabClient) fetchMergeRequestDiffs(ctx context.Context, projectID string, mrIID int) ([]gitLabDiff, error) {
+	escapedProjectID := url.PathEscape(projectID)
+	var diffs []gitLabDiff
+	diffsPath := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/diffs?per_page=100", escapedProjectID, mrIID)
+	if err := c.getAll(ctx, diffsPath, &diffs); err == nil {
+		return diffs, nil
+	} else {
+		var changes gitLabChanges
+		changesPath := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/changes", escapedProjectID, mrIID)
+		if fallbackErr := c.get(ctx, changesPath, &changes); fallbackErr != nil {
+			return nil, fmt.Errorf("%w; fallback %s failed: %v", err, changesPath, fallbackErr)
+		}
+		return changes.Changes, nil
+	}
 }
 
 func (c *GitLabClient) PublishFinal(ctx context.Context, source *review.SCMContext, report string) error {
@@ -207,6 +223,10 @@ type gitLabDiff struct {
 	NewFile     bool   `json:"new_file"`
 	RenamedFile bool   `json:"renamed_file"`
 	DeletedFile bool   `json:"deleted_file"`
+}
+
+type gitLabChanges struct {
+	Changes []gitLabDiff `json:"changes"`
 }
 
 type gitLabCommit struct {

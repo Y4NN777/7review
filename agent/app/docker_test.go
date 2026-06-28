@@ -34,6 +34,7 @@ func TestDockerCompose_WiresRequiredSidecarsOnOneNetwork(t *testing.T) {
 		"PROVIDER_BASE_URL:",
 		"REVIEW_MODEL:",
 		"SMALL_MODEL:",
+		"host.docker.internal:host-gateway",
 	}
 	for _, item := range required {
 		if !strings.Contains(data, item) {

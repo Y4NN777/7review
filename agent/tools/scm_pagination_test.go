@@ -236,6 +236,36 @@ func TestGitLabClientEnrichPagesDiffsAndCommits(t *testing.T) {
 	}
 }
 
+func TestGitLabClientEnrichFallsBackToChangesWhenDiffsFail(t *testing.T) {
+	var usedChanges bool
+	client := NewGitLabClient("http://agent.test", "token")
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.URL.Path == "/api/v4/projects/p/merge_requests/7":
+			return testJSON(t, gitLabMR{Title: "MR"}), nil
+		case r.URL.Path == "/api/v4/projects/p/merge_requests/7/diffs":
+			return testResponse(http.StatusInternalServerError, `{"message":"500 Internal Server Error"}`), nil
+		case r.URL.Path == "/api/v4/projects/p/merge_requests/7/changes":
+			usedChanges = true
+			return testJSON(t, gitLabChanges{Changes: []gitLabDiff{{NewPath: "fallback.go", Diff: "@@"}}}), nil
+		case r.URL.Path == "/api/v4/projects/p/merge_requests/7/commits":
+			return testJSON(t, []gitLabCommit{{ID: "1"}}), nil
+		}
+		return testResponse(http.StatusNotFound, "not found"), nil
+	})}
+
+	ctx, err := client.Enrich(context.Background(), review.Request{Provider: "gitlab", ProjectID: "p", MRIID: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !usedChanges {
+		t.Fatal("expected GitLab changes fallback to be used")
+	}
+	if len(ctx.Files) != 1 || ctx.Files[0].NewPath != "fallback.go" {
+		t.Fatalf("expected fallback diff in context: %#v", ctx.Files)
+	}
+}
+
 func TestGitLabClientPublishFindsBotNoteOnSecondPage(t *testing.T) {
 	var updated bool
 	client := NewGitLabClient("http://agent.test", "token")
