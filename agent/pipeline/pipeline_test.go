@@ -227,6 +227,7 @@ func TestReviewSystemPromptRequiresContractDriftChecks(t *testing.T) {
 	for _, want := range []string{
 		"Actively compare changed code and tests against selected API, contract",
 		"contract-drift finding",
+		"set location.path to the changed file",
 		"Do not treat comments in the diff",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -368,6 +369,49 @@ func TestParseFindingsAcceptsRawArrayEnvelopeFenceAndProse(t *testing.T) {
 func TestParseFindingsIgnoresMalformedText(t *testing.T) {
 	if findings := parseFindings("no structured findings here"); len(findings) != 0 {
 		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestParseFindingsAcceptsLenientModelShapes(t *testing.T) {
+	input := `{
+		"findings": [{
+			"id": "CONTRACT-DRIFT-001",
+			"severity": "critical",
+			"title": "Contract drift",
+			"description": "Changed code returns a raw UUID while the API contract requires usr_ identifiers.",
+			"suggestion": "Return the contract identifier shape or update the contract.",
+			"location": {"file": "services/backend/app/profile/service.py", "line": "58", "heading": "ignored"},
+			"confidence": "high"
+		}]
+	}`
+
+	findings, status := parseFindingsDetailed(input)
+
+	if status != "parsed" || len(findings) != 1 {
+		t.Fatalf("expected lenient parse, status=%s findings=%#v", status, findings)
+	}
+	finding := findings[0]
+	if finding.Confidence < 0.89 || finding.Location.Path != "services/backend/app/profile/service.py" || finding.Location.Line != 58 {
+		t.Fatalf("lenient fields were not normalized: %#v", finding)
+	}
+}
+
+func TestDefaultFindingValidatorRejectsKnowledgeDocLocations(t *testing.T) {
+	rc := review.NewContext(review.Request{ChangedPaths: []string{"services/backend/app/profile/service.py"}})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{Path: "services/backend/app/profile/service.py"}}}
+	report, err := DefaultFindingValidator{}.Validate(context.Background(), rc, []review.Finding{{
+		ID:          "F1",
+		Severity:    review.SeverityHigh,
+		Title:       "Contract drift",
+		Description: "Contract says usr_, code returns UUID.",
+		Location:    review.Location{Path: "planning-and-design-sdlc-1/Design/08-API-CONTRACT.md"},
+		Confidence:  0.9,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Accepted) != 0 || len(report.Rejected) != 1 || report.Rejected[0].Reason != "location is not in changed paths" {
+		t.Fatalf("expected doc-path finding to be rejected explicitly: %#v", report)
 	}
 }
 
