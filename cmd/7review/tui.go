@@ -112,6 +112,34 @@ type remoteMemoryProposalStatus struct {
 	FinalBytes int                  `json:"final_bytes"`
 }
 
+type remoteSelectedContext struct {
+	Run            string                  `json:"run"`
+	CorpusSections []remoteContextSection  `json:"corpus_sections"`
+	SkillSections  []remoteContextSection  `json:"skill_sections"`
+	Evidence       []remoteContextEvidence `json:"evidence_manifest"`
+	Warnings       []string                `json:"warnings"`
+}
+
+type remoteContextSection struct {
+	Path            string `json:"path"`
+	Title           string `json:"title"`
+	Kind            string `json:"kind"`
+	ContentBytes    int    `json:"content_bytes"`
+	ContentLines    int    `json:"content_lines"`
+	SelectionReason string `json:"selection_reason"`
+}
+
+type remoteContextEvidence struct {
+	Source          string   `json:"source"`
+	HeadingOrKey    string   `json:"heading_or_key"`
+	Kind            string   `json:"kind"`
+	Authority       string   `json:"authority"`
+	MatchedSignals  []string `json:"matched_signals"`
+	SelectionReason string   `json:"selection_reason"`
+	Score           int      `json:"score"`
+	ContentBytes    int      `json:"content_bytes"`
+}
+
 type remoteDiffSummary struct {
 	Run          string              `json:"run"`
 	FileCount    int                 `json:"file_count"`
@@ -206,6 +234,7 @@ var slashCommands = []SlashCommand{
 	{Name: "/run", Aliases: []string{"/current"}, Usage: "/run", Description: "Show current run summary.", RequiresRun: true},
 	{Name: "/history", Aliases: []string{"/events"}, Usage: "/history [type] [limit]", Description: "Show current run timeline.", RequiresRun: true, Examples: []string{"/history chat_message 20"}},
 	{Name: "/diff", Aliases: []string{"/changes"}, Usage: "/diff", Description: "Show changed files and patch summary.", RequiresRun: true},
+	{Name: "/context", Aliases: []string{"/evidence"}, Usage: "/context", Description: "Show selected review context and graph trace reasons.", RequiresRun: true},
 	{Name: "/draft", Aliases: []string{"/report"}, Usage: "/draft [output-file]", Description: "Show or write the current draft report.", RequiresRun: true, Examples: []string{"/draft final.md"}},
 	{Name: "/memory", Aliases: []string{"/mempalace"}, Usage: "/memory", Description: "Preview approved MemPalace proposal.", RequiresRun: true},
 	{Name: "/approve", Aliases: []string{"/hil"}, Usage: "/approve --report-file <path>", Description: "Approve and publish the final review.", RequiresRun: true, Examples: []string{"/approve --report-file final.md"}},

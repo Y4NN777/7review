@@ -414,6 +414,67 @@ func TestChatCommandHandlerRendersDiffSummary(t *testing.T) {
 	}
 }
 
+func TestChatCommandHandlerRendersSelectedContext(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost || req.URL.Path != "/tools/execute" {
+			t.Fatalf("unexpected context request: %s %s", req.Method, req.URL.String())
+		}
+		body, _ := io.ReadAll(req.Body)
+		var call tools.ExecuteRequest
+		if err := json.Unmarshal(body, &call); err != nil {
+			t.Fatal(err)
+		}
+		if call.Name != "get_selected_context" || call.Input["run"] != "owner/repo!7" {
+			t.Fatalf("unexpected context tool call: %#v", call)
+		}
+		return jsonResponse(http.StatusOK, `{"name":"get_selected_context","result":{"run":"owner/repo!7","corpus_sections":[{"path":"docs/SRS.md","title":"REQ-12","kind":"requirement","selection_reason":"seed: identifier REQ-12"},{"path":"docs/openapi.yaml","title":"schemas.Session","kind":"interface","selection_reason":"interface_trace: /sessions -> schemas.Session"}],"evidence_manifest":[{"source":"docs/SRS.md","heading_or_key":"REQ-12","kind":"requirement","authority":"requirement","matched_signals":["REQ-12"],"selection_reason":"seed: identifier REQ-12","score":920,"content_bytes":120},{"source":"docs/openapi.yaml","heading_or_key":"schemas.Session","kind":"interface","authority":"contract","matched_signals":["/sessions","Session"],"selection_reason":"interface_trace: /sessions -> schemas.Session","score":870,"content_bytes":220}],"skill_sections":[{"path":"agent/skills/api-contract-review/SKILL.md","title":"API contract review","kind":"skill","selection_reason":"language Go"}],"warnings":["selected context was compacted"]}}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "owner/repo!7", client)(context.Background(), "/context", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"context owner/repo!7",
+		"corpus 2 evidence 2 skills 1",
+		"docs/SRS.md#REQ-12",
+		"seed: identifier REQ-12",
+		"docs/openapi.yaml#schemas.Session",
+		"interface_trace: /sessions -> schemas.Session",
+		"signals /sessions, Session",
+		"api-contract-review",
+		"selected context was compacted",
+	} {
+		if !handled || !strings.Contains(out.String(), want) {
+			t.Fatalf("context command output missing %q handled=%t:\n%s", want, handled, out.String())
+		}
+	}
+}
+
+func TestChatCommandHandlerAcceptsContextAlias(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(req.Body)
+		var call tools.ExecuteRequest
+		if err := json.Unmarshal(body, &call); err != nil {
+			t.Fatal(err)
+		}
+		if call.Name != "get_selected_context" {
+			t.Fatalf("alias should dispatch to selected context tool, got %q", call.Name)
+		}
+		return jsonResponse(http.StatusOK, `{"name":"get_selected_context","result":{"run":"owner/repo!7"}}`), nil
+	})}
+
+	var out strings.Builder
+	handled, err := chatCommandHandlerWithClient("http://agent", "owner/repo!7", client)(context.Background(), "/evidence", &out, ui.ChatContext{}, ui.ChatOptions{Plain: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !handled || !strings.Contains(out.String(), "context owner/repo!7") {
+		t.Fatalf("context alias output unexpected handled=%t:\n%s", handled, out.String())
+	}
+}
+
 func TestChatCommandHandlerWritesDraftReportToQuotedPath(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusOK, `{"id":"owner/repo!7","status":"drafted","draft_report":"draft body"}`), nil
@@ -1140,6 +1201,33 @@ func TestExecuteConsoleCommandRunsSlashCommandThroughAgentTools(t *testing.T) {
 	for _, want := range []string{"agent:", "sessions 1", "owner/repo!7", "Fix validation"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("command output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestExecuteConsoleCommandRunsContextCommandThroughAgentTools(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/tools/execute" {
+			t.Fatalf("unexpected request path %s", req.URL.Path)
+		}
+		body, _ := io.ReadAll(req.Body)
+		var call tools.ExecuteRequest
+		if err := json.Unmarshal(body, &call); err != nil {
+			t.Fatal(err)
+		}
+		if call.Name != "get_selected_context" || call.Input["run"] != "owner/repo!7" {
+			t.Fatalf("unexpected tool call %#v", call)
+		}
+		return jsonResponse(http.StatusOK, `{"name":"get_selected_context","result":{"run":"owner/repo!7","evidence_manifest":[{"source":"docs/CONTRACT.md","heading_or_key":"Session invariant","kind":"constraint","authority":"contract","selection_reason":"constraint_trace: INV-9 shared with docs/SRS.md#FR-MSG-52","score":910}]}}`), nil
+	})}
+
+	out, err := executeConsoleCommand(client, tuiCommandOptions{serverURL: "http://agent"}, "owner/repo!7", "/context")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"agent:", "context owner/repo!7", "constraint_trace: INV-9 shared with docs/SRS.md#FR-MSG-52"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("context command output missing %q:\n%s", want, out)
 		}
 	}
 }
