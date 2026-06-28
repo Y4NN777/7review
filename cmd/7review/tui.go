@@ -174,8 +174,41 @@ type consoleTUIModel struct {
 	stream           <-chan consoleStreamMsg
 	cancel           context.CancelFunc
 	transcriptScroll int
+	paletteOpen      bool
+	paletteSelected  int
 	width            int
 	height           int
+}
+
+type SlashCommand struct {
+	Name        string
+	Aliases     []string
+	Usage       string
+	Description string
+	RequiresRun bool
+	Examples    []string
+}
+
+type slashCommandMatch struct {
+	Command SlashCommand
+	Indices []int
+}
+
+var slashCommands = []SlashCommand{
+	{Name: "/help", Aliases: []string{"?", "/?"}, Usage: "/help", Description: "Show slash commands and examples."},
+	{Name: "/status", Aliases: []string{"/ready"}, Usage: "/status", Description: "Show agent readiness and sidecar status."},
+	{Name: "/config", Aliases: []string{"/env"}, Usage: "/config", Description: "Show redacted runtime configuration."},
+	{Name: "/providers", Aliases: []string{"/models"}, Usage: "/providers", Description: "Show model providers and role routes."},
+	{Name: "/skills", Aliases: []string{"/skill"}, Usage: "/skills", Description: "Show loaded review skills."},
+	{Name: "/tools", Aliases: []string{"/tool"}, Usage: "/tools", Description: "Show implemented operator tools."},
+	{Name: "/sessions", Aliases: []string{"/runs"}, Usage: "/sessions [status] [limit]", Description: "List review sessions.", Examples: []string{"/sessions drafted 5"}},
+	{Name: "/run", Aliases: []string{"/current"}, Usage: "/run", Description: "Show current run summary.", RequiresRun: true},
+	{Name: "/history", Aliases: []string{"/events"}, Usage: "/history [type] [limit]", Description: "Show current run timeline.", RequiresRun: true, Examples: []string{"/history chat_message 20"}},
+	{Name: "/diff", Aliases: []string{"/changes"}, Usage: "/diff", Description: "Show changed files and patch summary.", RequiresRun: true},
+	{Name: "/draft", Aliases: []string{"/report"}, Usage: "/draft [output-file]", Description: "Show or write the current draft report.", RequiresRun: true, Examples: []string{"/draft final.md"}},
+	{Name: "/memory", Aliases: []string{"/mempalace"}, Usage: "/memory", Description: "Preview approved MemPalace proposal.", RequiresRun: true},
+	{Name: "/approve", Aliases: []string{"/hil"}, Usage: "/approve --report-file <path>", Description: "Approve and publish the final review.", RequiresRun: true, Examples: []string{"/approve --report-file final.md"}},
+	{Name: "/publish-final", Aliases: []string{"/publish"}, Usage: "/publish-final --report-file <path>", Description: "Retry final report publishing.", RequiresRun: true, Examples: []string{"/publish-final --report-file final.md"}},
 }
 
 type consoleViewMsg struct {
@@ -214,7 +247,12 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q", "esc":
+		case "esc":
+			if m.paletteOpen {
+				m.paletteOpen = false
+				m.paletteSelected = 0
+				return m, nil
+			}
 			if m.input != "" {
 				m.input = ""
 				return m, nil
@@ -228,12 +266,37 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, tea.Quit
+		case "ctrl+c", "q":
+			if m.input != "" && msg.String() == "q" {
+				m.input += msg.String()
+				m.syncPaletteState()
+				return m, nil
+			}
+			if m.input != "" {
+				m.input = ""
+				m.syncPaletteState()
+				return m, nil
+			}
+			if m.commandRunning && m.cancel != nil {
+				m.cancel()
+				m.cancel = nil
+				m.commandRunning = false
+				m.stream = nil
+				m.transcript = updateLastAgentTranscript(m.transcript, "\nstream cancelled")
+				return m, nil
+			}
+			return m, tea.Quit
 		case "enter":
 			command := strings.TrimSpace(m.input)
+			if m.paletteOpen {
+				command = m.selectedPaletteCommand(command)
+			}
 			if command == "" || m.commandRunning {
 				return m, nil
 			}
 			m.input = ""
+			m.paletteOpen = false
+			m.paletteSelected = 0
 			m.commandRunning = true
 			m.transcriptScroll = 0
 			m.transcript = appendTranscript(m.transcript, "you", command)
@@ -247,17 +310,46 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, executeConsoleCommandCmd(m.client, m.opts, m.effectiveRunID(), command)
 		case "backspace":
 			m.input = dropLastRune(m.input)
+			m.syncPaletteState()
 			return m, nil
 		case "up", "k":
+			if m.paletteOpen {
+				if m.paletteSelected > 0 {
+					m.paletteSelected--
+				}
+				return m, nil
+			}
 			if m.input == "" {
 				m.transcriptScroll += 1
 				return m, nil
 			}
+			if msg.String() == "k" {
+				m.input += msg.String()
+				m.syncPaletteState()
+				return m, nil
+			}
 		case "down", "j":
+			if m.paletteOpen {
+				if count := len(m.paletteMatches()); count > 0 && m.paletteSelected < count-1 {
+					m.paletteSelected++
+				}
+				return m, nil
+			}
 			if m.input == "" {
 				if m.transcriptScroll > 0 {
 					m.transcriptScroll -= 1
 				}
+				return m, nil
+			}
+			if msg.String() == "j" {
+				m.input += msg.String()
+				m.syncPaletteState()
+				return m, nil
+			}
+		case "tab":
+			if m.paletteOpen {
+				m.input = m.selectedPaletteCommand(m.input)
+				m.syncPaletteState()
 				return m, nil
 			}
 		case "pgup":
@@ -286,6 +378,7 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			if m.input != "" {
 				m.input += msg.String()
+				m.syncPaletteState()
 				return m, nil
 			}
 			m.loading = true
@@ -294,6 +387,7 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "?":
 			if m.input != "" {
 				m.input += msg.String()
+				m.syncPaletteState()
 			} else {
 				m.help = !m.help
 			}
@@ -301,6 +395,7 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			if len(msg.Runes) > 0 {
 				m.input += string(msg.Runes)
+				m.syncPaletteState()
 				return m, nil
 			}
 		}
@@ -319,6 +414,9 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, consoleTick(m.opts.refreshEvery)
 	case consoleTickMsg:
+		if m.commandRunning {
+			return m, consoleTick(m.opts.refreshEvery)
+		}
 		m.loading = true
 		return m, fetchConsoleViewCmd(m.client, m.opts)
 	case consoleCommandMsg:
@@ -327,7 +425,7 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stream = nil
 		m.transcriptScroll = 0
 		if msg.err != nil {
-			m.transcript = appendTranscript(m.transcript, "agent", "error: "+msg.err.Error())
+			m.transcript = appendTranscript(m.transcript, "error", msg.err.Error())
 		} else if strings.TrimSpace(msg.out) != "" {
 			m.transcript = appendTranscript(m.transcript, "agent", normalizeConsoleCommandOutput(msg.out))
 		}
@@ -337,7 +435,7 @@ func (m consoleTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.transcript = updateLastAgentTranscript(m.transcript, msg.delta)
 		}
 		if msg.err != nil {
-			m.transcript = updateLastAgentTranscript(m.transcript, "\nerror: "+msg.err.Error())
+			m.transcript = updateLastErrorTranscript(m.transcript, msg.err.Error())
 			m.commandRunning = false
 			m.cancel = nil
 			m.stream = nil
@@ -384,6 +482,9 @@ func (m consoleTUIModel) View() string {
 		Status:           status,
 		Transcript:       m.transcript,
 		TranscriptScroll: m.transcriptScroll,
+		Palette:          m.consolePaletteRows(),
+		PaletteSelected:  m.paletteSelected,
+		Width:            m.width,
 		Height:           m.height,
 	})
 }
@@ -399,6 +500,117 @@ func (m consoleTUIModel) effectiveRunID() string {
 		return strings.TrimSpace(m.view.Runs[0].ID)
 	}
 	return ""
+}
+
+func (m *consoleTUIModel) syncPaletteState() {
+	m.paletteOpen = strings.HasPrefix(strings.TrimSpace(m.input), "/")
+	if !m.paletteOpen {
+		m.paletteSelected = 0
+		return
+	}
+	count := len(m.paletteMatches())
+	if count == 0 || m.paletteSelected >= count {
+		m.paletteSelected = 0
+	}
+}
+
+func (m consoleTUIModel) paletteMatches() []slashCommandMatch {
+	return matchSlashCommands(m.input)
+}
+
+func (m consoleTUIModel) selectedPaletteCommand(input string) string {
+	matches := m.paletteMatches()
+	if len(matches) == 0 {
+		return strings.TrimSpace(input)
+	}
+	selected := m.paletteSelected
+	if selected < 0 || selected >= len(matches) {
+		selected = 0
+	}
+	return completeSlashCommandInput(input, matches[selected].Command.Name)
+}
+
+func (m consoleTUIModel) consolePaletteRows() []ui.ConsolePaletteRow {
+	if !m.paletteOpen {
+		return nil
+	}
+	matches := m.paletteMatches()
+	rows := make([]ui.ConsolePaletteRow, 0, len(matches))
+	hasRun := m.effectiveRunID() != ""
+	for _, match := range matches {
+		row := ui.ConsolePaletteRow{
+			Label:       match.Command.Name,
+			Usage:       match.Command.Usage,
+			Description: match.Command.Description,
+			Disabled:    match.Command.RequiresRun && !hasRun,
+			Match:       match.Indices,
+		}
+		if row.Disabled {
+			row.Annotation = "needs run"
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func matchSlashCommands(input string) []slashCommandMatch {
+	query := slashCommandQuery(input)
+	matches := make([]slashCommandMatch, 0, len(slashCommands))
+	for _, command := range slashCommands {
+		indices, ok := fuzzyCommandMatch(command.Name, query)
+		if !ok {
+			for _, alias := range command.Aliases {
+				if _, aliasOK := fuzzyCommandMatch(alias, query); aliasOK {
+					indices, ok = fuzzyCommandMatch(command.Name, "")
+					break
+				}
+			}
+		}
+		if ok {
+			matches = append(matches, slashCommandMatch{Command: command, Indices: indices})
+		}
+	}
+	return matches
+}
+
+func slashCommandQuery(input string) string {
+	input = strings.TrimSpace(input)
+	if input == "" || input == "/" {
+		return ""
+	}
+	first, _, _ := strings.Cut(input, " ")
+	return strings.TrimPrefix(strings.ToLower(first), "/")
+}
+
+func fuzzyCommandMatch(name string, query string) ([]int, bool) {
+	query = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(query)), "/")
+	label := strings.TrimPrefix(strings.ToLower(name), "/")
+	if query == "" {
+		return nil, true
+	}
+	if !strings.HasPrefix(label, query) {
+		return nil, false
+	}
+	indices := make([]int, 0, len(query))
+	for i := 0; i < len(query); i++ {
+		indices = append(indices, i+1)
+	}
+	return indices, true
+}
+
+func completeSlashCommandInput(input string, command string) string {
+	input = strings.TrimSpace(input)
+	if input == "" || input == "/" {
+		return command
+	}
+	first, rest, hasRest := strings.Cut(input, " ")
+	if !strings.HasPrefix(first, "/") {
+		return input
+	}
+	if hasRest {
+		return command + " " + strings.TrimSpace(rest)
+	}
+	return command
 }
 
 func fetchConsoleViewCmd(client *http.Client, opts tuiCommandOptions) tea.Cmd {
@@ -518,6 +730,19 @@ func updateLastAgentTranscript(items []ui.ConsoleTranscriptItem, delta string) [
 	items = append([]ui.ConsoleTranscriptItem(nil), items...)
 	items[len(items)-1].Text += delta
 	return items
+}
+
+func updateLastErrorTranscript(items []ui.ConsoleTranscriptItem, text string) []ui.ConsoleTranscriptItem {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return items
+	}
+	if len(items) > 0 && strings.ToLower(strings.TrimSpace(items[len(items)-1].Role)) == "agent" && strings.TrimSpace(items[len(items)-1].Text) == "" {
+		items = append([]ui.ConsoleTranscriptItem(nil), items...)
+		items[len(items)-1] = ui.ConsoleTranscriptItem{Role: "error", Text: text}
+		return items
+	}
+	return appendTranscript(items, "error", text)
 }
 
 func normalizeConsoleCommandOutput(value string) string {

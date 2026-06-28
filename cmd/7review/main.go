@@ -511,29 +511,17 @@ func parseChatCommandFields(text string) ([]string, error) {
 }
 
 func chatCommandHelp(hasRun bool) string {
-	lines := []string{
-		"/help      show chat commands",
-		"/status    show agent readiness",
-		"/tools     show implemented tool catalog",
-		"/providers show model providers and role routes",
-		"/config    show redacted runtime configuration",
-		"/skills    show loaded agent skills",
-		"/sessions  list review sessions",
-		"quit       exit chat",
+	lines := make([]string, 0, len(slashCommands)+1)
+	for _, command := range slashCommands {
+		if command.RequiresRun && !hasRun {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%-14s %s", command.Name, command.Description))
+		for _, example := range command.Examples {
+			lines = append(lines, fmt.Sprintf("%-14s example", example))
+		}
 	}
-	if hasRun {
-		lines = append(lines,
-			"/run       show current run summary",
-			"/draft     show current draft report",
-			"/draft final.md   write current draft report to a file",
-			"/diff      show changed files and patch summary",
-			"/history   show current run timeline",
-			"/history chat_message 20   show latest chat messages",
-			"/memory    preview approved MemPalace proposal",
-			"/approve --report-file final.md   approve and publish final",
-			"/publish-final --report-file final.md   retry final publish",
-		)
-	}
+	lines = append(lines, "quit           exit chat")
 	return strings.Join(lines, "\n")
 }
 

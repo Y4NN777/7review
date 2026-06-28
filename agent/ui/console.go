@@ -102,6 +102,15 @@ type ConsoleTranscriptItem struct {
 	Text string
 }
 
+type ConsolePaletteRow struct {
+	Label       string
+	Usage       string
+	Description string
+	Annotation  string
+	Disabled    bool
+	Match       []int
+}
+
 type ConsoleWorkspace struct {
 	View             ConsoleView
 	RunID            string
@@ -111,8 +120,14 @@ type ConsoleWorkspace struct {
 	Status           string
 	Transcript       []ConsoleTranscriptItem
 	TranscriptScroll int
+	Palette          []ConsolePaletteRow
+	PaletteSelected  int
+	Width            int
 	Height           int
+	bodyHeight       int
 }
+
+const emptyComposerHint = "message or / command"
 
 func RenderConsole(view ConsoleView) string {
 	if view.Server == "" {
@@ -152,22 +167,72 @@ func RenderConsoleWorkspace(workspace ConsoleWorkspace) string {
 	view.Skills = sortedSkills(view.Skills)
 	view.Tools = sortedTools(view.Tools)
 
-	header := renderConsoleHeader(view.Plain)
-	rail := renderConsoleRail(view)
-	main := renderWorkspaceMain(workspace, 82)
-	body := joinColumns(main, rail, 2)
-	composer := renderWorkspaceComposer(workspace, 118)
+	width := workspace.Width
+	if width <= 0 {
+		width = 118
+	}
+	if width < 48 {
+		width = 48
+	}
+	header := renderConsoleHeaderWidth(view.Plain, minInt(width, 82))
+	composer := renderWorkspaceComposer(workspace, width)
+	bodyHeight := 0
 	if workspace.Height > 0 {
-		reserved := lineCount(header) + lineCount(composer) + 1
-		body = trimLines(body, workspace.Height-reserved)
+		bodyHeight = workspace.Height - lineCount(header) - lineCount(composer) - 1
+		if bodyHeight < 1 {
+			bodyHeight = 1
+		}
+		workspace.bodyHeight = bodyHeight
 	}
+	var body string
+	chatActive := workspace.Running || len(workspace.Transcript) > 0
+	switch {
+	case width >= 118:
+		railWidth := 34
+		if chatActive {
+			railWidth = 28
+		}
+		mainWidth := width - railWidth - 2
+		main := renderWorkspaceMain(workspace, mainWidth)
+		rail := renderWorkspaceRail(workspace, railWidth)
+		if bodyHeight > 0 {
+			main = trimWorkspacePane(main, bodyHeight, chatActive)
+			rail = trimLines(rail, bodyHeight)
+		} else if chatActive {
+			rail = trimLines(rail, lineCount(main))
+		}
+		body = joinColumns(main, rail, 2)
+	case width >= 86:
+		railWidth := 28
+		mainWidth := width - railWidth - 2
+		main := renderWorkspaceMain(workspace, mainWidth)
+		rail := renderWorkspaceRail(workspace, railWidth)
+		if bodyHeight > 0 {
+			main = trimWorkspacePane(main, bodyHeight, chatActive)
+			rail = trimLines(rail, bodyHeight)
+		} else if chatActive {
+			rail = trimLines(rail, lineCount(main))
+		}
+		body = joinColumns(main, rail, 2)
+	default:
+		body = renderWorkspaceMain(workspace, width)
+		if !chatActive {
+			if rail := renderWorkspaceRail(workspace, width); strings.TrimSpace(stripANSINoise(rail)) != "" {
+				body += "\n" + rail
+			}
+		}
+	}
+	if workspace.Height > 0 {
+		if chatActive && lineCount(body) > bodyHeight {
+			body = trimChatWorkspaceBody(body, bodyHeight)
+		}
+		body = fitLines(body, bodyHeight)
+	}
+	frame := header + "\n" + body + "\n" + composer
 	if view.Plain {
-		return header + "\n" + body + "\n" + composer
+		return frame
 	}
-	return lipgloss.NewStyle().
-		Background(lipgloss.Color("#000000")).
-		Foreground(lipgloss.Color("#D0D0D0")).
-		Render(header + "\n" + body + "\n" + composer)
+	return paintWorkspaceFrame(frame, width, workspace.Height)
 }
 
 func renderConsoleMain(view ConsoleView) string {
@@ -227,10 +292,17 @@ func renderConsoleMain(view ConsoleView) string {
 }
 
 func renderConsoleHeader(plain bool) string {
+	return renderConsoleHeaderWidth(plain, 82)
+}
+
+func renderConsoleHeaderWidth(plain bool, width int) string {
+	if width < 24 {
+		width = 24
+	}
 	lines := []string{
 		"",
-		centerText("7review", 82),
-		centerText("review agent operator console", 82),
+		centerText("7review", width),
+		centerText(trimTo("review agent operator console", width), width),
 		"",
 	}
 	if plain {
@@ -296,11 +368,14 @@ func renderWorkspaceMain(workspace ConsoleWorkspace, width int) string {
 	view := workspace.View
 	runID := firstNonEmpty(workspace.RunID, activeRunID(view))
 	transcriptHeight := workspace.Height - 14
+	if workspace.bodyHeight > 0 {
+		transcriptHeight = workspace.bodyHeight - workspaceSummaryLineCount(workspace)
+	}
 	if transcriptHeight < 6 {
 		transcriptHeight = 6
 	}
-	if transcriptHeight > 24 {
-		transcriptHeight = 24
+	if transcriptHeight > 40 {
+		transcriptHeight = 40
 	}
 	lines := []string{"Review workspace"}
 	if runID != "" {
@@ -327,20 +402,37 @@ func renderWorkspaceMain(workspace ConsoleWorkspace, width int) string {
 			lines = append(lines, trimTo(warning, width))
 		}
 	}
-	lines = append(lines, "", transcriptTitle(workspace, transcriptHeight))
+	transcriptWidth := conversationWidth(width)
+	lines = append(lines, "", transcriptTitle(workspace, transcriptHeight, transcriptWidth))
 	if len(workspace.Transcript) == 0 {
 		lines = append(lines,
 			"No messages yet.",
 			"Type /help, /sessions, /status, /history, /diff, /draft, or ask about the active review.",
 		)
 	} else {
-		lines = append(lines, visibleTranscriptLines(workspace.Transcript, width, transcriptHeight, workspace.TranscriptScroll)...)
+		lines = append(lines, visibleTranscriptLines(workspace.Transcript, transcriptWidth, transcriptHeight, workspace.TranscriptScroll)...)
 	}
 	return renderConsoleSurface(lines, width, view.Plain)
 }
 
-func transcriptTitle(workspace ConsoleWorkspace, height int) string {
-	total := len(renderTranscriptLines(workspace.Transcript, 80))
+func workspaceSummaryLineCount(workspace ConsoleWorkspace) int {
+	count := 5
+	if workspace.View.ActiveRun != nil {
+		count += 2
+		if workspace.View.ActiveRun.LatestEvent != "" {
+			count++
+		}
+	} else {
+		count++
+	}
+	if len(workspace.View.Warnings) > 0 {
+		count += 1 + len(workspace.View.Warnings)
+	}
+	return count
+}
+
+func transcriptTitle(workspace ConsoleWorkspace, height int, width int) string {
+	total := len(renderTranscriptLines(workspace.Transcript, width))
 	if total == 0 {
 		return "Transcript"
 	}
@@ -382,32 +474,61 @@ func visibleTranscriptLines(items []ConsoleTranscriptItem, width int, height int
 
 func renderTranscriptLines(items []ConsoleTranscriptItem, width int) []string {
 	var lines []string
-	for _, item := range items {
+	for index, item := range items {
+		if index > 0 && len(lines) > 0 {
+			lines = append(lines, "")
+		}
 		role := strings.ToLower(strings.TrimSpace(item.Role))
 		if role == "" {
 			role = "agent"
 		}
-		for i, line := range wrappedLines(item.Text, width-8) {
+		text := item.Text
+		if strings.TrimSpace(text) == "" && role == "agent" {
+			text = "..."
+		}
+		for i, line := range wrappedLines(text, width-8) {
 			if i == 0 {
-				lines = append(lines, transcriptPrefix(role)+line)
+				lines = append(lines, transcriptPrefix(role)+transcriptText(line))
 			} else {
-				lines = append(lines, "       "+line)
+				lines = append(lines, transcriptText("       "+line))
 			}
 		}
 	}
 	return lines
 }
 
+func conversationWidth(width int) int {
+	if width > 104 {
+		return 104
+	}
+	if width < 32 {
+		return 32
+	}
+	return width
+}
+
 func transcriptPrefix(role string) string {
 	label := fmt.Sprintf("%-7s", role+">")
+	base := lipgloss.NewStyle().Background(lipgloss.Color("#000000")).Bold(true)
 	switch role {
 	case "you", "user", "engineer":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#58A6FF")).Bold(true).Render(label)
+		return base.Foreground(lipgloss.Color("#58A6FF")).Render(label)
 	case "agent":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#00E676")).Bold(true).Render(label)
+		return base.Foreground(lipgloss.Color("#00E676")).Render(label)
+	case "error":
+		return base.Foreground(lipgloss.Color("#FF5C57")).Render(label)
+	case "system", "status":
+		return base.Foreground(lipgloss.Color("#FFB800")).Render(label)
 	default:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FFB800")).Bold(true).Render(label)
+		return base.Foreground(lipgloss.Color("#FFB800")).Render(label)
 	}
+}
+
+func transcriptText(text string) string {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#C9D1D9")).
+		Background(lipgloss.Color("#000000")).
+		Render(text)
 }
 
 func renderWorkspaceComposer(workspace ConsoleWorkspace, width int) string {
@@ -420,12 +541,16 @@ func renderWorkspaceComposer(workspace ConsoleWorkspace, width int) string {
 	}
 	input := workspace.Input
 	if strings.TrimSpace(input) == "" {
-		input = "/help"
+		input = emptyComposerHint
+	}
+	prompt := "> "
+	if strings.TrimSpace(workspace.Input) == "" {
+		prompt = "· "
 	}
 	lines := []string{
 		"state " + state,
-		"> " + input,
-		"enter send  up/down scroll  pgup/pgdown page  r refresh  ? help  q exit",
+		prompt + input,
+		"enter send  / commands  up/down scroll  pgup/pgdown page  r refresh  esc clear  q exit",
 	}
 	if workspace.Help {
 		lines = append(lines,
@@ -433,7 +558,74 @@ func renderWorkspaceComposer(workspace ConsoleWorkspace, width int) string {
 			"/diff  /draft  /memory  /approve --report-file final.md  /publish-final --report-file final.md",
 		)
 	}
+	if len(workspace.Palette) > 0 {
+		lines = append(renderPaletteLines(workspace.Palette, workspace.PaletteSelected, width-4), lines...)
+	}
 	return renderCommandSurface(lines, width)
+}
+
+func renderPaletteLines(rows []ConsolePaletteRow, selected int, width int) []string {
+	if width < 32 {
+		width = 32
+	}
+	limit := len(rows)
+	if limit > 8 {
+		limit = 8
+	}
+	lines := []string{"Commands"}
+	for i := 0; i < limit; i++ {
+		row := rows[i]
+		marker := " "
+		if i == selected {
+			marker = ">"
+		}
+		label := renderPaletteLabel(row)
+		usage := row.Usage
+		if usage == "" {
+			usage = row.Label
+		}
+		meta := row.Description
+		if row.Annotation != "" {
+			meta = firstNonEmpty(meta, row.Annotation) + " [" + row.Annotation + "]"
+		}
+		plainPrefix := marker + " " + row.Label + "  "
+		remaining := width - len(stripANSINoise(plainPrefix))
+		if remaining < 10 {
+			remaining = 10
+		}
+		line := fmt.Sprintf("%s %s  %s", marker, label, trimTo(firstNonEmpty(usage, meta), remaining))
+		if meta != "" && width-len(stripANSINoise(line))-2 > 12 {
+			line += "  " + trimTo(meta, width-len(stripANSINoise(line))-2)
+		}
+		if row.Disabled {
+			line = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D8590")).Render(line)
+		}
+		lines = append(lines, line)
+	}
+	if len(rows) > limit {
+		lines = append(lines, fmt.Sprintf("%d more matches", len(rows)-limit))
+	}
+	lines = append(lines, "")
+	return lines
+}
+
+func renderPaletteLabel(row ConsolePaletteRow) string {
+	if len(row.Match) == 0 {
+		return row.Label
+	}
+	matched := make(map[int]bool, len(row.Match))
+	for _, index := range row.Match {
+		matched[index] = true
+	}
+	var b strings.Builder
+	for index, r := range row.Label {
+		part := string(r)
+		if matched[index] {
+			part = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFB800")).Bold(true).Render(part)
+		}
+		b.WriteString(part)
+	}
+	return b.String()
 }
 
 func readyLabel(ready bool) string {
@@ -474,6 +666,76 @@ func formatActivityTime(value time.Time) string {
 }
 
 func renderConsoleRail(view ConsoleView) string {
+	return renderConsoleRailWidth(view, 34)
+}
+
+func renderWorkspaceRail(workspace ConsoleWorkspace, width int) string {
+	if workspace.Running || len(workspace.Transcript) > 0 {
+		return renderConsoleRailCompact(workspace.View, width)
+	}
+	return renderConsoleRailWidth(workspace.View, width)
+}
+
+func renderConsoleRailCompact(view ConsoleView, width int) string {
+	if width < 24 {
+		width = 24
+	}
+	state := "ATTENTION"
+	if view.Ready {
+		state = "READY"
+	}
+	title := "Operator chat"
+	if view.ActiveRun != nil {
+		title = firstNonEmpty(view.ActiveRun.Title, view.ActiveRun.ID)
+	}
+	lines := []string{
+		trimTo(title, width-2),
+		"",
+		"Status",
+		"state  " + state,
+		"server " + trimTo(view.Server, width-8),
+	}
+	if view.Queue.Capacity > 0 {
+		lines = append(lines, fmt.Sprintf("queue  %d/%d", view.Queue.Depth, view.Queue.Capacity))
+	}
+	var readyDeps, totalDeps int
+	for _, dep := range view.Dependencies {
+		totalDeps++
+		if dep.Ready {
+			readyDeps++
+		}
+	}
+	if totalDeps > 0 {
+		lines = append(lines, fmt.Sprintf("deps   %d/%d", readyDeps, totalDeps))
+	}
+	if len(view.Providers) > 0 {
+		var configured int
+		for _, provider := range view.Providers {
+			if provider.Configured {
+				configured++
+			}
+		}
+		lines = append(lines, fmt.Sprintf("models %d/%d", configured, len(view.Providers)))
+	}
+	if view.ActiveRun != nil {
+		lines = append(lines,
+			"",
+			"Run",
+			"id     "+trimTo(view.ActiveRun.ID, width-7),
+			"state  "+trimTo(view.ActiveRun.Status, width-7),
+			fmt.Sprintf("draft  %d bytes", view.ActiveRun.DraftBytes),
+		)
+	} else {
+		lines = append(lines, "", "Run", "none selected")
+	}
+	lines = append(lines, "", "Commands", "/status", "/sessions", "/providers")
+	return renderConsoleSurface(lines, width, view.Plain)
+}
+
+func renderConsoleRailWidth(view ConsoleView, width int) string {
+	if width < 24 {
+		width = 24
+	}
 	state := "ATTENTION"
 	if view.Ready {
 		state = "READY"
@@ -483,10 +745,10 @@ func renderConsoleRail(view ConsoleView) string {
 		title = firstNonEmpty(view.ActiveRun.Title, view.ActiveRun.ID)
 	}
 	lines := []string{
-		trimTo(title, 28),
+		trimTo(title, width-6),
 		"",
 		"Context",
-		"server " + trimTo(view.Server, 24),
+		"server " + trimTo(view.Server, width-8),
 		"state  " + state,
 	}
 	if !view.RefreshedAt.IsZero() {
@@ -518,12 +780,12 @@ func renderConsoleRail(view ConsoleView) string {
 		if provider.Configured {
 			status = "configured"
 		}
-		lines = append(lines, fmt.Sprintf("%-10s %s", trimTo(provider.Name, 10), status))
+		lines = append(lines, fmt.Sprintf("%-10s %s", trimTo(provider.Name, 10), trimTo(status, width-13)))
 	}
 	if len(view.Roles) > 0 {
 		lines = append(lines, "", "Roles")
 		for _, role := range view.Roles {
-			lines = append(lines, fmt.Sprintf("%-10s %s", trimTo(role.Role, 10), trimTo(role.Primary, 22)))
+			lines = append(lines, fmt.Sprintf("%-10s %s", trimTo(role.Role, 10), trimTo(role.Primary, width-13)))
 		}
 	}
 	if view.ActiveRun != nil {
@@ -545,10 +807,10 @@ func renderConsoleRail(view ConsoleView) string {
 			if !skill.Loaded {
 				status = "off"
 			}
-			lines = append(lines, fmt.Sprintf("%-22s %s", trimTo(skill.Name, 22), status))
+			lines = append(lines, fmt.Sprintf("%-18s %s", trimTo(skill.Name, width-11), status))
 		}
 	}
-	return renderConsoleSurface(lines, 34, view.Plain)
+	return renderConsoleSurface(lines, width, view.Plain)
 }
 
 func reviewTodoLines(run RunDetail) []string {
@@ -575,8 +837,16 @@ func renderConsoleSurface(body []string, width int, plain bool) string {
 	var lines []string
 	for _, line := range body {
 		stripped := trimTo(stripANSINoise(line), width)
+		if isTranscriptRow(stripped) {
+			if line != stripANSINoise(line) && len(stripANSINoise(line)) <= width {
+				lines = append(lines, line)
+			} else {
+				lines = append(lines, stripped)
+			}
+			continue
+		}
 		if line != stripANSINoise(line) && len(stripANSINoise(line)) <= width {
-			lines = append(lines, line+strings.Repeat(" ", width-len(stripANSINoise(line))))
+			lines = append(lines, line)
 			continue
 		}
 		lines = append(lines, padRight(stripped, width))
@@ -591,13 +861,33 @@ func renderConsoleSurface(body []string, width int, plain bool) string {
 		Render(out)
 }
 
+func isTranscriptRow(line string) bool {
+	line = strings.TrimLeft(line, " ")
+	return strings.HasPrefix(line, "you>") ||
+		strings.HasPrefix(line, "user>") ||
+		strings.HasPrefix(line, "engineer>") ||
+		strings.HasPrefix(line, "agent>") ||
+		strings.HasPrefix(line, "error>") ||
+		strings.HasPrefix(line, "system>") ||
+		strings.HasPrefix(line, "status>")
+}
+
 func renderCommandSurface(body []string, width int) string {
 	if width < 40 {
 		width = 40
 	}
+	innerWidth := width - 4
+	if innerWidth < 36 {
+		innerWidth = 36
+	}
 	var lines []string
 	for _, line := range body {
-		lines = append(lines, padRight(trimTo(stripANSINoise(line), width), width))
+		stripped := trimTo(stripANSINoise(line), innerWidth)
+		if line != stripANSINoise(line) && lipgloss.Width(stripANSINoise(line)) <= innerWidth {
+			lines = append(lines, line)
+			continue
+		}
+		lines = append(lines, padRight(stripped, innerWidth))
 	}
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#D0D7DE")).
@@ -605,6 +895,7 @@ func renderCommandSurface(body []string, width int) string {
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("#4AA3FF")).
 		Padding(0, 1).
+		Width(innerWidth + 2).
 		Render(strings.Join(lines, "\n"))
 }
 
@@ -623,12 +914,29 @@ func joinColumns(left, right string, gap int) string {
 		rightLines = append(rightLines, "")
 	}
 	out := make([]string, 0, height)
-	spacer := strings.Repeat(" ", gap)
+	spacer := blackSpace(gap)
 	for i := 0; i < height; i++ {
-		out = append(out, padRight(leftLines[i], leftWidth)+spacer+rightLines[i])
+		out = append(out, padRightStyled(leftLines[i], leftWidth)+spacer+rightLines[i])
 	}
 	return strings.Join(out, "\n")
 }
+
+func padRightStyled(value string, width int) string {
+	visible := len(stripANSINoise(value))
+	if visible >= width {
+		return value
+	}
+	return value + blackSpace(width-visible)
+}
+
+func blackSpace(width int) string {
+	if width <= 0 {
+		return ""
+	}
+	return ansiTrueBlackBG + strings.Repeat(" ", width) + "\x1b[0m"
+}
+
+const ansiTrueBlackBG = "\x1b[48;2;0;0;0m"
 
 func signalStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
@@ -652,6 +960,13 @@ func maxLineWidth(lines []string) int {
 		}
 	}
 	return width
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func sortedDependencies(items []DependencyStatus) []DependencyStatus {
@@ -776,6 +1091,73 @@ func trimLines(value string, maxLines int) string {
 		return "..."
 	}
 	return strings.Join(append(lines[:maxLines-1], "..."), "\n")
+}
+
+func trimWorkspacePane(value string, maxLines int, preserveTail bool) string {
+	if preserveTail {
+		return trimChatWorkspaceBody(value, maxLines)
+	}
+	return trimLines(value, maxLines)
+}
+
+func trimChatWorkspaceBody(value string, maxLines int) string {
+	if maxLines <= 0 {
+		return ""
+	}
+	lines := strings.Split(value, "\n")
+	if len(lines) <= maxLines {
+		return value
+	}
+	if maxLines <= 4 {
+		return strings.Join(lastStrings(lines, maxLines), "\n")
+	}
+	head := 4
+	if maxLines <= 8 {
+		head = 2
+	}
+	if head > maxLines-2 {
+		head = maxLines / 2
+	}
+	tail := maxLines - head - 1
+	out := append([]string{}, lines[:head]...)
+	out = append(out, "...")
+	out = append(out, lines[len(lines)-tail:]...)
+	return strings.Join(out, "\n")
+}
+
+func fitLines(value string, height int) string {
+	if height <= 0 {
+		return ""
+	}
+	lines := strings.Split(value, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func paintWorkspaceFrame(value string, width int, height int) string {
+	if width < 1 {
+		width = 1
+	}
+	lines := strings.Split(value, "\n")
+	if height > 0 {
+		for len(lines) < height {
+			lines = append(lines, "")
+		}
+	}
+	for i, line := range lines {
+		visible := lipgloss.Width(stripANSINoise(line))
+		if visible >= width {
+			lines[i] = ansiTrueBlackBG + line + ansiTrueBlackBG + "\x1b[K\x1b[0m"
+			continue
+		}
+		lines[i] = ansiTrueBlackBG + line + ansiTrueBlackBG + strings.Repeat(" ", width-visible) + ansiTrueBlackBG + "\x1b[K\x1b[0m"
+	}
+	return strings.Join(lines, "\n")
 }
 
 func firstNonEmpty(values ...string) string {

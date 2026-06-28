@@ -838,7 +838,7 @@ func TestConsoleTUIModelHandlesInteractiveKeys(t *testing.T) {
 
 	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(consoleTUIModel)
-	if !model.commandRunning || cmd == nil || len(model.transcript) == 0 || model.transcript[len(model.transcript)-1].Text != "/" {
+	if !model.commandRunning || cmd == nil || len(model.transcript) == 0 || model.transcript[len(model.transcript)-1].Text != "/help" {
 		t.Fatalf("enter should schedule command and append user transcript: model=%#v cmd=%v", model, cmd)
 	}
 	updated, cmd = model.Update(consoleCommandMsg{input: "/", out: "agent: command output"})
@@ -867,10 +867,24 @@ func TestConsoleTUIModelHandlesInteractiveKeys(t *testing.T) {
 	if cmd == nil || !strings.Contains(streaming.View(), "streamed reply") {
 		t.Fatalf("second stream delta should append to same transcript item: cmd=%v view=%s", cmd, streaming.View())
 	}
+
+	streaming.width = 92
+	streaming.height = 12
+	if view := streaming.View(); !strings.Contains(view, "streamed reply") || !strings.Contains(view, "state running") {
+		t.Fatalf("short streaming view should show latest agent token immediately:\n%s", view)
+	}
+
 	updated, cmd = streaming.Update(consoleStreamMsg{done: true})
 	streaming = updated.(consoleTUIModel)
 	if streaming.commandRunning || cmd == nil {
 		t.Fatalf("stream completion should clear running state and refresh: model=%#v cmd=%v", streaming, cmd)
+	}
+
+	streaming.commandRunning = true
+	updated, cmd = streaming.Update(consoleTickMsg(time.Now()))
+	streaming = updated.(consoleTUIModel)
+	if !streaming.commandRunning || streaming.loading || cmd == nil {
+		t.Fatalf("background refresh should pause while chat is streaming: model=%#v cmd=%v", streaming, cmd)
 	}
 
 	small := newConsoleTUIModel(nil, tuiCommandOptions{serverURL: "http://agent", refreshEvery: time.Second})
@@ -879,8 +893,114 @@ func TestConsoleTUIModelHandlesInteractiveKeys(t *testing.T) {
 	updated, cmd = small.Update(tea.WindowSizeMsg{Width: 100, Height: 12})
 	small = updated.(consoleTUIModel)
 	shortView := small.View()
-	if cmd != nil || !strings.Contains(shortView, "> /help") || !strings.Contains(shortView, "...") {
+	if cmd != nil || !strings.Contains(shortView, "message or / command") || !strings.Contains(shortView, "...") {
 		t.Fatalf("small terminal view should keep command panel visible and clip dashboard: cmd=%v\n%s", cmd, shortView)
+	}
+}
+
+func TestSlashCommandMatchingFiltersAndHighlights(t *testing.T) {
+	all := matchSlashCommands("/")
+	if len(all) != len(slashCommands) {
+		t.Fatalf("bare slash should show all commands: got %d want %d", len(all), len(slashCommands))
+	}
+
+	matches := matchSlashCommands("/h")
+	var names []string
+	for _, match := range matches {
+		names = append(names, match.Command.Name)
+		if match.Command.Name == "/help" && len(match.Indices) == 0 {
+			t.Fatalf("/help should include highlighted match indices")
+		}
+	}
+	for _, want := range []string{"/help", "/history"} {
+		if !containsString(names, want) {
+			t.Fatalf("/h matches missing %s: %#v", want, names)
+		}
+	}
+	if containsString(names, "/status") {
+		t.Fatalf("nonmatching /status should be hidden: %#v", names)
+	}
+}
+
+func TestConsolePaletteRowsAnnotateRunRequiredCommands(t *testing.T) {
+	model := newConsoleTUIModel(nil, tuiCommandOptions{serverURL: "http://agent", refreshEvery: time.Second})
+	model.input = "/d"
+	model.syncPaletteState()
+	rows := model.consolePaletteRows()
+	if len(rows) == 0 {
+		t.Fatal("expected palette rows")
+	}
+	var draft ui.ConsolePaletteRow
+	for _, row := range rows {
+		if row.Label == "/draft" {
+			draft = row
+			break
+		}
+	}
+	if draft.Label == "" || !draft.Disabled || draft.Annotation != "needs run" {
+		t.Fatalf("run-required command should be disabled without active run: %#v", draft)
+	}
+}
+
+func TestConsoleTUIModelSlashPaletteKeys(t *testing.T) {
+	model := newConsoleTUIModel(nil, tuiCommandOptions{serverURL: "http://agent", refreshEvery: time.Second})
+	model.view = ui.ConsoleView{Server: "http://agent", Ready: true, Watch: true, RefreshEvery: time.Second}
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	model = updated.(consoleTUIModel)
+	if cmd != nil || !model.paletteOpen || len(model.consolePaletteRows()) != len(slashCommands) {
+		t.Fatalf("slash should open palette: model=%#v cmd=%v", model, cmd)
+	}
+
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(consoleTUIModel)
+	if cmd != nil || model.paletteSelected != 1 {
+		t.Fatalf("down should move palette selection: model=%#v cmd=%v", model, cmd)
+	}
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyUp})
+	model = updated.(consoleTUIModel)
+	if cmd != nil || model.paletteSelected != 0 {
+		t.Fatalf("up should move palette selection: model=%#v cmd=%v", model, cmd)
+	}
+
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(consoleTUIModel)
+	if cmd != nil || model.paletteOpen || model.input != "/" {
+		t.Fatalf("esc should close palette without exiting or clearing input: model=%#v cmd=%v", model, cmd)
+	}
+
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	model = updated.(consoleTUIModel)
+	if cmd != nil || !model.paletteOpen || model.input != "/h" {
+		t.Fatalf("typing after slash should reopen filtered palette: model=%#v cmd=%v", model, cmd)
+	}
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(consoleTUIModel)
+	if !model.commandRunning || cmd == nil || len(model.transcript) == 0 || model.transcript[len(model.transcript)-1].Text != "/help" {
+		t.Fatalf("enter should execute selected palette command: model=%#v cmd=%v", model, cmd)
+	}
+}
+
+func TestConsoleTUIModelKJTypeWhenInputActive(t *testing.T) {
+	model := newConsoleTUIModel(nil, tuiCommandOptions{serverURL: "http://agent", refreshEvery: time.Second})
+	model.view = ui.ConsoleView{Server: "http://agent", Ready: true, Watch: true, RefreshEvery: time.Second}
+
+	for _, r := range []rune("ask j") {
+		updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		model = updated.(consoleTUIModel)
+		if cmd != nil {
+			t.Fatalf("typing %q should not schedule a command: cmd=%v", r, cmd)
+		}
+	}
+	if model.input != "ask j" {
+		t.Fatalf("k/j should type when input is active, got %q", model.input)
+	}
+
+	model.input = ""
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	model = updated.(consoleTUIModel)
+	if cmd != nil || model.transcriptScroll != 1 || model.input != "" {
+		t.Fatalf("empty-input k should scroll instead of typing: model=%#v cmd=%v", model, cmd)
 	}
 }
 
@@ -915,8 +1035,8 @@ func TestChatSystemPromptDefinesOperationalContract(t *testing.T) {
 		GitLabURL:              "https://gitlab.example.com",
 		GitHubAPIURL:           "https://api.github.com",
 		Provider:               "ollama",
-		ReviewModel:            "qwen2.5-coder-7b-16k:latest",
-		SmallModel:             "qwen2.5-coder:1.5b",
+		ReviewModel:            "deepseek-coder-v2:16b",
+		SmallModel:             "qwen2.5-coder-7b-16k:latest",
 		EmbeddingModel:         "nomic-embed-text:latest",
 		OrchestratorConfigPath: "./orchestrator.yaml",
 	})
@@ -940,8 +1060,8 @@ func TestChatSystemPromptDefinesOperationalContract(t *testing.T) {
 		"get_run",
 		"approve_run",
 		"Provider: ollama",
-		"Review model: qwen2.5-coder-7b-16k:latest",
-		"Small/formatter model: qwen2.5-coder:1.5b",
+		"Review model: deepseek-coder-v2:16b",
+		"Small/formatter model: qwen2.5-coder-7b-16k:latest",
 		"Embedding model: nomic-embed-text:latest",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -953,8 +1073,8 @@ func TestChatSystemPromptDefinesOperationalContract(t *testing.T) {
 func TestDeterministicOperatorAnswerHandlesIdentityAndModelQuestions(t *testing.T) {
 	cfg := &config.Config{
 		Provider:               "ollama",
-		ReviewModel:            "qwen2.5-coder-7b-16k:latest",
-		SmallModel:             "qwen2.5-coder:1.5b",
+		ReviewModel:            "deepseek-coder-v2:16b",
+		SmallModel:             "qwen2.5-coder-7b-16k:latest",
 		EmbeddingModel:         "nomic-embed-text:latest",
 		OrchestratorConfigPath: "./orchestrator.yaml",
 	}
@@ -963,7 +1083,7 @@ func TestDeterministicOperatorAnswerHandlesIdentityAndModelQuestions(t *testing.
 		t.Fatalf("bad identity answer ok=%t:\n%s", ok, identity)
 	}
 	model, ok := deterministicOperatorAnswer(cfg, "what kind of model are you?")
-	for _, want := range []string{"Provider: ollama", "Review model: qwen2.5-coder-7b-16k:latest", "Formatter/chat model: qwen2.5-coder:1.5b", "Embedding model: nomic-embed-text:latest"} {
+	for _, want := range []string{"Provider: ollama", "Review model: deepseek-coder-v2:16b", "Formatter/chat model: qwen2.5-coder-7b-16k:latest", "Embedding model: nomic-embed-text:latest"} {
 		if !ok || !strings.Contains(model, want) {
 			t.Fatalf("model answer missing %q ok=%t:\n%s", want, ok, model)
 		}

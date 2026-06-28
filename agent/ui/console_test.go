@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestRenderConsoleIdleUsesRealEmptyState(t *testing.T) {
@@ -111,13 +113,91 @@ func TestRenderConsoleWorkspaceShowsTranscriptRailAndComposer(t *testing.T) {
 			{Role: "agent", Text: "sessions 1\nowner/repo!7 drafted"},
 		},
 	})
-	for _, want := range []string{"7review", "Review workspace", "run    owner/repo!7", "Transcript 3 lines", "you>", "/sessions", "agent>", "sessions 1", "Context", "openrouter", "> /history", "up/down scroll", "/history chat_message 20"} {
+	for _, want := range []string{"7review", "Review workspace", "run    owner/repo!7", "Transcript 4 lines", "you>", "/sessions", "agent>", "sessions 1", "> /history", "/ commands", "/history chat_message 20"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("workspace output missing %q:\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, "chat: 7review chat") {
 		t.Fatalf("interactive workspace should not push users to a separate chat command:\n%s", out)
+	}
+}
+
+func TestRenderConsoleWorkspaceIdleComposerUsesChatHint(t *testing.T) {
+	out := RenderConsoleWorkspace(ConsoleWorkspace{
+		View:   ConsoleView{Server: "http://agent", Ready: true, Plain: true},
+		Status: "ready",
+		Width:  80,
+		Height: 20,
+	})
+	if !strings.Contains(out, "message or / command") || strings.Contains(out, "> /help") {
+		t.Fatalf("idle composer should show a neutral chat hint:\n%s", out)
+	}
+}
+
+func TestRenderConsoleWorkspaceIdleWideKeepsRailWithoutStrayBodyEllipsis(t *testing.T) {
+	out := RenderConsoleWorkspace(ConsoleWorkspace{
+		View: ConsoleView{
+			Server: "http://agent",
+			Ready:  true,
+			Plain:  true,
+			Queue:  QueueView{Depth: 0, Capacity: 32},
+			Dependencies: []DependencyStatus{
+				{Name: "agent", Ready: true},
+				{Name: "queue", Ready: true},
+				{Name: "run_store", Ready: true},
+				{Name: "headroom", Ready: true},
+				{Name: "mempalace", Ready: true},
+				{Name: "orchestrator", Ready: true},
+				{Name: "pipeline", Ready: true},
+			},
+			Providers: []ProviderRow{
+				{Name: "anthropic"},
+				{Name: "openai"},
+			},
+		},
+		Status: "updated",
+		Width:  188,
+		Height: 44,
+	})
+	for _, want := range []string{"No active run", "Context", "Runtime", "Providers", "message or / command"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("idle wide workspace missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "\n...\n┌") || strings.Contains(out, "\n...  ") {
+		t.Fatalf("idle wide workspace should not leave a stray body ellipsis before composer:\n%s", out)
+	}
+}
+
+func TestRenderConsoleWorkspaceInteractivePaintsWholeFrame(t *testing.T) {
+	out := RenderConsoleWorkspace(ConsoleWorkspace{
+		View:   ConsoleView{Server: "http://agent", Ready: true},
+		Status: "updated",
+		Width:  140,
+		Height: 28,
+	})
+	if !strings.Contains(out, ansiTrueBlackBG) || !strings.Contains(out, "\x1b[K") {
+		t.Fatalf("interactive workspace should paint and clear every frame line, got %q", out)
+	}
+	if got := lineCount(out); got < 28 {
+		t.Fatalf("interactive workspace should fill terminal height, got %d lines:\n%q", got, out)
+	}
+	for i, line := range strings.Split(out, "\n") {
+		if width := lipgloss.Width(stripANSINoise(line)); width < 140 {
+			t.Fatalf("interactive workspace line %d should be padded to terminal width, got %d: %q", i, width, line)
+		}
+	}
+}
+
+func TestPaintWorkspaceFrameReassertsBlackBeforePadding(t *testing.T) {
+	out := paintWorkspaceFrame("\x1b[1m7review\x1b[0m", 20, 1)
+	want := "\x1b[0m" + ansiTrueBlackBG + strings.Repeat(" ", 13)
+	if !strings.Contains(out, want) {
+		t.Fatalf("styled line padding should repaint black after ANSI reset:\n%q", out)
+	}
+	if strings.Contains(out, "\x1b[40m") {
+		t.Fatalf("workspace frame should use truecolor black, not terminal palette black:\n%q", out)
 	}
 }
 
@@ -132,12 +212,166 @@ func TestRenderConsoleWorkspaceShowsTranscriptScrollPosition(t *testing.T) {
 		Height:           30,
 		TranscriptScroll: 2,
 	})
-	for _, want := range []string{"Transcript", "scroll 2/", "agent>", "line 03"} {
+	for _, want := range []string{"Transcript", "scroll 2/", "agent>", "line 13"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("workspace output missing %q:\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, "line 20") {
 		t.Fatalf("scrolled transcript should not show latest line:\n%s", out)
+	}
+}
+
+func TestRenderConsoleWorkspaceChatKeepsCompactRailAndTurnSpacing(t *testing.T) {
+	out := RenderConsoleWorkspace(ConsoleWorkspace{
+		View: ConsoleView{
+			Server: "http://agent",
+			Ready:  true,
+			Plain:  true,
+			Queue:  QueueView{Depth: 1, Capacity: 32},
+			Dependencies: []DependencyStatus{
+				{Name: "agent", Ready: true},
+				{Name: "headroom", Ready: true},
+				{Name: "mempalace", Ready: true},
+			},
+		},
+		Width:   132,
+		Height:  32,
+		Status:  "running",
+		Running: true,
+		Transcript: []ConsoleTranscriptItem{
+			{Role: "you", Text: "what can you do?"},
+			{Role: "agent", Text: "I can chat through the configured model and help operate 7review."},
+		},
+	})
+	for _, want := range []string{"Review workspace", "run    none selected", "sessions none", "you>", "agent>"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("chat workspace missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Providers\n") || strings.Contains(out, "Catalog\n") {
+		t.Fatalf("chat workspace should keep compact rail instead of full dashboard rail:\n%s", out)
+	}
+	lines := renderTranscriptLines([]ConsoleTranscriptItem{
+		{Role: "you", Text: "what can you do?"},
+		{Role: "agent", Text: "I can chat through the configured model."},
+	}, 80)
+	if len(lines) < 3 || strings.TrimSpace(lines[1]) != "" {
+		t.Fatalf("chat turns should be separated by a blank transcript row: %#v", lines)
+	}
+}
+
+func TestRenderConsoleWorkspaceStreamingKeepsLatestAgentTextVisible(t *testing.T) {
+	var transcript []ConsoleTranscriptItem
+	for i := 1; i <= 8; i++ {
+		transcript = append(transcript, ConsoleTranscriptItem{Role: "you", Text: fmt.Sprintf("prompt %02d", i)})
+		transcript = append(transcript, ConsoleTranscriptItem{Role: "agent", Text: fmt.Sprintf("reply %02d", i)})
+	}
+	transcript = append(transcript,
+		ConsoleTranscriptItem{Role: "you", Text: "latest prompt"},
+		ConsoleTranscriptItem{Role: "agent", Text: "streaming latest response token"},
+	)
+	out := RenderConsoleWorkspace(ConsoleWorkspace{
+		View: ConsoleView{
+			Server: "http://agent",
+			Ready:  true,
+			Plain:  true,
+		},
+		Width:      96,
+		Height:     16,
+		Status:     "running",
+		Running:    true,
+		Transcript: transcript,
+	})
+	for _, want := range []string{"latest prompt", "streaming latest response token", "state running"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("streaming workspace should keep latest chat visible, missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "reply 01") {
+		t.Fatalf("short streaming workspace should trim old transcript before latest output:\n%s", out)
+	}
+}
+
+func TestRenderConsoleSurfaceDoesNotPadANSITranscriptRowsIntoBars(t *testing.T) {
+	line := transcriptPrefix("you") + "Hello bro"
+	out := renderConsoleSurface([]string{line}, 120, false)
+	stripped := stripANSINoise(out)
+	if strings.Contains(stripped, "Hello bro"+strings.Repeat(" ", 20)) {
+		t.Fatalf("ANSI transcript row should not be padded into a full-width band:\n%q", stripped)
+	}
+}
+
+func TestJoinColumnsStylesPaddingGap(t *testing.T) {
+	out := joinColumns("left", "right", 2)
+	if out == "left  right" || !strings.Contains(out, "\x1b[") {
+		t.Fatalf("column gap/padding should be styled, got %q", out)
+	}
+}
+
+func TestRenderConsoleWorkspaceRendersPaletteAndErrorRole(t *testing.T) {
+	out := RenderConsoleWorkspace(ConsoleWorkspace{
+		View:   ConsoleView{Server: "http://agent", Ready: true, Plain: true},
+		Input:  "/h",
+		Status: "ready",
+		Width:  92,
+		Height: 28,
+		Transcript: []ConsoleTranscriptItem{
+			{Role: "you", Text: "/bad"},
+			{Role: "error", Text: "unknown command"},
+		},
+		Palette: []ConsolePaletteRow{
+			{Label: "/help", Usage: "/help", Description: "Show slash commands.", Match: []int{1}},
+			{Label: "/history", Usage: "/history [type] [limit]", Description: "Show timeline.", Disabled: true, Annotation: "needs run", Match: []int{1}},
+		},
+	})
+	for _, want := range []string{"Commands", "/help", "/history", "needs run", "error>", "unknown command", "> /h"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("workspace output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderConsoleWorkspaceNarrowLayoutDoesNotUseFixedWideComposer(t *testing.T) {
+	out := RenderConsoleWorkspace(ConsoleWorkspace{
+		View: ConsoleView{
+			Server: "http://agent",
+			Ready:  true,
+			Plain:  true,
+			ActiveRun: &RunDetail{
+				RunRow:     RunRow{ID: "owner/repo!7", Status: "drafted"},
+				DraftBytes: 20,
+			},
+			Providers: []ProviderRow{{Name: "openrouter", Configured: true}},
+		},
+		RunID:  "owner/repo!7",
+		Input:  "/history",
+		Status: "ready",
+		Width:  64,
+		Height: 26,
+		Transcript: []ConsoleTranscriptItem{
+			{Role: "agent", Text: strings.Repeat("narrow transcript text ", 4)},
+		},
+	})
+	for _, line := range strings.Split(out, "\n") {
+		if lipgloss.Width(stripANSINoise(line)) > 70 {
+			t.Fatalf("narrow workspace line overflowed: width=%d line=%q\n%s", lipgloss.Width(stripANSINoise(line)), line, out)
+		}
+	}
+	for _, want := range []string{"Review workspace", "agent>", "> /history"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("narrow workspace missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderWorkspaceComposerFitsOuterWidth(t *testing.T) {
+	out := renderWorkspaceComposer(ConsoleWorkspace{
+		Status: "last error: " + strings.Repeat("unauthorized ", 12),
+	}, 80)
+	for _, line := range strings.Split(out, "\n") {
+		if width := lipgloss.Width(stripANSINoise(line)); width > 80 {
+			t.Fatalf("composer line overflowed outer width: width=%d line=%q\n%s", width, line, out)
+		}
 	}
 }
