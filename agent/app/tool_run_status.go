@@ -16,6 +16,7 @@ type selectedContextStatusDTO struct {
 	Evidence       []evidenceStatusDTO `json:"evidence_manifest"`
 	SkillSections  []sectionStatusDTO  `json:"skill_sections"`
 	Memory         review.MemoryRecall `json:"memory"`
+	Model          modelReviewDTO      `json:"model_review"`
 	Warnings       []string            `json:"warnings,omitempty"`
 }
 
@@ -56,6 +57,17 @@ type diffSummaryDTO struct {
 	ChangedFiles []changedFileDTO `json:"changed_files"`
 }
 
+type modelReviewDTO struct {
+	ParseStatus        string `json:"parse_status,omitempty"`
+	ParseWarning       string `json:"parse_warning,omitempty"`
+	ParsedFindings     int    `json:"parsed_findings"`
+	AcceptedFindings   int    `json:"accepted_findings"`
+	RejectedFindings   int    `json:"rejected_findings"`
+	ProviderTrace      string `json:"provider_trace,omitempty"`
+	RawResponseBytes   int    `json:"raw_response_bytes"`
+	RawResponseExcerpt string `json:"raw_response_excerpt,omitempty"`
+}
+
 type fileDiffDTO struct {
 	Path       string `json:"path"`
 	TokenCount int    `json:"token_count"`
@@ -83,8 +95,22 @@ func (r appToolRunner) SelectedContext(ctx context.Context, id string) (any, err
 		Evidence:       evidenceDTOs(source.Evidence, source.CorpusSections),
 		SkillSections:  skillSectionDTOs(source.SkillSections, source.Request),
 		Memory:         source.Memory,
+		Model:          modelReviewStatusDTO(source.Model),
 		Warnings:       append([]string(nil), source.Run.Warnings...),
 	}, nil
+}
+
+func modelReviewStatusDTO(model review.ModelReview) modelReviewDTO {
+	return modelReviewDTO{
+		ParseStatus:        model.ParseStatus,
+		ParseWarning:       model.ParseWarning,
+		ParsedFindings:     model.ParsedFindings,
+		AcceptedFindings:   model.AcceptedFindings,
+		RejectedFindings:   model.RejectedFindings,
+		ProviderTrace:      model.ProviderTrace,
+		RawResponseBytes:   model.RawResponseBytes,
+		RawResponseExcerpt: model.RawResponseExcerpt,
+	}
 }
 
 func (r appToolRunner) RunTimeline(ctx context.Context, id string) (any, error) {

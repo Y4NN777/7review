@@ -136,6 +136,12 @@ func TestHandleToolExecuteSelectedContextIncludesEvidenceManifest(t *testing.T) 
 		},
 	}
 	rc.Source.SkillSections = []review.Section{{Path: "agent/skills/api-contract-review/SKILL.md", Title: "api-contract-review", Kind: review.KindRules, Content: "contract rules"}}
+	rc.Source.Model = review.ModelReview{
+		ParseStatus:        "empty_findings",
+		ParseWarning:       "model returned an explicit empty findings list",
+		RawResponseExcerpt: "[]",
+		ProviderTrace:      "step5=openrouter/openrouter/free",
+	}
 	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
 		t.Fatal(err)
 	}
@@ -165,6 +171,9 @@ func TestHandleToolExecuteSelectedContextIncludesEvidenceManifest(t *testing.T) 
 	assertEvidenceDTO(t, resp.Result.Evidence[1], "docs/openapi.yaml", "schemas.Session", "interface_trace: session -> docs/openapi.yaml#schemas.Session", "/sessions", 115)
 	if len(resp.Result.SkillSections) != 1 || !strings.Contains(resp.Result.SkillSections[0].SelectionReason, "matched title + description + changed paths") {
 		t.Fatalf("skill selection reason missing request signal explanation: %#v", resp.Result.SkillSections)
+	}
+	if resp.Result.Model.ParseStatus != "empty_findings" || resp.Result.Model.RawResponseExcerpt != "[]" {
+		t.Fatalf("model audit missing from selected context: %#v", resp.Result.Model)
 	}
 }
 

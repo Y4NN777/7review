@@ -20,9 +20,22 @@ type Source struct {
 	SkillSections  []Section
 	Memory         MemoryRecall
 
+	Model    ModelReview
 	Findings []Finding
 	Report   Report
 	Run      RunMetadata
+}
+
+type ModelReview struct {
+	RawResponses       []string `json:"raw_responses,omitempty"`
+	ParseStatus        string   `json:"parse_status,omitempty"`
+	ParseWarning       string   `json:"parse_warning,omitempty"`
+	ParsedFindings     int      `json:"parsed_findings"`
+	AcceptedFindings   int      `json:"accepted_findings"`
+	RejectedFindings   int      `json:"rejected_findings"`
+	ProviderTrace      string   `json:"provider_trace,omitempty"`
+	RawResponseBytes   int      `json:"raw_response_bytes"`
+	RawResponseExcerpt string   `json:"raw_response_excerpt,omitempty"`
 }
 
 type MemoryRecall struct {
