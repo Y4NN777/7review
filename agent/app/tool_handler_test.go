@@ -94,6 +94,80 @@ func TestHandleToolExecuteRunTimeline(t *testing.T) {
 	}
 }
 
+func TestHandleToolExecuteSelectedContextIncludesEvidenceManifest(t *testing.T) {
+	store := pipeline.NewMemoryRunStore()
+	reqRun := review.Request{
+		Provider:     "github",
+		ProjectID:    "owner/repo",
+		ChangeID:     "11",
+		Title:        "Update session API",
+		Description:  "Touch REQ-12 and POST /sessions.",
+		ChangedPaths: []string{"api/sessions.go"},
+	}
+	run, err := store.Start(context.Background(), reqRun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc := review.NewContext(reqRun)
+	rc.Source.CorpusSections = []review.Section{
+		{Path: "docs/openapi.yaml", Title: "paths./sessions", Kind: review.KindAPI, Content: "post: {}"},
+		{Path: "docs/openapi.yaml", Title: "schemas.Session", Kind: review.KindAPI, Content: "type: object"},
+	}
+	rc.Source.Evidence = []review.EvidenceItem{
+		{
+			Source:          "docs/openapi.yaml",
+			HeadingOrKey:    "paths./sessions",
+			Kind:            review.KindAPI,
+			Authority:       "api_contract",
+			MatchedSignals:  []string{"/sessions"},
+			SelectionReason: "seed: API route /sessions",
+			Score:           198,
+			ContentBytes:    len("post: {}"),
+		},
+		{
+			Source:          "docs/openapi.yaml",
+			HeadingOrKey:    "schemas.Session",
+			Kind:            review.KindAPI,
+			Authority:       "api_contract",
+			MatchedSignals:  []string{"/sessions"},
+			SelectionReason: "interface_trace: session -> docs/openapi.yaml#schemas.Session",
+			Score:           115,
+			ContentBytes:    len("type: object"),
+		},
+	}
+	rc.Source.SkillSections = []review.Section{{Path: "agent/skills/api-contract-review/SKILL.md", Title: "api-contract-review", Kind: review.KindRules, Content: "contract rules"}}
+	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{pipeline: &pipeline.Pipeline{Jobs: store}}
+	req := httptest.NewRequest(http.MethodPost, "/tools/execute", strings.NewReader(`{"name":"get_selected_context","input":{"run":"owner/repo!11"}}`))
+	rec := httptest.NewRecorder()
+
+	s.handleToolExecute(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Name   string                   `json:"name"`
+		Result selectedContextStatusDTO `json:"result"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Name != "get_selected_context" || resp.Result.Run != "owner/repo!11" {
+		t.Fatalf("unexpected selected context response: %#v", resp)
+	}
+	if len(resp.Result.CorpusSections) != 2 || len(resp.Result.Evidence) != 2 {
+		t.Fatalf("context/evidence length mismatch: %#v", resp.Result)
+	}
+	assertEvidenceDTO(t, resp.Result.Evidence[0], "docs/openapi.yaml", "paths./sessions", "seed: API route /sessions", "/sessions", 198)
+	assertEvidenceDTO(t, resp.Result.Evidence[1], "docs/openapi.yaml", "schemas.Session", "interface_trace: session -> docs/openapi.yaml#schemas.Session", "/sessions", 115)
+	if len(resp.Result.SkillSections) != 1 || !strings.Contains(resp.Result.SkillSections[0].SelectionReason, "matched title + description + changed paths") {
+		t.Fatalf("skill selection reason missing request signal explanation: %#v", resp.Result.SkillSections)
+	}
+}
+
 func TestHandleToolExecuteGetConfigStatusRedactsSecrets(t *testing.T) {
 	s := &Server{
 		cfg: &config.Config{
@@ -202,4 +276,20 @@ func TestRoutesExposeToolExecute(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected routed tool execution, got %d: %s", rec.Code, rec.Body.String())
 	}
+}
+
+func assertEvidenceDTO(t *testing.T, item evidenceStatusDTO, source, heading, reason, signal string, score int) {
+	t.Helper()
+	if item.Source != source || item.HeadingOrKey != heading || item.SelectionReason != reason || item.Score != score {
+		t.Fatalf("unexpected evidence item: %#v", item)
+	}
+	if item.Authority == "" || item.ContentBytes == 0 {
+		t.Fatalf("evidence item missing authority/content bytes: %#v", item)
+	}
+	for _, got := range item.MatchedSignals {
+		if got == signal {
+			return
+		}
+	}
+	t.Fatalf("evidence item missing matched signal %q: %#v", signal, item)
 }
