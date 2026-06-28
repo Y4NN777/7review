@@ -8,28 +8,29 @@ import (
 )
 
 type configStatusDTO struct {
-	ListenAddr       string `json:"listen_addr"`
-	CorpusRoot       string `json:"corpus_root"`
-	MemoryDir        string `json:"memory_dir"`
-	HILChannel       string `json:"hil_channel"`
-	Provider         string `json:"provider"`
-	ReviewModel      string `json:"review_model"`
-	SmallModel       string `json:"small_model"`
-	EmbeddingModel   string `json:"embedding_model,omitempty"`
-	Orchestrator     string `json:"orchestrator_config,omitempty"`
-	HasGitLab        bool   `json:"has_gitlab"`
-	HasGitHub        bool   `json:"has_github"`
-	HasOpenAI        bool   `json:"has_openai"`
-	HasOpenRouter    bool   `json:"has_openrouter"`
-	HasDeepSeek      bool   `json:"has_deepseek"`
-	HasAnthropic     bool   `json:"has_anthropic"`
-	HasMistral       bool   `json:"has_mistral"`
-	HasGemini        bool   `json:"has_gemini"`
-	HasOllama        bool   `json:"has_ollama"`
-	HeadroomURL      string `json:"headroom_url"`
-	MemPalaceURL     string `json:"mempalace_url"`
-	WebhookWorkers   int    `json:"webhook_workers"`
-	WebhookQueueSize int    `json:"webhook_queue_size"`
+	ListenAddr                  string `json:"listen_addr"`
+	CorpusRoot                  string `json:"corpus_root"`
+	MaxSupportingCorpusSections int    `json:"max_supporting_corpus_sections"`
+	MemoryDir                   string `json:"memory_dir"`
+	HILChannel                  string `json:"hil_channel"`
+	Provider                    string `json:"provider"`
+	ReviewModel                 string `json:"review_model"`
+	SmallModel                  string `json:"small_model"`
+	EmbeddingModel              string `json:"embedding_model,omitempty"`
+	Orchestrator                string `json:"orchestrator_config,omitempty"`
+	HasGitLab                   bool   `json:"has_gitlab"`
+	HasGitHub                   bool   `json:"has_github"`
+	HasOpenAI                   bool   `json:"has_openai"`
+	HasOpenRouter               bool   `json:"has_openrouter"`
+	HasDeepSeek                 bool   `json:"has_deepseek"`
+	HasAnthropic                bool   `json:"has_anthropic"`
+	HasMistral                  bool   `json:"has_mistral"`
+	HasGemini                   bool   `json:"has_gemini"`
+	HasOllama                   bool   `json:"has_ollama"`
+	HeadroomURL                 string `json:"headroom_url"`
+	MemPalaceURL                string `json:"mempalace_url"`
+	WebhookWorkers              int    `json:"webhook_workers"`
+	WebhookQueueSize            int    `json:"webhook_queue_size"`
 }
 
 type skillStatusDTO struct {
@@ -72,28 +73,29 @@ func configStatus(cfg *config.Config) configStatusDTO {
 		return configStatusDTO{}
 	}
 	return configStatusDTO{
-		ListenAddr:       cfg.ListenAddr,
-		CorpusRoot:       cfg.CorpusRoot,
-		MemoryDir:        cfg.MemoryDir,
-		HILChannel:       cfg.HILChannel,
-		Provider:         cfg.Provider,
-		ReviewModel:      cfg.ReviewModel,
-		SmallModel:       cfg.SmallModel,
-		EmbeddingModel:   cfg.EmbeddingModel,
-		Orchestrator:     cfg.OrchestratorConfigPath,
-		HasGitLab:        cfg.GitLabURL != "" && cfg.GitLabToken != "" && cfg.WebhookSecret != "",
-		HasGitHub:        cfg.GitHubAPIURL != "" && cfg.GitHubToken != "" && cfg.GitHubWebhookSecret != "",
-		HasOpenAI:        cfg.OpenAIAPIKey != "",
-		HasOpenRouter:    cfg.OpenRouterAPIKey != "",
-		HasDeepSeek:      cfg.DeepSeekAPIKey != "",
-		HasAnthropic:     cfg.AnthropicAPIKey != "",
-		HasMistral:       cfg.MistralAPIKey != "",
-		HasGemini:        cfg.GeminiAPIKey != "",
-		HasOllama:        cfg.OllamaBaseURL != "",
-		HeadroomURL:      cfg.HeadroomURL,
-		MemPalaceURL:     cfg.MemPalaceURL,
-		WebhookWorkers:   cfg.WebhookWorkers,
-		WebhookQueueSize: cfg.WebhookQueueSize,
+		ListenAddr:                  cfg.ListenAddr,
+		CorpusRoot:                  cfg.CorpusRoot,
+		MaxSupportingCorpusSections: cfg.MaxSupportingCorpusSections,
+		MemoryDir:                   cfg.MemoryDir,
+		HILChannel:                  cfg.HILChannel,
+		Provider:                    cfg.Provider,
+		ReviewModel:                 cfg.ReviewModel,
+		SmallModel:                  cfg.SmallModel,
+		EmbeddingModel:              cfg.EmbeddingModel,
+		Orchestrator:                cfg.OrchestratorConfigPath,
+		HasGitLab:                   cfg.GitLabURL != "" && cfg.GitLabToken != "" && cfg.WebhookSecret != "",
+		HasGitHub:                   cfg.GitHubAPIURL != "" && cfg.GitHubToken != "" && cfg.GitHubWebhookSecret != "",
+		HasOpenAI:                   cfg.OpenAIAPIKey != "",
+		HasOpenRouter:               cfg.OpenRouterAPIKey != "",
+		HasDeepSeek:                 cfg.DeepSeekAPIKey != "",
+		HasAnthropic:                cfg.AnthropicAPIKey != "",
+		HasMistral:                  cfg.MistralAPIKey != "",
+		HasGemini:                   cfg.GeminiAPIKey != "",
+		HasOllama:                   cfg.OllamaBaseURL != "",
+		HeadroomURL:                 cfg.HeadroomURL,
+		MemPalaceURL:                cfg.MemPalaceURL,
+		WebhookWorkers:              cfg.WebhookWorkers,
+		WebhookQueueSize:            cfg.WebhookQueueSize,
 	}
 }
 

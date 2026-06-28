@@ -280,7 +280,7 @@ func TestChatCommandHandlerRendersConfigStatus(t *testing.T) {
 		if !strings.Contains(string(body), `"name":"get_config_status"`) {
 			t.Fatalf("unexpected config request body: %s", string(body))
 		}
-		return jsonResponse(http.StatusOK, `{"name":"get_config_status","result":{"listen_addr":":8080","corpus_root":"/repo","memory_dir":"/data","hil_channel":"manual","provider":"openrouter","review_model":"deepseek-chat","small_model":"gpt-4o-mini","orchestrator_config":"./orchestrator.yaml","has_github":true,"has_gitlab":false,"has_openrouter":true,"has_deepseek":true,"headroom_url":"http://headroom:8787","mempalace_url":"http://mempalace:8788","webhook_workers":4,"webhook_queue_size":32}}`), nil
+		return jsonResponse(http.StatusOK, `{"name":"get_config_status","result":{"listen_addr":":8080","corpus_root":"/repo","max_supporting_corpus_sections":5,"memory_dir":"/data","hil_channel":"manual","provider":"openrouter","review_model":"deepseek-chat","small_model":"gpt-4o-mini","orchestrator_config":"./orchestrator.yaml","has_github":true,"has_gitlab":false,"has_openrouter":true,"has_deepseek":true,"headroom_url":"http://headroom:8787","mempalace_url":"http://mempalace:8788","webhook_workers":4,"webhook_queue_size":32}}`), nil
 	})}
 
 	var out strings.Builder
@@ -288,7 +288,7 @@ func TestChatCommandHandlerRendersConfigStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"config", "listen    :8080", "provider  openrouter", "review    deepseek-chat", "headroom  http://headroom:8787", "mempalace http://mempalace:8788", "workers  4 queue=32", "github=true gitlab=false", "openrouter=true deepseek=true"} {
+	for _, want := range []string{"config", "listen    :8080", "provider  openrouter", "review    deepseek-chat", "support  5", "headroom  http://headroom:8787", "mempalace http://mempalace:8788", "workers  4 queue=32", "github=true gitlab=false", "openrouter=true deepseek=true"} {
 		if !handled || !strings.Contains(out.String(), want) {
 			t.Fatalf("config command output missing %q handled=%t:\n%s", want, handled, out.String())
 		}

@@ -8,6 +8,19 @@ type Section struct {
 	Kind    Kind
 }
 
+// EvidenceItem explains why one repository section was selected for review.
+// It is operator-facing metadata; model-facing content stays in Section.
+type EvidenceItem struct {
+	Source          string   `json:"source"`
+	HeadingOrKey    string   `json:"heading_or_key"`
+	Kind            Kind     `json:"kind"`
+	Authority       string   `json:"authority"`
+	MatchedSignals  []string `json:"matched_signals,omitempty"`
+	SelectionReason string   `json:"selection_reason"`
+	Score           int      `json:"score"`
+	ContentBytes    int      `json:"content_bytes"`
+}
+
 // Kind classifies rich review context so selection remains generic.
 type Kind string
 

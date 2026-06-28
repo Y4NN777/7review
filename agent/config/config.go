@@ -9,25 +9,26 @@ import (
 // Config holds all runtime settings, loaded from environment variables.
 type Config struct {
 	// ── Pipeline ──────────────────────────────────────────────────────────
-	SkillsDir         string
-	CorpusRoot        string
-	MemoryDir         string
-	InstructionsPath  string
-	MaxDiffTokens     int
-	HILChannel        string
-	ListenAddr        string
-	ReadHeaderTimeout int
-	ReadTimeout       int
-	WriteTimeout      int
-	IdleTimeout       int
-	APIToken          string
-	WebhookWorkers    int
-	WebhookQueueSize  int
-	WebhookJobTimeout int
-	HeadroomURL       string
-	HeadroomTimeout   int
-	MemPalaceURL      string
-	MemPalaceTimeout  int
+	SkillsDir                   string
+	CorpusRoot                  string
+	MemoryDir                   string
+	InstructionsPath            string
+	MaxDiffTokens               int
+	MaxSupportingCorpusSections int
+	HILChannel                  string
+	ListenAddr                  string
+	ReadHeaderTimeout           int
+	ReadTimeout                 int
+	WriteTimeout                int
+	IdleTimeout                 int
+	APIToken                    string
+	WebhookWorkers              int
+	WebhookQueueSize            int
+	WebhookJobTimeout           int
+	HeadroomURL                 string
+	HeadroomTimeout             int
+	MemPalaceURL                string
+	MemPalaceTimeout            int
 
 	// ── GitLab ────────────────────────────────────────────────────────────
 	GitLabURL     string
@@ -73,25 +74,26 @@ type Config struct {
 func LoadConfig() (*Config, error) {
 	c := &Config{
 		// Pipeline
-		SkillsDir:         getEnv("SKILLS_DIR", "./agent/skills"),
-		CorpusRoot:        getEnv("CORPUS_ROOT", "."),
-		MemoryDir:         getEnv("MEMORY_DIR", "./.7review"),
-		InstructionsPath:  getEnv("INSTRUCTIONS_PATH", "./agent/instructions.md"),
-		MaxDiffTokens:     getEnvInt("MAX_DIFF_TOKENS", 6000),
-		HILChannel:        getEnv("HIL_CHANNEL", "gitlab_note"),
-		ListenAddr:        getEnv("LISTEN_ADDR", ":8080"),
-		ReadHeaderTimeout: getEnvInt("HTTP_READ_HEADER_TIMEOUT_MS", 5000),
-		ReadTimeout:       getEnvInt("HTTP_READ_TIMEOUT_MS", 30000),
-		WriteTimeout:      getEnvInt("HTTP_WRITE_TIMEOUT_MS", 120000),
-		IdleTimeout:       getEnvInt("HTTP_IDLE_TIMEOUT_MS", 120000),
-		APIToken:          os.Getenv("REVIEW_API_TOKEN"),
-		WebhookWorkers:    getEnvInt("WEBHOOK_WORKERS", 4),
-		WebhookQueueSize:  getEnvInt("WEBHOOK_QUEUE_SIZE", 128),
-		WebhookJobTimeout: getEnvInt("WEBHOOK_JOB_TIMEOUT_MS", 15*60*1000),
-		HeadroomURL:       os.Getenv("HEADROOM_URL"),
-		HeadroomTimeout:   getEnvInt("HEADROOM_TIMEOUT_MS", 5000),
-		MemPalaceURL:      os.Getenv("MEMPALACE_URL"),
-		MemPalaceTimeout:  getEnvInt("MEMPALACE_TIMEOUT_MS", 5000),
+		SkillsDir:                   getEnv("SKILLS_DIR", "./agent/skills"),
+		CorpusRoot:                  getEnv("CORPUS_ROOT", "."),
+		MemoryDir:                   getEnv("MEMORY_DIR", "./.7review"),
+		InstructionsPath:            getEnv("INSTRUCTIONS_PATH", "./agent/instructions.md"),
+		MaxDiffTokens:               getEnvInt("MAX_DIFF_TOKENS", 6000),
+		MaxSupportingCorpusSections: getEnvInt("MAX_SUPPORTING_CORPUS_SECTIONS", 3),
+		HILChannel:                  getEnv("HIL_CHANNEL", "gitlab_note"),
+		ListenAddr:                  getEnv("LISTEN_ADDR", ":8080"),
+		ReadHeaderTimeout:           getEnvInt("HTTP_READ_HEADER_TIMEOUT_MS", 5000),
+		ReadTimeout:                 getEnvInt("HTTP_READ_TIMEOUT_MS", 30000),
+		WriteTimeout:                getEnvInt("HTTP_WRITE_TIMEOUT_MS", 120000),
+		IdleTimeout:                 getEnvInt("HTTP_IDLE_TIMEOUT_MS", 120000),
+		APIToken:                    os.Getenv("REVIEW_API_TOKEN"),
+		WebhookWorkers:              getEnvInt("WEBHOOK_WORKERS", 4),
+		WebhookQueueSize:            getEnvInt("WEBHOOK_QUEUE_SIZE", 128),
+		WebhookJobTimeout:           getEnvInt("WEBHOOK_JOB_TIMEOUT_MS", 15*60*1000),
+		HeadroomURL:                 os.Getenv("HEADROOM_URL"),
+		HeadroomTimeout:             getEnvInt("HEADROOM_TIMEOUT_MS", 5000),
+		MemPalaceURL:                os.Getenv("MEMPALACE_URL"),
+		MemPalaceTimeout:            getEnvInt("MEMPALACE_TIMEOUT_MS", 5000),
 
 		// GitLab
 		GitLabURL:     os.Getenv("GITLAB_URL"),
@@ -155,6 +157,7 @@ func LoadConfig() (*Config, error) {
 		value int
 	}{
 		{"MAX_DIFF_TOKENS", c.MaxDiffTokens},
+		{"MAX_SUPPORTING_CORPUS_SECTIONS", c.MaxSupportingCorpusSections},
 		{"HTTP_READ_HEADER_TIMEOUT_MS", c.ReadHeaderTimeout},
 		{"HTTP_READ_TIMEOUT_MS", c.ReadTimeout},
 		{"HTTP_WRITE_TIMEOUT_MS", c.WriteTimeout},

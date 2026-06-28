@@ -27,6 +27,7 @@ func TestConfigProfileEnvFile_DockerGitLabOpenAI(t *testing.T) {
 		"HTTP_READ_HEADER_TIMEOUT_MS=5000",
 		"HTTP_WRITE_TIMEOUT_MS=120000",
 		"CORPUS_ROOT=.",
+		"MAX_SUPPORTING_CORPUS_SECTIONS=3",
 		"MEMORY_DIR=/data/7review",
 		"HEADROOM_URL=http://headroom:8787",
 		"MEMPALACE_URL=http://mempalace:8788",
@@ -109,13 +110,14 @@ func TestConfigProfileValidate_RejectsInvalidNumericSettings(t *testing.T) {
 	profile.APIToken = "agent-token"
 	profile.WebhookWorkers = "0"
 	profile.WebhookQueueSize = "-1"
+	profile.MaxSupportingCorpusSections = "0"
 	profile.HeadroomTimeoutMS = "slow"
 
 	err := profile.Validate()
 	if err == nil {
 		t.Fatal("expected invalid numeric settings error")
 	}
-	for _, want := range []string{"WEBHOOK_WORKERS positive integer", "WEBHOOK_QUEUE_SIZE positive integer", "HEADROOM_TIMEOUT_MS positive integer"} {
+	for _, want := range []string{"WEBHOOK_WORKERS positive integer", "WEBHOOK_QUEUE_SIZE positive integer", "MAX_SUPPORTING_CORPUS_SECTIONS positive integer", "HEADROOM_TIMEOUT_MS positive integer"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("expected %q in %v", want, err)
 		}

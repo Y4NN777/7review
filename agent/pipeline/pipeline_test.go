@@ -105,6 +105,39 @@ Check webhook trust boundaries before publishing.`,
 	}
 }
 
+func TestReviewSystemPromptLabelsRepositoryEvidenceWithoutSelectionDebug(t *testing.T) {
+	rc := review.NewContext(review.Request{Provider: "github", ChangeID: "7", Title: "Update API"})
+	rc.CorpusSections = []review.Section{{
+		Path:    "docs/openapi.yaml",
+		Title:   "paths./messages/{message_id}",
+		Kind:    review.KindAPI,
+		Content: "delete:\n  operationId: deleteMessage",
+	}}
+	rc.Source.Evidence = []review.EvidenceItem{{
+		Source:          "docs/openapi.yaml",
+		HeadingOrKey:    "paths./messages/{message_id}",
+		Kind:            review.KindAPI,
+		Authority:       "api_contract",
+		SelectionReason: "api_contract: API route /messages/{message_id}",
+		Score:           30,
+		ContentBytes:    36,
+	}}
+
+	prompt := reviewSystemPrompt(rc)
+	for _, want := range []string{
+		`[EVIDENCE kind=repo_knowledge path="docs/openapi.yaml" heading_or_key="paths./messages/{message_id}" section_kind="api"]`,
+		"Cite selected repository source paths or requirement IDs",
+		"deleteMessage",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "api_contract: API route") || strings.Contains(prompt, "SelectionReason") {
+		t.Fatalf("prompt leaked selection debug prose:\n%s", prompt)
+	}
+}
+
 func TestReviewSystemPromptScopesRuntimeOperatorFacts(t *testing.T) {
 	prompt := reviewSystemPrompt(&review.Context{})
 	for _, want := range []string{

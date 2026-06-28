@@ -45,6 +45,16 @@ func TestHandleToolExecuteObservabilityTools(t *testing.T) {
 	rc.Source.Diff = rc.Diff
 	rc.CorpusSections = []review.Section{{Path: "PRD.md", Title: "PRD", Kind: review.KindPlanning, Content: "feature\nrule"}}
 	rc.Source.CorpusSections = rc.CorpusSections
+	rc.Source.Evidence = []review.EvidenceItem{{
+		Source:          "PRD.md",
+		HeadingOrKey:    "PRD",
+		Kind:            review.KindPlanning,
+		Authority:       "requirements",
+		MatchedSignals:  []string{"FR-1"},
+		SelectionReason: "requirements: identifier FR-1",
+		Score:           26,
+		ContentBytes:    len("feature\nrule"),
+	}}
 	rc.SkillSections = []review.Section{{Path: "agent/skills/api-contract-review/SKILL.md", Title: "api-contract-review", Kind: review.KindRules, Content: "skill body"}}
 	rc.Source.SkillSections = rc.SkillSections
 	rc.Source.Memory = review.MemoryRecall{Conventions: []string{"return typed errors"}}
@@ -75,7 +85,7 @@ func TestHandleToolExecuteObservabilityTools(t *testing.T) {
 		body string
 		want []string
 	}{
-		{name: "get_selected_context", body: `{"name":"get_selected_context","input":{"run":"owner/repo!9"}}`, want: []string{`"corpus_sections"`, `"PRD.md"`, `"skill_sections"`, `"return typed errors"`}},
+		{name: "get_selected_context", body: `{"name":"get_selected_context","input":{"run":"owner/repo!9"}}`, want: []string{`"corpus_sections"`, `"evidence_manifest"`, `"selection_reason":"requirements: identifier FR-1"`, `"PRD.md"`, `"skill_sections"`, `"return typed errors"`}},
 		{name: "get_diff_summary", body: `{"name":"get_diff_summary","input":{"run":"owner/repo!9"}}`, want: []string{`"total_tokens":42`, `"additions":3`, `"deletions":1`, `"api/users.go"`}},
 		{name: "get_publish_status", body: `{"name":"get_publish_status","input":{"run":"owner/repo!9"}}`, want: []string{`"status":"finalized"`, `"hil_approved":true`, `"has_final_report":true`, `"scm_discussions":1`}},
 		{name: "list_provider_status", body: `{"name":"list_provider_status"}`, want: []string{`"active_provider":"openrouter"`, `"name":"openrouter"`, `"configured":true`, `"reasoner"`}},

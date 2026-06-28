@@ -36,23 +36,24 @@ type ConfigProfile struct {
 	OllamaBaseURL     string
 	EmbeddingModel    string
 
-	HTTPPort            string
-	CorpusRoot          string
-	MemoryDir           string
-	HeadroomURL         string
-	MemPalaceURL        string
-	HeadroomTimeoutMS   string
-	MemPalaceTimeoutMS  string
-	HTTPReadHeaderMS    string
-	HTTPReadMS          string
-	HTTPWriteMS         string
-	HTTPIdleMS          string
-	APIToken            string
-	WebhookWorkers      string
-	WebhookQueueSize    string
-	OrchestratorConfig  string
-	HeadroomCompression string
-	MemPalaceNamespace  string
+	HTTPPort                    string
+	CorpusRoot                  string
+	MaxSupportingCorpusSections string
+	MemoryDir                   string
+	HeadroomURL                 string
+	MemPalaceURL                string
+	HeadroomTimeoutMS           string
+	MemPalaceTimeoutMS          string
+	HTTPReadHeaderMS            string
+	HTTPReadMS                  string
+	HTTPWriteMS                 string
+	HTTPIdleMS                  string
+	APIToken                    string
+	WebhookWorkers              string
+	WebhookQueueSize            string
+	OrchestratorConfig          string
+	HeadroomCompression         string
+	MemPalaceNamespace          string
 }
 
 type SetupOptions struct {
@@ -63,31 +64,32 @@ type SetupOptions struct {
 
 func DefaultConfigProfile() ConfigProfile {
 	return ConfigProfile{
-		Mode:                "docker",
-		SCMProvider:         "gitlab",
-		GitLabURL:           "",
-		GitHubAPIURL:        "https://api.github.com",
-		LLMProvider:         "openai",
-		OpenRouterBaseURL:   "https://openrouter.ai/api",
-		DeepSeekBaseURL:     "https://api.deepseek.com",
-		EmbeddingModel:      "",
-		HTTPPort:            "8080",
-		CorpusRoot:          ".",
-		MemoryDir:           "/data/7review",
-		HeadroomURL:         "http://headroom:8787",
-		MemPalaceURL:        "http://mempalace:8788",
-		HeadroomTimeoutMS:   "5000",
-		MemPalaceTimeoutMS:  "5000",
-		HTTPReadHeaderMS:    "5000",
-		HTTPReadMS:          "30000",
-		HTTPWriteMS:         "120000",
-		HTTPIdleMS:          "120000",
-		APIToken:            "",
-		WebhookWorkers:      "4",
-		WebhookQueueSize:    "32",
-		OrchestratorConfig:  "/app/orchestrator.yaml",
-		HeadroomCompression: "0.55",
-		MemPalaceNamespace:  "7review",
+		Mode:                        "docker",
+		SCMProvider:                 "gitlab",
+		GitLabURL:                   "",
+		GitHubAPIURL:                "https://api.github.com",
+		LLMProvider:                 "openai",
+		OpenRouterBaseURL:           "https://openrouter.ai/api",
+		DeepSeekBaseURL:             "https://api.deepseek.com",
+		EmbeddingModel:              "",
+		HTTPPort:                    "8080",
+		CorpusRoot:                  ".",
+		MaxSupportingCorpusSections: "3",
+		MemoryDir:                   "/data/7review",
+		HeadroomURL:                 "http://headroom:8787",
+		MemPalaceURL:                "http://mempalace:8788",
+		HeadroomTimeoutMS:           "5000",
+		MemPalaceTimeoutMS:          "5000",
+		HTTPReadHeaderMS:            "5000",
+		HTTPReadMS:                  "30000",
+		HTTPWriteMS:                 "120000",
+		HTTPIdleMS:                  "120000",
+		APIToken:                    "",
+		WebhookWorkers:              "4",
+		WebhookQueueSize:            "32",
+		OrchestratorConfig:          "/app/orchestrator.yaml",
+		HeadroomCompression:         "0.55",
+		MemPalaceNamespace:          "7review",
 	}
 }
 
@@ -155,6 +157,7 @@ func RunSetupWizard(in io.Reader, out io.Writer, opts SetupOptions) error {
 	profile.HTTPWriteMS = ask(reader, out, "HTTP write timeout ms", profile.HTTPWriteMS)
 	profile.HTTPIdleMS = ask(reader, out, "HTTP idle timeout ms", profile.HTTPIdleMS)
 	profile.CorpusRoot = ask(reader, out, "Corpus root for target repository context", profile.CorpusRoot)
+	profile.MaxSupportingCorpusSections = ask(reader, out, "Max supporting corpus sections", profile.MaxSupportingCorpusSections)
 
 	if err := profile.Validate(); err != nil {
 		return err
@@ -217,6 +220,7 @@ func (p ConfigProfile) Validate() error {
 		{"HTTP_IDLE_TIMEOUT_MS", p.HTTPIdleMS},
 		{"HEADROOM_TIMEOUT_MS", p.HeadroomTimeoutMS},
 		{"MEMPALACE_TIMEOUT_MS", p.MemPalaceTimeoutMS},
+		{"MAX_SUPPORTING_CORPUS_SECTIONS", p.MaxSupportingCorpusSections},
 		{"WEBHOOK_WORKERS", p.WebhookWorkers},
 		{"WEBHOOK_QUEUE_SIZE", p.WebhookQueueSize},
 	} {
@@ -262,6 +266,7 @@ func (p ConfigProfile) EnvFile() string {
 		{"HTTP_WRITE_TIMEOUT_MS", p.HTTPWriteMS},
 		{"HTTP_IDLE_TIMEOUT_MS", p.HTTPIdleMS},
 		{"CORPUS_ROOT", p.CorpusRoot},
+		{"MAX_SUPPORTING_CORPUS_SECTIONS", p.MaxSupportingCorpusSections},
 		{"MEMORY_DIR", p.MemoryDir},
 		{"REVIEW_API_TOKEN", p.APIToken},
 		{"ORCHESTRATOR_CONFIG", p.OrchestratorConfig},

@@ -80,28 +80,29 @@ type remoteSkillStatus struct {
 }
 
 type remoteConfigStatus struct {
-	ListenAddr       string `json:"listen_addr"`
-	CorpusRoot       string `json:"corpus_root"`
-	MemoryDir        string `json:"memory_dir"`
-	HILChannel       string `json:"hil_channel"`
-	Provider         string `json:"provider"`
-	ReviewModel      string `json:"review_model"`
-	SmallModel       string `json:"small_model"`
-	EmbeddingModel   string `json:"embedding_model"`
-	Orchestrator     string `json:"orchestrator_config"`
-	HasGitLab        bool   `json:"has_gitlab"`
-	HasGitHub        bool   `json:"has_github"`
-	HasOpenAI        bool   `json:"has_openai"`
-	HasOpenRouter    bool   `json:"has_openrouter"`
-	HasDeepSeek      bool   `json:"has_deepseek"`
-	HasAnthropic     bool   `json:"has_anthropic"`
-	HasMistral       bool   `json:"has_mistral"`
-	HasGemini        bool   `json:"has_gemini"`
-	HasOllama        bool   `json:"has_ollama"`
-	HeadroomURL      string `json:"headroom_url"`
-	MemPalaceURL     string `json:"mempalace_url"`
-	WebhookWorkers   int    `json:"webhook_workers"`
-	WebhookQueueSize int    `json:"webhook_queue_size"`
+	ListenAddr                  string `json:"listen_addr"`
+	CorpusRoot                  string `json:"corpus_root"`
+	MaxSupportingCorpusSections int    `json:"max_supporting_corpus_sections"`
+	MemoryDir                   string `json:"memory_dir"`
+	HILChannel                  string `json:"hil_channel"`
+	Provider                    string `json:"provider"`
+	ReviewModel                 string `json:"review_model"`
+	SmallModel                  string `json:"small_model"`
+	EmbeddingModel              string `json:"embedding_model"`
+	Orchestrator                string `json:"orchestrator_config"`
+	HasGitLab                   bool   `json:"has_gitlab"`
+	HasGitHub                   bool   `json:"has_github"`
+	HasOpenAI                   bool   `json:"has_openai"`
+	HasOpenRouter               bool   `json:"has_openrouter"`
+	HasDeepSeek                 bool   `json:"has_deepseek"`
+	HasAnthropic                bool   `json:"has_anthropic"`
+	HasMistral                  bool   `json:"has_mistral"`
+	HasGemini                   bool   `json:"has_gemini"`
+	HasOllama                   bool   `json:"has_ollama"`
+	HeadroomURL                 string `json:"headroom_url"`
+	MemPalaceURL                string `json:"mempalace_url"`
+	WebhookWorkers              int    `json:"webhook_workers"`
+	WebhookQueueSize            int    `json:"webhook_queue_size"`
 }
 
 type remoteMemoryProposalStatus struct {

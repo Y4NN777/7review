@@ -16,6 +16,7 @@ type Source struct {
 	ChangedFiles   []ChangedFile
 	Diff           *StructuredDiff
 	CorpusSections []Section
+	Evidence       []EvidenceItem
 	SkillSections  []Section
 	Memory         MemoryRecall
 

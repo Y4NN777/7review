@@ -51,6 +51,9 @@ func TestLoadConfig_SidecarTimeoutDefaults(t *testing.T) {
 	if cfg.CorpusRoot != "." {
 		t.Fatalf("unexpected corpus root %q", cfg.CorpusRoot)
 	}
+	if cfg.MaxSupportingCorpusSections != 3 {
+		t.Fatalf("unexpected supporting corpus cap %d", cfg.MaxSupportingCorpusSections)
+	}
 	if cfg.EmbeddingModel != "nomic-embed-text:latest" {
 		t.Fatalf("unexpected embedding model %q", cfg.EmbeddingModel)
 	}
@@ -71,6 +74,24 @@ func TestLoadConfig_CorpusRootOverride(t *testing.T) {
 	}
 	if cfg.CorpusRoot != "/workspace/repo" {
 		t.Fatalf("unexpected corpus root %q", cfg.CorpusRoot)
+	}
+}
+
+func TestLoadConfig_MaxSupportingCorpusSectionsOverride(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "token")
+	t.Setenv("GITHUB_WEBHOOK_SECRET", "secret")
+	t.Setenv("REVIEW_API_TOKEN", "agent-token")
+	t.Setenv("HEADROOM_URL", "http://headroom")
+	t.Setenv("MEMPALACE_URL", "http://mempalace")
+	t.Setenv("OLLAMA_BASE_URL", "http://ollama:11434")
+	t.Setenv("MAX_SUPPORTING_CORPUS_SECTIONS", "5")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxSupportingCorpusSections != 5 {
+		t.Fatalf("unexpected supporting corpus cap %d", cfg.MaxSupportingCorpusSections)
 	}
 }
 
@@ -125,13 +146,14 @@ func TestLoadConfig_RejectsInvalidNumericRuntimeSettings(t *testing.T) {
 	t.Setenv("OLLAMA_BASE_URL", "http://ollama:11434")
 	t.Setenv("WEBHOOK_WORKERS", "0")
 	t.Setenv("WEBHOOK_QUEUE_SIZE", "-1")
+	t.Setenv("MAX_SUPPORTING_CORPUS_SECTIONS", "0")
 	t.Setenv("HEADROOM_TIMEOUT_MS", "not-a-number")
 
 	_, err := LoadConfig()
 	if err == nil {
 		t.Fatal("expected invalid numeric config error")
 	}
-	for _, want := range []string{"WEBHOOK_WORKERS must be greater than zero", "WEBHOOK_QUEUE_SIZE must be greater than zero", "HEADROOM_TIMEOUT_MS must be an integer"} {
+	for _, want := range []string{"WEBHOOK_WORKERS must be greater than zero", "WEBHOOK_QUEUE_SIZE must be greater than zero", "MAX_SUPPORTING_CORPUS_SECTIONS must be greater than zero", "HEADROOM_TIMEOUT_MS must be an integer"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("expected %q in %v", want, err)
 		}

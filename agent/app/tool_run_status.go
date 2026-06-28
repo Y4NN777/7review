@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Y4NN777/7review/agent/pipeline"
@@ -12,6 +13,7 @@ import (
 type selectedContextStatusDTO struct {
 	Run            string              `json:"run"`
 	CorpusSections []sectionStatusDTO  `json:"corpus_sections"`
+	Evidence       []evidenceStatusDTO `json:"evidence_manifest"`
 	SkillSections  []sectionStatusDTO  `json:"skill_sections"`
 	Memory         review.MemoryRecall `json:"memory"`
 	Warnings       []string            `json:"warnings,omitempty"`
@@ -25,11 +27,23 @@ type runTimelineDTO struct {
 }
 
 type sectionStatusDTO struct {
-	Path         string      `json:"path"`
-	Title        string      `json:"title"`
-	Kind         review.Kind `json:"kind"`
-	ContentBytes int         `json:"content_bytes"`
-	ContentLines int         `json:"content_lines"`
+	Path            string      `json:"path"`
+	Title           string      `json:"title"`
+	Kind            review.Kind `json:"kind"`
+	ContentBytes    int         `json:"content_bytes"`
+	ContentLines    int         `json:"content_lines"`
+	SelectionReason string      `json:"selection_reason,omitempty"`
+}
+
+type evidenceStatusDTO struct {
+	Source          string      `json:"source"`
+	HeadingOrKey    string      `json:"heading_or_key"`
+	Kind            review.Kind `json:"kind"`
+	Authority       string      `json:"authority"`
+	MatchedSignals  []string    `json:"matched_signals,omitempty"`
+	SelectionReason string      `json:"selection_reason"`
+	Score           int         `json:"score"`
+	ContentBytes    int         `json:"content_bytes"`
 }
 
 type diffSummaryDTO struct {
@@ -66,7 +80,8 @@ func (r appToolRunner) SelectedContext(ctx context.Context, id string) (any, err
 	return selectedContextStatusDTO{
 		Run:            run.ID,
 		CorpusSections: sectionDTOs(source.CorpusSections),
-		SkillSections:  sectionDTOs(source.SkillSections),
+		Evidence:       evidenceDTOs(source.Evidence, source.CorpusSections),
+		SkillSections:  skillSectionDTOs(source.SkillSections, source.Request),
 		Memory:         source.Memory,
 		Warnings:       append([]string(nil), source.Run.Warnings...),
 	}, nil
@@ -157,6 +172,86 @@ func sectionDTOs(sections []review.Section) []sectionStatusDTO {
 		}
 		return out[i].Kind < out[j].Kind
 	})
+	return out
+}
+
+func skillSectionDTOs(sections []review.Section, req review.Request) []sectionStatusDTO {
+	out := sectionDTOs(sections)
+	for i := range out {
+		out[i].SelectionReason = skillSelectionReason(out[i].Title, req)
+	}
+	return out
+}
+
+func skillSelectionReason(name string, req review.Request) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	switch name {
+	case "methodology-review", "project-knowledge", "framework-rules-review", "traceability-review":
+		return "baseline skill always active"
+	case "github-merge-api":
+		if strings.EqualFold(req.Provider, "github") {
+			return "matched provider github"
+		}
+	case "gitlab-merge-api":
+		if strings.EqualFold(req.Provider, "gitlab") {
+			return "matched provider gitlab"
+		}
+	}
+	var signals []string
+	if strings.TrimSpace(req.Title) != "" {
+		signals = append(signals, "title")
+	}
+	if strings.TrimSpace(req.Description) != "" {
+		signals = append(signals, "description")
+	}
+	if len(req.Labels) > 0 {
+		signals = append(signals, "labels "+strings.Join(firstStrings(req.Labels, 3), ", "))
+	}
+	if len(req.ChangedPaths) > 0 {
+		signals = append(signals, "changed paths "+strings.Join(firstStrings(req.ChangedPaths, 3), ", "))
+	}
+	if len(signals) == 0 {
+		return "matched review request signals"
+	}
+	return "matched " + strings.Join(signals, " + ")
+}
+
+func firstStrings(values []string, limit int) []string {
+	if limit <= 0 || len(values) <= limit {
+		return append([]string(nil), values...)
+	}
+	out := append([]string(nil), values[:limit]...)
+	out = append(out, "+"+strconv.Itoa(len(values)-limit)+" more")
+	return out
+}
+
+func evidenceDTOs(items []review.EvidenceItem, sections []review.Section) []evidenceStatusDTO {
+	if len(items) == 0 && len(sections) > 0 {
+		items = make([]review.EvidenceItem, 0, len(sections))
+		for _, section := range sections {
+			items = append(items, review.EvidenceItem{
+				Source:          section.Path,
+				HeadingOrKey:    section.Title,
+				Kind:            section.Kind,
+				Authority:       "unknown",
+				SelectionReason: "legacy selected context",
+				ContentBytes:    len(section.Content),
+			})
+		}
+	}
+	out := make([]evidenceStatusDTO, 0, len(items))
+	for _, item := range items {
+		out = append(out, evidenceStatusDTO{
+			Source:          item.Source,
+			HeadingOrKey:    item.HeadingOrKey,
+			Kind:            item.Kind,
+			Authority:       item.Authority,
+			MatchedSignals:  append([]string(nil), item.MatchedSignals...),
+			SelectionReason: item.SelectionReason,
+			Score:           item.Score,
+			ContentBytes:    item.ContentBytes,
+		})
+	}
 	return out
 }
 

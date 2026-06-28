@@ -596,6 +596,9 @@ func renderConfigStatusSummary(status remoteConfigStatus) string {
 	lines = appendIfSet(lines, "embed    ", status.EmbeddingModel)
 	lines = appendIfSet(lines, "orch     ", status.Orchestrator)
 	lines = appendIfSet(lines, "corpus   ", status.CorpusRoot)
+	if status.MaxSupportingCorpusSections > 0 {
+		lines = append(lines, fmt.Sprintf("support  %d", status.MaxSupportingCorpusSections))
+	}
 	lines = appendIfSet(lines, "memory   ", status.MemoryDir)
 	lines = appendIfSet(lines, "hil      ", status.HILChannel)
 	lines = appendIfSet(lines, "headroom ", status.HeadroomURL)
