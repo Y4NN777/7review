@@ -79,3 +79,30 @@ Runs record harness trace events so failures can be diagnosed by stage:
 
 The model route used for review is recorded in run context provider metadata
 and surfaced through trace events.
+
+## Live Smoke Verification
+
+The deterministic suite does not require local models:
+
+```sh
+GOCACHE=/tmp/7review-gocache go test ./...
+```
+
+For a complete local review-pipeline smoke with the configured Ollama reasoner,
+run the gated live smoke test:
+
+```sh
+RUN_LIVE_SMOKE=1 \
+OLLAMA_BASE_URL=http://127.0.0.1:11434 \
+ORCHESTRATOR_CONFIG=./orchestrator.yaml \
+GOCACHE=/tmp/7review-gocache \
+go test -tags live_smoke ./agent/pipeline \
+  -run TestLiveSmokeReviewPipelineWithConfiguredOllamaModels \
+  -count=1 -v
+```
+
+This test uses fake SCM, publisher, and memory boundaries to avoid external
+GitHub/GitLab side effects, but it runs the production pipeline and calls the
+configured review model. A passing run proves the pipeline reaches model review,
+validation, draft rendering, draft publication, and records the real reasoner
+route in `model_review_completed`.

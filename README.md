@@ -30,10 +30,18 @@ Implemented:
 
 The runtime lifecycle is:
 
-```text
-webhook -> SCM enrichment -> diff/context -> memory recall -> Headroom reduction
--> model review -> finding validation -> draft report -> HIL approval
--> final publish -> MemPalace memory write
+```mermaid
+flowchart LR
+    Webhook[webhook] --> SCM[SCM enrichment]
+    SCM --> Context[diff and context]
+    Context --> Memory[memory recall]
+    Memory --> Headroom[Headroom reduction]
+    Headroom --> Model[model review]
+    Model --> Validation[finding validation]
+    Validation --> Draft[draft report]
+    Draft --> HIL[HIL approval]
+    HIL --> Final[final publish]
+    Final --> MemPalace[MemPalace memory write]
 ```
 
 Package layout:
@@ -50,6 +58,10 @@ Package layout:
 - `agent/orchestrator`: model role routing, fallback chains, streaming
 - `agent/skills`: portable `skill-name/SKILL.md` review procedures
 - `agent/ui`: Lip Gloss based setup, status, and chat rendering
+
+For the detailed component model, lifecycle boundaries, state model, evidence
+graph retrieval, operator surface, and verification commands, see
+[`docs/architecture.md`](docs/architecture.md).
 
 ## Quick Start
 
