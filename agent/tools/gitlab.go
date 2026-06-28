@@ -14,8 +14,6 @@ import (
 	"github.com/Y4NN777/7review/agent/review"
 )
 
-const gitLabBotMarker = "<!-- 7review:bot-report"
-
 type GitLabClient struct {
 	BaseURL    string
 	Token      string

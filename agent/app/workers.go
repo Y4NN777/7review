@@ -44,7 +44,7 @@ func (s *Server) runWorkItem(workerID int, item workItem) (err error) {
 	defer cancel()
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("panic processing %s: %v", item.name, recovered)
+			err = fmt.Errorf("worker %d panic processing %s: %v", workerID, item.name, recovered)
 		}
 	}()
 	return item.run(ctx)
