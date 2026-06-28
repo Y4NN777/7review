@@ -54,8 +54,8 @@ roles:
 
 func TestBuildOrchestratorAppliesEnvRoleOverridesOnConfigFile(t *testing.T) {
 	t.Setenv("PROVIDER", "ollama")
-	t.Setenv("REVIEW_MODEL", "qwen2.5-coder-7b-16k:latest")
-	t.Setenv("SMALL_MODEL", "qwen2.5-coder:1.5b")
+	t.Setenv("REVIEW_MODEL", "deepseek-coder-v2:16b")
+	t.Setenv("SMALL_MODEL", "qwen2.5-coder-7b-16k:latest")
 	cfgPath := filepath.Join(t.TempDir(), "orchestrator.yaml")
 	if err := os.WriteFile(cfgPath, []byte(`
 roles:
@@ -77,8 +77,8 @@ roles:
 	cfg := &config.Config{
 		OrchestratorConfigPath: cfgPath,
 		Provider:               "ollama",
-		ReviewModel:            "qwen2.5-coder-7b-16k:latest",
-		SmallModel:             "qwen2.5-coder:1.5b",
+		ReviewModel:            "deepseek-coder-v2:16b",
+		SmallModel:             "qwen2.5-coder-7b-16k:latest",
 		OllamaBaseURL:          "http://127.0.0.1:11434",
 	}
 
@@ -87,11 +87,11 @@ roles:
 		t.Fatalf("expected env-selected ollama provider to satisfy YAML config: %v", err)
 	}
 	reasoner := orch.cfg.Roles[RoleReasoner]
-	if reasoner.Primary.Provider != "ollama" || reasoner.Primary.Model != "qwen2.5-coder-7b-16k:latest" {
+	if reasoner.Primary.Provider != "ollama" || reasoner.Primary.Model != "deepseek-coder-v2:16b" {
 		t.Fatalf("reasoner primary was not overridden: %#v", reasoner.Primary)
 	}
 	formatter := orch.cfg.Roles[RoleFormatter]
-	if formatter.Primary.Provider != "ollama" || formatter.Primary.Model != "qwen2.5-coder:1.5b" {
+	if formatter.Primary.Provider != "ollama" || formatter.Primary.Model != "qwen2.5-coder-7b-16k:latest" {
 		t.Fatalf("formatter primary was not overridden: %#v", formatter.Primary)
 	}
 	if len(reasoner.Fallbacks) != 1 || reasoner.Fallbacks[0].Provider != "openai" {

@@ -13,28 +13,28 @@
 roles:
 
   # ── reasoner ─────────────────────────────────────────────────────────────
-  # Step 5: Review Agent — deep analysis, large context window.
-  # parallel: true allows file batches to fan out across providers concurrently.
+  # Step 5: Review Agent — code-review reasoning over selected evidence.
+  # The local harness benchmarks selected DeepSeek Coder V2 16B as the primary
+  # review model, with the 16k Qwen coder model as fallback.
   reasoner:
-    primary: "claude-sonnet-4-6@anthropic"
+    primary: "deepseek-coder-v2:16b@ollama"
     fallbacks:
-      - "gpt-4o@openai"
-      - "openai/gpt-4o@openrouter"
-      - "deepseek-chat@deepseek"
-      - "mistral-large-latest@mistral"
-      - "qwen2.5-coder-7b-16k:latest@ollama"   # local fallback, no cost, air-gapped safe
+      - "qwen2.5-coder-7b-16k:latest@ollama"
     max_tokens: 4096
     parallel: true
     max_parallel: 4
 
   # ── formatter ────────────────────────────────────────────────────────────
-  # Step 6: Report Generator — structured Markdown output, no creativity needed.
-  # Use the cheapest model that can produce clean structured output.
+  # Step 6 and operator chat — structured Markdown/status explanations.
+  # Keep this 16k-capable for operator context; 7B instruct is fallback.
   formatter:
-    primary: "claude-haiku-4-5-20251001@anthropic"
+    primary: "qwen2.5-coder-7b-16k:latest@ollama"
     fallbacks:
-      - "mistral-small-latest@mistral"
-      - "openai/gpt-4o-mini@openrouter"
-      - "deepseek-chat@deepseek"
-      - "qwen2.5-coder:1.5b@ollama"
+      - "qwen2.5-coder:7b-instruct-q4_K_M@ollama"
     max_tokens: 2048
+
+  # ── embedder ─────────────────────────────────────────────────────────────
+  # Used by MemPalace/Ollama-backed retrieval where embeddings are enabled.
+  embedder:
+    primary: "nomic-embed-text:latest@ollama"
+    max_tokens: 1024

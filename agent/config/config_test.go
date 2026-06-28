@@ -74,6 +74,27 @@ func TestLoadConfig_CorpusRootOverride(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_OllamaDefaultsUseHarnessRouting(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "token")
+	t.Setenv("GITHUB_WEBHOOK_SECRET", "secret")
+	t.Setenv("REVIEW_API_TOKEN", "agent-token")
+	t.Setenv("HEADROOM_URL", "http://headroom")
+	t.Setenv("MEMPALACE_URL", "http://mempalace")
+	t.Setenv("PROVIDER", "ollama")
+	t.Setenv("OLLAMA_BASE_URL", "http://ollama:11434")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ReviewModel != "deepseek-coder-v2:16b" || cfg.SmallModel != "qwen2.5-coder-7b-16k:latest" {
+		t.Fatalf("unexpected ollama harness defaults: review=%q small=%q", cfg.ReviewModel, cfg.SmallModel)
+	}
+	if cfg.EmbeddingModel != "nomic-embed-text:latest" {
+		t.Fatalf("unexpected embedding model %q", cfg.EmbeddingModel)
+	}
+}
+
 func TestLoadConfig_HTTPTimeoutOverrides(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "token")
 	t.Setenv("GITHUB_WEBHOOK_SECRET", "secret")

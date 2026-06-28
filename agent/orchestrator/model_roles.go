@@ -19,7 +19,7 @@ const (
 )
 
 // ModelSpec identifies a specific model at a specific provider.
-// Format: "model-name@provider", e.g. "claude-sonnet-4-6@anthropic"
+// Format: "model-name@provider", e.g. "deepseek-coder-v2:16b@ollama"
 type ModelSpec struct {
 	Model    string
 	Provider string
@@ -47,17 +47,16 @@ type RoleConfig struct {
 //
 //	roles:
 //	  reasoner:
-//	    primary: "claude-sonnet-4-6@anthropic"
+//	    primary: "deepseek-coder-v2:16b@ollama"
 //	    fallbacks:
-//	      - "gpt-4o@openai"
 //	      - "qwen2.5-coder-7b-16k:latest@ollama"
 //	    max_tokens: 4096
 //	    parallel: true
 //	    max_parallel: 4
 //	  formatter:
-//	    primary: "claude-haiku-4-5-20251001@anthropic"
+//	    primary: "qwen2.5-coder-7b-16k:latest@ollama"
 //	    fallbacks:
-//	      - "mistral-small-latest@mistral"
+//	      - "qwen2.5-coder:7b-instruct-q4_K_M@ollama"
 //	    max_tokens: 2048
 type OrchestratorConfig struct {
 	Roles map[ModelRole]RoleConfig

@@ -91,7 +91,7 @@ type Context struct {
 
 	// ── Execution metadata ────────────────────────────────────────────────
 	// Which provider+model handled each step — written to the report footer.
-	StepProviders  map[string]string // e.g. {"step5": "anthropic/claude-sonnet-4-6"}
+	StepProviders  map[string]string // e.g. {"step5": "ollama/deepseek-coder-v2:16b"}
 	AvailableTools []string
 }
 

@@ -39,24 +39,48 @@ export CORPUS_ROOT=/path/to/repository/context
 docker compose up --build
 ```
 
-GitHub can be used instead of GitLab by setting `GITHUB_TOKEN` and `GITHUB_WEBHOOK_SECRET`.
-For local Ollama instead of a hosted model key, set `OLLAMA_BASE_URL`
-explicitly. Use `http://127.0.0.1:11434` for local `go run` commands and
-`http://host.docker.internal:11434` from Docker Compose. To force the
-orchestrator to use local models even when `ORCHESTRATOR_CONFIG` is set, export
-the role models explicitly:
+GitHub can be used instead of GitLab by setting `GITHUB_TOKEN` and
+`GITHUB_WEBHOOK_SECRET`.
+
+For local Ollama with Docker Compose, run Ollama on the host and expose it on an
+address reachable from containers. The agent should use the Compose network
+gateway, not `127.0.0.1`, because localhost inside the agent container is the
+container itself.
 
 ```sh
-export PROVIDER=ollama
-export OLLAMA_BASE_URL=http://host.docker.internal:11434
-export REVIEW_MODEL=qwen2.5-coder-7b-16k:latest
-export SMALL_MODEL=qwen2.5-coder:1.5b
+sudo systemctl edit ollama
 ```
 
-For Docker, Ollama must listen on an address reachable from containers. If
-`docker compose run 7review chat --plain` fails with `connection refused` for
-`host.docker.internal:11434`, start Ollama with a non-loopback bind, for example
-`OLLAMA_HOST=0.0.0.0:11434 ollama serve`, then rerun the Compose stack.
+Set:
+
+```ini
+[Service]
+Environment="OLLAMA_HOST=0.0.0.0:11434"
+Environment="OLLAMA_MODELS=/usr/share/ollama/.ollama/models"
+```
+
+Then restart Ollama and use the Compose network gateway:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+OLLAMA_GATEWAY=$(docker network inspect files_review-agent --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)
+export PROVIDER=ollama
+export OLLAMA_BASE_URL=http://${OLLAMA_GATEWAY:-172.23.0.1}:11434
+export REVIEW_MODEL=deepseek-coder-v2:16b
+export SMALL_MODEL=qwen2.5-coder-7b-16k:latest
+export EMBEDDING_MODEL=nomic-embed-text:latest
+docker compose up --build
+```
+
+With `ORCHESTRATOR_CONFIG=/app/orchestrator.yaml`, the local harness routes
+review reasoning to `deepseek-coder-v2:16b`, formatter/operator chat to
+`qwen2.5-coder-7b-16k:latest`, formatter fallback to
+`qwen2.5-coder:7b-instruct-q4_K_M`, and embeddings to
+`nomic-embed-text:latest`.
+
+For local `go run` commands outside Docker, keep using
+`OLLAMA_BASE_URL=http://127.0.0.1:11434`.
 
 If host port `8080` is already used, set `HTTP_PORT`, for example:
 
