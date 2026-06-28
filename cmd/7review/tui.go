@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Y4NN777/7review/agent/tools"
 	"github.com/Y4NN777/7review/agent/ui"
+	"github.com/Y4NN777/7review/cmd/7review/operator"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -24,156 +23,6 @@ type tuiCommandOptions struct {
 	once           bool
 	refreshEvery   time.Duration
 	clearOnRefresh bool
-}
-
-type remoteRunRow struct {
-	ID          string    `json:"id"`
-	Provider    string    `json:"provider"`
-	ProjectID   string    `json:"project_id"`
-	ChangeID    string    `json:"change_id"`
-	Title       string    `json:"title"`
-	Status      string    `json:"status"`
-	Error       string    `json:"error"`
-	WebURL      string    `json:"web_url"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	EventCount  int       `json:"event_count"`
-	Events      []any     `json:"events"`
-	Findings    []any     `json:"findings"`
-	DraftReport string    `json:"draft_report"`
-	FinalReport string    `json:"final_report"`
-	HILApproved bool      `json:"hil_approved"`
-}
-
-type remoteToolEnvelope struct {
-	Name   string          `json:"name"`
-	Result json.RawMessage `json:"result"`
-}
-
-type remoteProviderStatus struct {
-	Mode               string                    `json:"mode"`
-	ActiveProvider     string                    `json:"active_provider"`
-	OrchestratorConfig string                    `json:"orchestrator_config"`
-	Providers          []remoteProviderStatusRow `json:"providers"`
-	Roles              []remoteRoleStatus        `json:"roles"`
-}
-
-type remoteProviderStatusRow struct {
-	Name       string `json:"name"`
-	Configured bool   `json:"configured"`
-	BaseURL    string `json:"base_url"`
-	Reason     string `json:"reason"`
-}
-
-type remoteRoleStatus struct {
-	Role        string   `json:"role"`
-	Primary     string   `json:"primary"`
-	Fallbacks   []string `json:"fallbacks"`
-	MaxTokens   int      `json:"max_tokens"`
-	Parallel    bool     `json:"parallel"`
-	MaxParallel int      `json:"max_parallel"`
-}
-
-type remoteSkillStatus struct {
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	Loaded bool   `json:"loaded"`
-}
-
-type remoteConfigStatus struct {
-	ListenAddr                  string `json:"listen_addr"`
-	CorpusRoot                  string `json:"corpus_root"`
-	MaxSupportingCorpusSections int    `json:"max_supporting_corpus_sections"`
-	MemoryDir                   string `json:"memory_dir"`
-	HILChannel                  string `json:"hil_channel"`
-	Provider                    string `json:"provider"`
-	ReviewModel                 string `json:"review_model"`
-	SmallModel                  string `json:"small_model"`
-	EmbeddingModel              string `json:"embedding_model"`
-	Orchestrator                string `json:"orchestrator_config"`
-	HasGitLab                   bool   `json:"has_gitlab"`
-	HasGitHub                   bool   `json:"has_github"`
-	HasOpenAI                   bool   `json:"has_openai"`
-	HasOpenRouter               bool   `json:"has_openrouter"`
-	HasDeepSeek                 bool   `json:"has_deepseek"`
-	HasAnthropic                bool   `json:"has_anthropic"`
-	HasMistral                  bool   `json:"has_mistral"`
-	HasGemini                   bool   `json:"has_gemini"`
-	HasOllama                   bool   `json:"has_ollama"`
-	HeadroomURL                 string `json:"headroom_url"`
-	MemPalaceURL                string `json:"mempalace_url"`
-	WebhookWorkers              int    `json:"webhook_workers"`
-	WebhookQueueSize            int    `json:"webhook_queue_size"`
-}
-
-type remoteMemoryProposalStatus struct {
-	Run        string               `json:"run"`
-	Approved   bool                 `json:"approved"`
-	Proposal   remoteUpdateProposal `json:"proposal"`
-	FinalBytes int                  `json:"final_bytes"`
-}
-
-type remoteSelectedContext struct {
-	Run            string                  `json:"run"`
-	CorpusSections []remoteContextSection  `json:"corpus_sections"`
-	SkillSections  []remoteContextSection  `json:"skill_sections"`
-	Evidence       []remoteContextEvidence `json:"evidence_manifest"`
-	Warnings       []string                `json:"warnings"`
-}
-
-type remoteContextSection struct {
-	Path            string `json:"path"`
-	Title           string `json:"title"`
-	Kind            string `json:"kind"`
-	ContentBytes    int    `json:"content_bytes"`
-	ContentLines    int    `json:"content_lines"`
-	SelectionReason string `json:"selection_reason"`
-}
-
-type remoteContextEvidence struct {
-	Source          string   `json:"source"`
-	HeadingOrKey    string   `json:"heading_or_key"`
-	Kind            string   `json:"kind"`
-	Authority       string   `json:"authority"`
-	MatchedSignals  []string `json:"matched_signals"`
-	SelectionReason string   `json:"selection_reason"`
-	Score           int      `json:"score"`
-	ContentBytes    int      `json:"content_bytes"`
-}
-
-type remoteDiffSummary struct {
-	Run          string              `json:"run"`
-	FileCount    int                 `json:"file_count"`
-	TotalTokens  int                 `json:"total_tokens"`
-	Additions    int                 `json:"additions"`
-	Deletions    int                 `json:"deletions"`
-	Files        []remoteFileDiff    `json:"files"`
-	ChangedFiles []remoteChangedFile `json:"changed_files"`
-}
-
-type remoteFileDiff struct {
-	Path       string `json:"path"`
-	TokenCount int    `json:"token_count"`
-	PatchLines int    `json:"patch_lines"`
-}
-
-type remoteChangedFile struct {
-	Path      string `json:"path"`
-	OldPath   string `json:"old_path"`
-	Status    string `json:"status"`
-	Additions int    `json:"additions"`
-	Deletions int    `json:"deletions"`
-	HasPatch  bool   `json:"has_patch"`
-}
-
-type remoteUpdateProposal struct {
-	Conventions []string       `json:"Conventions"`
-	Decisions   []string       `json:"Decisions"`
-	Vectors     []remoteVector `json:"Vectors"`
-}
-
-type remoteVector struct {
-	ID   string `json:"ID"`
-	Text string `json:"Text"`
 }
 
 func runTUI(args []string, out io.Writer) error {
@@ -209,37 +58,14 @@ type consoleTUIModel struct {
 	height           int
 }
 
-type SlashCommand struct {
-	Name        string
-	Aliases     []string
-	Usage       string
-	Description string
-	RequiresRun bool
-	Examples    []string
-}
+type SlashCommand = operator.Command
 
 type slashCommandMatch struct {
 	Command SlashCommand
 	Indices []int
 }
 
-var slashCommands = []SlashCommand{
-	{Name: "/help", Aliases: []string{"?", "/?"}, Usage: "/help", Description: "Show slash commands and examples."},
-	{Name: "/status", Aliases: []string{"/ready"}, Usage: "/status", Description: "Show agent readiness and sidecar status."},
-	{Name: "/config", Aliases: []string{"/env"}, Usage: "/config", Description: "Show redacted runtime configuration."},
-	{Name: "/providers", Aliases: []string{"/models"}, Usage: "/providers", Description: "Show model providers and role routes."},
-	{Name: "/skills", Aliases: []string{"/skill"}, Usage: "/skills", Description: "Show loaded review skills."},
-	{Name: "/tools", Aliases: []string{"/tool"}, Usage: "/tools", Description: "Show implemented operator tools."},
-	{Name: "/sessions", Aliases: []string{"/runs"}, Usage: "/sessions [status] [limit]", Description: "List review sessions.", Examples: []string{"/sessions drafted 5"}},
-	{Name: "/run", Aliases: []string{"/current"}, Usage: "/run", Description: "Show current run summary.", RequiresRun: true},
-	{Name: "/history", Aliases: []string{"/events"}, Usage: "/history [type] [limit]", Description: "Show current run timeline.", RequiresRun: true, Examples: []string{"/history chat_message 20"}},
-	{Name: "/diff", Aliases: []string{"/changes"}, Usage: "/diff", Description: "Show changed files and patch summary.", RequiresRun: true},
-	{Name: "/context", Aliases: []string{"/evidence"}, Usage: "/context", Description: "Show selected review context and graph trace reasons.", RequiresRun: true},
-	{Name: "/draft", Aliases: []string{"/report"}, Usage: "/draft [output-file]", Description: "Show or write the current draft report.", RequiresRun: true, Examples: []string{"/draft final.md"}},
-	{Name: "/memory", Aliases: []string{"/mempalace"}, Usage: "/memory", Description: "Preview approved MemPalace proposal.", RequiresRun: true},
-	{Name: "/approve", Aliases: []string{"/hil"}, Usage: "/approve --report-file <path>", Description: "Approve and publish the final review.", RequiresRun: true, Examples: []string{"/approve --report-file final.md"}},
-	{Name: "/publish-final", Aliases: []string{"/publish"}, Usage: "/publish-final --report-file <path>", Description: "Retry final report publishing.", RequiresRun: true, Examples: []string{"/publish-final --report-file final.md"}},
-}
+var slashCommands = operator.Commands
 
 type consoleViewMsg struct {
 	view ui.ConsoleView
@@ -917,39 +743,6 @@ func parseRefreshInterval(value string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return interval
-}
-
-func getJSON(client *http.Client, endpoint string, target any) error {
-	_, body, err := requestAgentRaw(client, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return err
-	}
-	if err := json.Unmarshal([]byte(body), target); err != nil {
-		return fmt.Errorf("decode %s: %w", endpoint, err)
-	}
-	return nil
-}
-
-func executeRemoteTool(client *http.Client, serverURL string, name string, input map[string]any, target any) error {
-	payload, err := json.Marshal(tools.ExecuteRequest{Name: name, Input: input})
-	if err != nil {
-		return err
-	}
-	_, body, err := requestAgentRaw(client, http.MethodPost, strings.TrimRight(serverURL, "/")+"/tools/execute", bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	var envelope remoteToolEnvelope
-	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
-		return fmt.Errorf("decode tool %s response: %w", name, err)
-	}
-	if target == nil || len(envelope.Result) == 0 {
-		return nil
-	}
-	if err := json.Unmarshal(envelope.Result, target); err != nil {
-		return fmt.Errorf("decode tool %s result: %w", name, err)
-	}
-	return nil
 }
 
 func toUIRunRows(runs []remoteRunRow) []ui.RunRow {

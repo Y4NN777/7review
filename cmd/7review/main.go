@@ -23,6 +23,7 @@ import (
 	"github.com/Y4NN777/7review/agent/review"
 	"github.com/Y4NN777/7review/agent/tools"
 	"github.com/Y4NN777/7review/agent/ui"
+	"github.com/Y4NN777/7review/cmd/7review/operator"
 )
 
 const operatorRequestTimeout = 60 * time.Second
@@ -308,7 +309,7 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 		if len(fields) == 0 || !strings.HasPrefix(fields[0], "/") {
 			return false, nil
 		}
-		command := canonicalSlashCommand(fields[0])
+		command := operator.CanonicalCommand(fields[0])
 		switch command {
 		case "/help":
 			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: chatCommandHelp(runID != "")}, opts.Plain))
@@ -361,7 +362,7 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 			if err := executeRemoteTool(client, serverURL, "get_diff_summary", map[string]any{"run": runID}, &summary); err != nil {
 				return true, err
 			}
-			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderDiffSummary(summary)}, opts.Plain))
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: operator.RenderDiffSummary(summary)}, opts.Plain))
 			return true, nil
 		case "/context":
 			if runID == "" {
@@ -371,7 +372,7 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 			if err := executeRemoteTool(client, serverURL, "get_selected_context", map[string]any{"run": runID}, &selected); err != nil {
 				return true, err
 			}
-			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: renderSelectedContextSummary(selected)}, opts.Plain))
+			fmt.Fprintln(out, ui.RenderChatMessage(ui.ChatMessage{Role: "agent", Text: operator.RenderSelectedContextSummary(selected)}, opts.Plain))
 			return true, nil
 		case "/history":
 			if runID == "" {
@@ -460,21 +461,6 @@ func chatCommandHandlerWithClient(serverURL, runID string, client *http.Client) 
 			return true, fmt.Errorf("unknown chat command %q; use /help", fields[0])
 		}
 	}
-}
-
-func canonicalSlashCommand(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	for _, command := range slashCommands {
-		if value == strings.ToLower(command.Name) {
-			return command.Name
-		}
-		for _, alias := range command.Aliases {
-			if value == strings.ToLower(alias) {
-				return command.Name
-			}
-		}
-	}
-	return value
 }
 
 func parseChatCommandFields(text string) ([]string, error) {
@@ -588,34 +574,6 @@ func firstVectors(values []remoteVector, limit int) []remoteVector {
 	return values[:limit]
 }
 
-func firstChangedFiles(values []remoteChangedFile, limit int) []remoteChangedFile {
-	if len(values) <= limit {
-		return values
-	}
-	return values[:limit]
-}
-
-func firstFileDiffs(values []remoteFileDiff, limit int) []remoteFileDiff {
-	if len(values) <= limit {
-		return values
-	}
-	return values[:limit]
-}
-
-func firstContextEvidence(values []remoteContextEvidence, limit int) []remoteContextEvidence {
-	if len(values) <= limit {
-		return values
-	}
-	return values[:limit]
-}
-
-func firstContextSections(values []remoteContextSection, limit int) []remoteContextSection {
-	if len(values) <= limit {
-		return values
-	}
-	return values[:limit]
-}
-
 func trimCommandLine(value string, max int) string {
 	value = strings.TrimSpace(value)
 	if len(value) <= max {
@@ -660,109 +618,6 @@ func appendIfSet(lines []string, label string, value string) []string {
 		return lines
 	}
 	return append(lines, label+" "+strings.TrimSpace(value))
-}
-
-func renderDiffSummary(summary remoteDiffSummary) string {
-	lines := []string{
-		"diff " + summary.Run,
-		fmt.Sprintf("files %d tokens %d +%d -%d", summary.FileCount, summary.TotalTokens, summary.Additions, summary.Deletions),
-	}
-	if len(summary.ChangedFiles) > 0 {
-		lines = append(lines, "changed")
-		for _, file := range firstChangedFiles(summary.ChangedFiles, 8) {
-			status := strings.TrimSpace(file.Status)
-			if status == "" {
-				status = "changed"
-			}
-			patch := "no-patch"
-			if file.HasPatch {
-				patch = "patch"
-			}
-			path := strings.TrimSpace(file.Path)
-			if file.OldPath != "" && file.OldPath != file.Path {
-				path = strings.TrimSpace(file.OldPath) + " -> " + path
-			}
-			lines = append(lines, fmt.Sprintf("%-9s +%-4d -%-4d %-8s %s", trimCommandLine(status, 9), file.Additions, file.Deletions, patch, trimCommandLine(path, 80)))
-		}
-		if len(summary.ChangedFiles) > 8 {
-			lines = append(lines, fmt.Sprintf("%d more changed files", len(summary.ChangedFiles)-8))
-		}
-		return strings.Join(lines, "\n")
-	}
-	if len(summary.Files) > 0 {
-		lines = append(lines, "patches")
-		for _, file := range firstFileDiffs(summary.Files, 8) {
-			lines = append(lines, fmt.Sprintf("%-5d tokens %-5d lines %s", file.TokenCount, file.PatchLines, trimCommandLine(file.Path, 80)))
-		}
-		if len(summary.Files) > 8 {
-			lines = append(lines, fmt.Sprintf("%d more patch chunks", len(summary.Files)-8))
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-func renderSelectedContextSummary(selected remoteSelectedContext) string {
-	run := strings.TrimSpace(selected.Run)
-	if run == "" {
-		run = "unknown"
-	}
-	lines := []string{
-		"context " + run,
-		fmt.Sprintf("corpus %d evidence %d skills %d", len(selected.CorpusSections), len(selected.Evidence), len(selected.SkillSections)),
-	}
-	if len(selected.Evidence) > 0 {
-		lines = append(lines, "evidence")
-		for _, item := range firstContextEvidence(selected.Evidence, 8) {
-			ref := contextReference(item.Source, item.HeadingOrKey)
-			authority := firstNonEmptyCommand(item.Authority, "unknown")
-			kind := firstNonEmptyCommand(item.Kind, "section")
-			lines = append(lines, fmt.Sprintf("%4d %-12s %-10s %s", item.Score, trimCommandLine(authority, 12), trimCommandLine(kind, 10), trimCommandLine(ref, 80)))
-			if item.SelectionReason != "" {
-				lines = append(lines, "  reason "+trimCommandLine(item.SelectionReason, 110))
-			}
-			if len(item.MatchedSignals) > 0 {
-				lines = append(lines, "  signals "+trimCommandLine(strings.Join(firstStrings(item.MatchedSignals, 4), ", "), 110))
-			}
-		}
-		if len(selected.Evidence) > 8 {
-			lines = append(lines, fmt.Sprintf("%d more evidence items", len(selected.Evidence)-8))
-		}
-	}
-	if len(selected.SkillSections) > 0 {
-		lines = append(lines, "skills")
-		for _, section := range firstContextSections(selected.SkillSections, 5) {
-			line := contextReference(section.Path, section.Title)
-			if section.SelectionReason != "" {
-				line += " reason=" + trimCommandLine(section.SelectionReason, 70)
-			}
-			lines = append(lines, trimCommandLine(line, 110))
-		}
-		if len(selected.SkillSections) > 5 {
-			lines = append(lines, fmt.Sprintf("%d more skill sections", len(selected.SkillSections)-5))
-		}
-	}
-	if len(selected.Warnings) > 0 {
-		lines = append(lines, "warnings")
-		for _, warning := range firstStrings(selected.Warnings, 4) {
-			lines = append(lines, trimCommandLine(warning, 110))
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-func contextReference(source, heading string) string {
-	source = strings.TrimSpace(source)
-	heading = strings.TrimSpace(heading)
-	switch {
-	case source == "" && heading == "":
-		return "unknown"
-	case source == "":
-		return heading
-	case heading == "":
-		return source
-	default:
-		return source + "#" + heading
-	}
 }
 
 func renderSessionsSummary(runs []remoteRunRow, opts sessionsCommandOptions) string {

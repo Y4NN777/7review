@@ -11,30 +11,6 @@ import (
 	"time"
 )
 
-type remoteRunEvent struct {
-	At      time.Time         `json:"at"`
-	Type    string            `json:"type"`
-	Status  string            `json:"status"`
-	Message string            `json:"message"`
-	Meta    map[string]string `json:"meta"`
-}
-
-type remoteRunDetail struct {
-	ID          string           `json:"id"`
-	Provider    string           `json:"provider"`
-	ProjectID   string           `json:"project_id"`
-	ChangeID    string           `json:"change_id"`
-	Status      string           `json:"status"`
-	Title       string           `json:"title"`
-	WebURL      string           `json:"web_url"`
-	EventCount  int              `json:"event_count"`
-	Events      []remoteRunEvent `json:"events"`
-	Findings    []any            `json:"findings"`
-	DraftReport string           `json:"draft_report"`
-	FinalReport string           `json:"final_report"`
-	HILApproved bool             `json:"hil_approved"`
-}
-
 func runHistory() {
 	opts := parseHistoryArgs(os.Args[2:])
 	if opts.runID == "" {
