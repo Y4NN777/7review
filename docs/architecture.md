@@ -452,24 +452,53 @@ data names, component names, and terms. `GraphEdge` is directed and contains
 `From`, `To`, `Type`, and `Label`.
 
 ```mermaid
-flowchart TD
-    Sections[corpusSection list] --> NodeBuild[buildGraphNode]
-    NodeBuild --> Indexes[ID/route/interface/data/component/term indexes]
-    Indexes --> Edges[typed edge construction]
+flowchart TB
+    subgraph Build[Build graph from CORPUS_ROOT]
+        Docs[corpus documents] --> Split[split by heading / path / schema]
+        Split --> Nodes[GraphNode per corpusSection]
+        Nodes --> IDIndex[IDIndex]
+        Nodes --> RouteIndex[RouteIndex]
+        Nodes --> InterfaceIndex[InterfaceIndex]
+        Nodes --> DataIndex[DataIndex]
+        Nodes --> ComponentIndex[ComponentIndex]
+        Nodes --> TermIndex[TermIndex]
+        Nodes --> Edges[typed GraphEdge set]
+    end
 
-    Edges --> Hierarchy[hierarchy + hierarchy_overview]
-    Edges --> IDTrace[ID trace edges]
-    Edges --> InterfaceTrace[interface_trace]
-    Edges --> DataTrace[data_trace]
-    Edges --> UITrace[ui_trace]
-    Edges --> OwnershipTrace[ownership_trace]
+    subgraph EdgeTypes[Trace edges]
+        Edges --> Req[requirement_trace]
+        Edges --> Constraint[constraint_trace]
+        Edges --> Operation[operation_trace]
+        Edges --> Decision[decision_trace]
+        Edges --> Interface[interface_trace]
+        Edges --> Data[data_trace]
+        Edges --> UI[ui_trace]
+        Edges --> Ownership[ownership_trace]
+        Edges --> Hierarchy[hierarchy]
+    end
 
-    ReviewSignals[reviewSignals] --> SeedMatch[matchGraphSeeds]
-    SeedMatch --> SeedEvidence[mergeGraphSeedEvidence]
-    SeedEvidence --> BFS[expandGraphEvidence]
-    BFS --> ParentContext[expandGraphHierarchyEvidence]
-    ParentContext --> SortLimit[sort + limit]
-    SortLimit --> Manifest[buildEvidenceManifest]
+    subgraph Retrieve[Retrieve for one review]
+        Request[request + SCM metadata] --> Signals[reviewSignals]
+        Diff[changed paths + patches] --> Signals
+        Skills[selected skills] --> Signals
+        Signals --> Seeds[exact/high-confidence seeds]
+        Seeds --> SeedEvidence[seed sections]
+        Seeds --> Expand[bounded graph expansion]
+        Expand --> Parents[hierarchy context]
+        SeedEvidence --> Merge[merge with lexical scoring]
+        Parents --> Merge
+        Lexical[corpusIndex lexical matches] --> Merge
+        Merge --> Limit[rank + cap sections]
+        Limit --> SectionsOut[review.Section repo_knowledge]
+        Limit --> Manifest[evidence_manifest]
+    end
+
+    IDIndex --> Seeds
+    RouteIndex --> Seeds
+    InterfaceIndex --> Seeds
+    DataIndex --> Seeds
+    ComponentIndex --> Seeds
+    Edges --> Expand
 ```
 
 ID extraction uses the generic pattern:

@@ -87,12 +87,24 @@ flowchart LR
     Final --> Memory[approved memory write]
 ```
 
-Repository knowledge is selected by an in-process graph. The graph builds nodes
-from split documentation sections, indexes IDs/routes/schemas/entities/components
-and terms, creates typed edges such as `requirement_trace`, `constraint_trace`,
-`interface_trace`, `data_trace`, `ui_trace`, `ownership_trace`, and `hierarchy`,
-then expands only from exact review signals. The selected sections are exposed
-with an `evidence_manifest` so operators can see why each section was included.
+Repository knowledge is selected by an in-process document graph:
+
+```mermaid
+flowchart LR
+    Docs[repository docs] --> Split[sections]
+    Split --> Index[ID / route / schema / entity / component indexes]
+    Index --> Graph[typed document graph]
+    Signals[review signals] --> Seeds[exact seeds]
+    Seeds --> Graph
+    Graph --> Selected[selected evidence]
+    Selected --> Manifest[evidence_manifest]
+    Selected --> Prompt[review prompt]
+```
+
+The graph connects requirements, contracts, APIs, data models, design docs,
+ownership docs, and rules through typed trace edges. Retrieval expands only from
+exact review signals and records why each section was selected in the
+`evidence_manifest`.
 
 During model review, the reasoner may request governed read-only tools. The
 pipeline executes only the allowlisted tools, records `tool_call_started` and
