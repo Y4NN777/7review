@@ -1,9 +1,9 @@
+<div align="center">
+  <img width="320" height="320" alt="7Review Mascot" src="https://github.com/user-attachments/assets/f2cafd71-b49b-4faf-98d5-798a492dc26f" />
+</div>
+
 # 7review
 
-
-<div align="center">
-  <img width="300" height="300" alt="Gemini_Generated_Image_2fmrr42fmrr42fmr" src="https://github.com/user-attachments/assets/dab10284-02ba-4569-beca-d9a14d38e9cc" />
-</div>
 
 7review is a code-review agent for GitHub pull requests and GitLab merge
 requests. It receives SCM webhooks, enriches the change with provider metadata,
