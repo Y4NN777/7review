@@ -1,7 +1,7 @@
 ---
 sidebar_position: 2
 title: Quick Start
-description: Start 7review locally or with Docker.
+description: Start 7review locally or with Docker and run the first controlled review.
 ---
 
 import Tabs from '@theme/Tabs';
@@ -9,14 +9,35 @@ import TabItem from '@theme/TabItem';
 
 # Quick Start
 
-Start with setup, then run the server, then check readiness.
+Use the quick start to boot the operator server, verify readiness, then trigger
+one exact PR or MR review. Webhook automation is optional; the default operating
+model is manual first.
+
+## Before you start
+
+7review needs one SCM provider, one model path, and the production sidecars used
+for context work.
+
+| Requirement | Purpose |
+| --- | --- |
+| GitHub or GitLab token | Fetch PR/MR metadata, diff, files, and publish review output |
+| Model provider configuration | Run the reasoner and any configured review roles |
+| `HEADROOM_URL` | Reduce and fit source context before model review |
+| `MEMPALACE_URL` | Recall and store approved repository memory |
+| `REVIEW_API_TOKEN` | Protect operator tools such as `request_review` |
+
+Run setup first so the local `.env` template contains the expected keys:
+
+```bash
+go run ./cmd/7review setup
+```
+
+## Start the server
 
 <Tabs>
 <TabItem value="local" label="Local" default>
 
 ```bash
-go run ./cmd/7review setup
-
 set -a
 . ./.env
 set +a
@@ -24,7 +45,7 @@ set +a
 go run ./cmd/7review
 ```
 
-In another terminal:
+In another terminal, check that the HTTP server and operator surface are alive:
 
 ```bash
 go run ./cmd/7review status --server http://localhost:8080
@@ -34,12 +55,11 @@ go run ./cmd/7review status --server http://localhost:8080
 <TabItem value="docker" label="Docker">
 
 ```bash
-go run ./cmd/7review setup
 make docker-up
 make docker-status
 ```
 
-Use the readiness target when you want the raw `/ready` check:
+Use the raw readiness target when you only need the `/ready` result:
 
 ```bash
 make docker-ready
@@ -48,15 +68,10 @@ make docker-ready
 </TabItem>
 </Tabs>
 
-## Required before review
+## Trigger the first review
 
-- one SCM provider: GitHub or GitLab
-- one model provider credential or endpoint
-- `HEADROOM_URL`
-- `MEMPALACE_URL`
-- `REVIEW_API_TOKEN`
-
-## First manual review
+Manual review is the clearest first run because it names one exact change and
+uses the same worker queue as webhook work.
 
 <Tabs>
 <TabItem value="github" label="GitHub" default>
@@ -68,6 +83,8 @@ make docker-ready
   --server http://localhost:8080
 ```
 
+The run ID is `owner/repo!7`.
+
 </TabItem>
 <TabItem value="gitlab" label="GitLab">
 
@@ -78,13 +95,37 @@ make docker-ready
   --server http://localhost:8080
 ```
 
+The run ID is `25!19`.
+
 </TabItem>
 </Tabs>
 
-## Verify the run
+## Inspect progress
 
 ```bash
 7review sessions --server http://localhost:8080
 7review session owner/repo!7 --server http://localhost:8080
+7review history owner/repo!7 --server http://localhost:8080
+```
+
+Use chat when you want to inspect or continue from a specific run context:
+
+```bash
 7review chat owner/repo!7 --server http://localhost:8080
 ```
+
+## What success looks like
+
+After the run starts, 7review should:
+
+- enrich the PR or MR from GitHub or GitLab
+- collect the structured diff and selected source context
+- call Headroom and MemPalace
+- route review through the configured model roles
+- validate findings against the current diff
+- prepare draft review output
+- stop before final publication until human approval is recorded
+
+If the request is rejected, check whether the same run ID is already queued or
+running, whether the queue is full, or whether the provider identifiers are
+wrong.

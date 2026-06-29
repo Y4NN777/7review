@@ -1,7 +1,7 @@
 ---
 sidebar_position: 2
 title: Démarrage rapide
-description: Démarrer 7review en local ou avec Docker.
+description: Démarrer 7review en local ou avec Docker, puis lancer une review contrôlée.
 ---
 
 import Tabs from '@theme/Tabs';
@@ -9,15 +9,35 @@ import TabItem from '@theme/TabItem';
 
 # Démarrage rapide
 
-Commence par générer la configuration, lancer le serveur, puis vérifier la
-readiness.
+Ce guide sert à démarrer le serveur opérateur, vérifier la readiness, puis
+lancer une review sur une PR ou MR précise. L’automatisation webhook est
+optionnelle ; le mode d’exploitation par défaut est manuel d’abord.
+
+## Avant de commencer
+
+7review a besoin d’un provider SCM, d’un chemin modèle et des sidecars de
+production utilisés pour le contexte.
+
+| Pré-requis | Rôle |
+| --- | --- |
+| Token GitHub ou GitLab | Lire les métadonnées PR/MR, le diff, les fichiers, puis publier la sortie de review |
+| Configuration provider modèle | Exécuter le reasoner et les rôles de review configurés |
+| `HEADROOM_URL` | Réduire et ajuster le contexte source avant la review modèle |
+| `MEMPALACE_URL` | Rappeler et stocker la mémoire dépôt approuvée |
+| `REVIEW_API_TOKEN` | Protéger les outils opérateur comme `request_review` |
+
+Génère d’abord la configuration pour obtenir un `.env` avec les clés attendues :
+
+```bash
+go run ./cmd/7review setup
+```
+
+## Démarrer le serveur
 
 <Tabs>
 <TabItem value="local" label="Local" default>
 
 ```bash
-go run ./cmd/7review setup
-
 set -a
 . ./.env
 set +a
@@ -25,7 +45,8 @@ set +a
 go run ./cmd/7review
 ```
 
-Dans un autre terminal :
+Dans un autre terminal, vérifie que le serveur HTTP et la surface opérateur
+répondent :
 
 ```bash
 go run ./cmd/7review status --server http://localhost:8080
@@ -35,15 +56,24 @@ go run ./cmd/7review status --server http://localhost:8080
 <TabItem value="docker" label="Docker">
 
 ```bash
-go run ./cmd/7review setup
 make docker-up
 make docker-status
+```
+
+Utilise la cible readiness brute quand tu veux seulement le résultat de
+`/ready` :
+
+```bash
+make docker-ready
 ```
 
 </TabItem>
 </Tabs>
 
-## Première review manuelle
+## Lancer la première review
+
+La review manuelle est le premier run le plus clair, parce qu’elle nomme un
+changement exact et utilise la même file de workers que les webhooks.
 
 <Tabs>
 <TabItem value="github" label="GitHub" default>
@@ -55,6 +85,8 @@ make docker-status
   --server http://localhost:8080
 ```
 
+L’ID de run est `owner/repo!7`.
+
 </TabItem>
 <TabItem value="gitlab" label="GitLab">
 
@@ -65,13 +97,37 @@ make docker-status
   --server http://localhost:8080
 ```
 
+L’ID de run est `25!19`.
+
 </TabItem>
 </Tabs>
 
-## Inspecter le run
+## Inspecter la progression
 
 ```bash
 7review sessions --server http://localhost:8080
 7review session owner/repo!7 --server http://localhost:8080
+7review history owner/repo!7 --server http://localhost:8080
+```
+
+Utilise le chat si tu veux inspecter ou poursuivre depuis le contexte d’un run
+précis :
+
+```bash
 7review chat owner/repo!7 --server http://localhost:8080
 ```
+
+## À quoi ressemble un run réussi
+
+Après le démarrage du run, 7review doit :
+
+- enrichir la PR ou MR depuis GitHub ou GitLab
+- collecter le diff structuré et le contexte source sélectionné
+- appeler Headroom et MemPalace
+- router la review vers les rôles modèle configurés
+- valider les findings contre le diff courant
+- préparer la sortie de review brouillon
+- s’arrêter avant la publication finale tant que l’approbation humaine n’est pas enregistrée
+
+Si la requête est rejetée, vérifie si le même ID de run est déjà en file ou en
+cours, si la file est pleine, ou si les identifiants provider sont incorrects.

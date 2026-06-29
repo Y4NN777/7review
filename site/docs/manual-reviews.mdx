@@ -1,7 +1,7 @@
 ---
 sidebar_position: 4
 title: Manual Reviews
-description: Enqueue a specific GitHub PR or GitLab MR.
+description: Enqueue a specific GitHub PR or GitLab MR through CLI, tools, or Docker.
 ---
 
 import Tabs from '@theme/Tabs';
@@ -10,7 +10,20 @@ import TabItem from '@theme/TabItem';
 # Manual Reviews
 
 Manual review is the primary control path. It creates a normal `review.Request`
-and sends it through the same bounded worker queue as webhook work.
+and sends it through the same bounded worker queue as webhook work. The rest of
+the pipeline is identical: SCM enrichment, context selection, model review,
+finding validation, draft output, and human approval before final publication.
+
+## Inputs
+
+| Provider | Required identifiers | Example run ID |
+| --- | --- | --- |
+| GitHub | `repository` as `owner/repo`, `pr_number` | `owner/repo!7` |
+| GitLab | `project_id`, `mr_iid` | `25!19` |
+
+Use the provider identifiers from the SCM system, not local branch names.
+
+## Trigger a review
 
 <Tabs>
 <TabItem value="cli" label="CLI" default>
@@ -31,6 +44,19 @@ curl -fsS \
   http://localhost:8080/tools/execute
 ```
 
+GitHub payload:
+
+```json
+{
+  "name": "request_review",
+  "input": {
+    "provider": "github",
+    "repository": "owner/repo",
+    "pr_number": 7
+  }
+}
+```
+
 </TabItem>
 <TabItem value="docker" label="Docker Make">
 
@@ -42,22 +68,20 @@ make docker-review-github REPO=owner/repo PR=7
 </TabItem>
 </Tabs>
 
-## Run IDs
+## Response semantics
 
-Manual review run IDs are provider-neutral:
+A successful request returns the run ID and an enqueued status. A rejected
+request should include a reason.
 
-| Provider | Run ID |
-| --- | --- |
-| GitLab | `<project_id>!<mr_iid>` |
-| GitHub | `<owner/repo>!<pr_number>` |
+| Result | Meaning | Typical fix |
+| --- | --- | --- |
+| `enqueued` | The job entered the bounded worker queue | Inspect it with `sessions` or `session` |
+| `already running` or conflict | The same run ID is queued or running | Wait for the current run or inspect it |
+| queue full | The server accepted the request format but has no queue capacity | Increase `WEBHOOK_QUEUE_SIZE` or retry later |
+| validation error | Provider, repository, project, PR, or MR input is missing or invalid | Correct the identifiers |
 
-## Queue behavior
-
-- Uses `WEBHOOK_WORKERS`.
-- Uses `WEBHOOK_QUEUE_SIZE`.
-- Uses `WEBHOOK_JOB_TIMEOUT_MS`.
-- Rejects a duplicate if the same run is already queued or running.
-- Allows a fresh rerun after a previous run has completed or failed.
+Manual triggers can create a fresh rerun after a previous run completed or
+failed. They do not double-enqueue the same currently running run.
 
 ## Inspect the result
 
@@ -66,3 +90,19 @@ Manual review run IDs are provider-neutral:
 7review session owner/repo!7 --server http://localhost:8080
 7review history owner/repo!7 --server http://localhost:8080
 ```
+
+For GitLab, replace the run ID with `project_id!mr_iid`:
+
+```bash
+7review session 25!19 --server http://localhost:8080
+```
+
+## Operational notes
+
+- Manual review still uses `WEBHOOK_WORKERS`, `WEBHOOK_QUEUE_SIZE`, and
+  `WEBHOOK_JOB_TIMEOUT_MS`.
+- Manual review does not bypass provider authentication or SCM enrichment.
+- Webhook policy does not block manual requests; the operator is the policy
+  decision for manual mode.
+- Final publication remains an explicit human action after draft output is
+  prepared.

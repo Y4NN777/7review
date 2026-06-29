@@ -1,7 +1,7 @@
 ---
 sidebar_position: 4
 title: Reviews manuelles
-description: Mettre en file une PR GitHub ou une MR GitLab précise.
+description: Mettre en file une PR GitHub ou une MR GitLab précise via CLI, outils ou Docker.
 ---
 
 import Tabs from '@theme/Tabs';
@@ -9,8 +9,22 @@ import TabItem from '@theme/TabItem';
 
 # Reviews manuelles
 
-La review manuelle est le chemin de contrôle principal. Elle crée une requête
-normale et l'envoie dans la même file bornée que les webhooks.
+La review manuelle est le chemin de contrôle principal. Elle crée une
+`review.Request` normale et l’envoie dans la même file bornée que le travail
+webhook. Le reste du pipeline est identique : enrichissement SCM, sélection de
+contexte, review modèle, validation des findings, sortie brouillon et
+approbation humaine avant publication finale.
+
+## Entrées
+
+| Provider | Identifiants requis | Exemple d’ID de run |
+| --- | --- | --- |
+| GitHub | `repository` au format `owner/repo`, `pr_number` | `owner/repo!7` |
+| GitLab | `project_id`, `mr_iid` | `25!19` |
+
+Utilise les identifiants du provider SCM, pas les noms de branches locales.
+
+## Déclencher une review
 
 <Tabs>
 <TabItem value="cli" label="CLI" default>
@@ -31,6 +45,19 @@ curl -fsS \
   http://localhost:8080/tools/execute
 ```
 
+Payload GitHub :
+
+```json
+{
+  "name": "request_review",
+  "input": {
+    "provider": "github",
+    "repository": "owner/repo",
+    "pr_number": 7
+  }
+}
+```
+
 </TabItem>
 <TabItem value="docker" label="Docker Make">
 
@@ -42,12 +69,42 @@ make docker-review-github REPO=owner/repo PR=7
 </TabItem>
 </Tabs>
 
-## IDs de run
+## Sens des réponses
 
-| Provider | Run ID |
-| --- | --- |
-| GitLab | `<project_id>!<mr_iid>` |
-| GitHub | `<owner/repo>!<pr_number>` |
+Une requête acceptée renvoie l’ID de run et un statut indiquant que le job est
+en file. Une requête rejetée doit renvoyer une raison.
 
-Si le même run est déjà en file ou en cours, la demande est rejetée au lieu
-d'être doublée.
+| Résultat | Signification | Correction habituelle |
+| --- | --- | --- |
+| `enqueued` | Le job est entré dans la file de workers bornée | Inspecter avec `sessions` ou `session` |
+| `already running` ou conflit | Le même ID de run est déjà en file ou en cours | Attendre le run courant ou l’inspecter |
+| file pleine | La requête est valide mais le serveur n’a plus de capacité de file | Augmenter `WEBHOOK_QUEUE_SIZE` ou réessayer plus tard |
+| erreur de validation | Provider, dépôt, projet, PR ou MR manquant ou invalide | Corriger les identifiants |
+
+Un déclenchement manuel peut créer un nouveau rerun après un run terminé ou en
+échec. Il ne double pas un run déjà en cours.
+
+## Inspecter le résultat
+
+```bash
+7review sessions --server http://localhost:8080
+7review session owner/repo!7 --server http://localhost:8080
+7review history owner/repo!7 --server http://localhost:8080
+```
+
+Pour GitLab, remplace l’ID de run par `project_id!mr_iid` :
+
+```bash
+7review session 25!19 --server http://localhost:8080
+```
+
+## Notes opérationnelles
+
+- La review manuelle utilise aussi `WEBHOOK_WORKERS`, `WEBHOOK_QUEUE_SIZE` et
+  `WEBHOOK_JOB_TIMEOUT_MS`.
+- La review manuelle ne contourne pas l’authentification provider ni
+  l’enrichissement SCM.
+- La politique webhook ne bloque pas les requêtes manuelles ; l’opérateur est
+  la décision de politique en mode manuel.
+- La publication finale reste une action humaine explicite après préparation de
+  la sortie brouillon.

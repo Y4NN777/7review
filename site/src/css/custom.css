@@ -126,6 +126,23 @@ table,
   background: #f7f9fc !important;
 }
 
+.theme-doc-markdown .docusaurus-mermaid-container,
+.theme-doc-markdown .mermaid {
+  background: #f7f9fc;
+  border: 1px solid #c9d2df;
+  margin: 24px 0;
+  overflow-x: auto;
+  padding: 22px;
+}
+
+.theme-doc-markdown .docusaurus-mermaid-container svg,
+.theme-doc-markdown .mermaid svg {
+  display: block;
+  height: auto;
+  max-width: 100%;
+  min-height: 420px;
+}
+
 code {
   border-radius: 0;
 }
@@ -178,6 +195,12 @@ html[data-theme='dark'] .pagination-nav__link {
 html[data-theme='dark'] .theme-code-block,
 html[data-theme='dark'] .admonition {
   background: #000000 !important;
+}
+
+html[data-theme='dark'] .theme-doc-markdown .docusaurus-mermaid-container,
+html[data-theme='dark'] .theme-doc-markdown .mermaid {
+  background: #000000;
+  border-color: #26312b;
 }
 
 html[data-theme='dark'] .footer,
