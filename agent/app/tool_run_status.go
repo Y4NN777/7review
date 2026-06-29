@@ -42,14 +42,17 @@ type sectionStatusDTO struct {
 }
 
 type evidenceStatusDTO struct {
-	Source          string      `json:"source"`
-	HeadingOrKey    string      `json:"heading_or_key"`
-	Kind            review.Kind `json:"kind"`
-	Authority       string      `json:"authority"`
-	MatchedSignals  []string    `json:"matched_signals,omitempty"`
-	SelectionReason string      `json:"selection_reason"`
-	Score           int         `json:"score"`
-	ContentBytes    int         `json:"content_bytes"`
+	Source            string      `json:"source"`
+	HeadingOrKey      string      `json:"heading_or_key"`
+	Kind              review.Kind `json:"kind"`
+	Authority         string      `json:"authority"`
+	AuthorityLevel    string      `json:"authority_level,omitempty"`
+	CanJustifyFinding bool        `json:"can_justify_finding,omitempty"`
+	SupportsOnly      bool        `json:"supports_only,omitempty"`
+	MatchedSignals    []string    `json:"matched_signals,omitempty"`
+	SelectionReason   string      `json:"selection_reason"`
+	Score             int         `json:"score"`
+	ContentBytes      int         `json:"content_bytes"`
 }
 
 type diffSummaryDTO struct {
@@ -362,26 +365,32 @@ func evidenceDTOs(items []review.EvidenceItem, sections []review.Section) []evid
 		items = make([]review.EvidenceItem, 0, len(sections))
 		for _, section := range sections {
 			items = append(items, review.EvidenceItem{
-				Source:          section.Path,
-				HeadingOrKey:    section.Title,
-				Kind:            section.Kind,
-				Authority:       "unknown",
-				SelectionReason: "legacy selected context",
-				ContentBytes:    len(section.Content),
+				Source:            section.Path,
+				HeadingOrKey:      section.Title,
+				Kind:              section.Kind,
+				Authority:         "unknown",
+				AuthorityLevel:    "supporting",
+				CanJustifyFinding: false,
+				SupportsOnly:      true,
+				SelectionReason:   "legacy selected context",
+				ContentBytes:      len(section.Content),
 			})
 		}
 	}
 	out := make([]evidenceStatusDTO, 0, len(items))
 	for _, item := range items {
 		out = append(out, evidenceStatusDTO{
-			Source:          item.Source,
-			HeadingOrKey:    item.HeadingOrKey,
-			Kind:            item.Kind,
-			Authority:       item.Authority,
-			MatchedSignals:  append([]string(nil), item.MatchedSignals...),
-			SelectionReason: item.SelectionReason,
-			Score:           item.Score,
-			ContentBytes:    item.ContentBytes,
+			Source:            item.Source,
+			HeadingOrKey:      item.HeadingOrKey,
+			Kind:              item.Kind,
+			Authority:         item.Authority,
+			AuthorityLevel:    firstNonEmptyStatus(item.AuthorityLevel, "supporting"),
+			CanJustifyFinding: item.CanJustifyFinding,
+			SupportsOnly:      item.SupportsOnly,
+			MatchedSignals:    append([]string(nil), item.MatchedSignals...),
+			SelectionReason:   item.SelectionReason,
+			Score:             item.Score,
+			ContentBytes:      item.ContentBytes,
 		})
 	}
 	return out

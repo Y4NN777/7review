@@ -46,6 +46,38 @@ func TestExtractReviewSignals_IdentifiersRoutesPathsAndEntities(t *testing.T) {
 	}
 }
 
+func TestBuildEvidenceManifestIncludesAuthorityLevel(t *testing.T) {
+	manifest := buildEvidenceManifest([]scoredCorpusSection{
+		{
+			section: corpusSection{
+				Section:   review.Section{Path: "docs/CONTRACT.md", Title: "REQ-12", Kind: review.KindContract, Content: "REQ-12 contract"},
+				Authority: "contract",
+			},
+			score:          900,
+			matchedSignals: []string{"REQ-12"},
+			reason:         "requirement_trace: REQ-12",
+		},
+		{
+			section: corpusSection{
+				Section:   review.Section{Path: "docs/DESIGN.md", Title: "Composer", Kind: review.KindDesign, Content: "Composer states"},
+				Authority: "design",
+			},
+			score:  500,
+			reason: "ui_trace: Composer",
+		},
+	})
+
+	if len(manifest) != 2 {
+		t.Fatalf("expected two manifest items, got %#v", manifest)
+	}
+	if manifest[0].AuthorityLevel != "sot" || !manifest[0].CanJustifyFinding || manifest[0].SupportsOnly {
+		t.Fatalf("contract manifest item should be source of truth: %#v", manifest[0])
+	}
+	if manifest[1].AuthorityLevel != "design_context" || manifest[1].CanJustifyFinding || !manifest[1].SupportsOnly {
+		t.Fatalf("design manifest item should be supporting design context: %#v", manifest[1])
+	}
+}
+
 func TestExtractReviewSignals_IncludesSCMCommitMessages(t *testing.T) {
 	req := review.Request{
 		Title:        "Cleanup send flow",

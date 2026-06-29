@@ -217,12 +217,18 @@ func (p *Pipeline) Run(ctx context.Context, req review.Request) error {
 		return err
 	}
 	p.trace(ctx, run.ID, "findings_validated", StatusRunning, "model findings validated", map[string]string{
-		"accepted": strconv.Itoa(len(validation.Accepted)),
-		"rejected": strconv.Itoa(len(validation.Rejected)),
+		"accepted":    strconv.Itoa(len(validation.Accepted)),
+		"human_check": strconv.Itoa(len(validation.HumanCheck)),
+		"notes":       strconv.Itoa(len(validation.Notes)),
+		"questions":   strconv.Itoa(len(validation.Questions)),
+		"rejected":    strconv.Itoa(len(validation.Rejected)),
 	})
 	rc.Source.Model = modelReviewAudit(rc, findings, &validation, parseStatus, parseWarning)
 	rc.Findings = validation.Accepted
 	rc.Source.Findings = validation.Accepted
+	rc.Source.HumanCheck = validation.HumanCheck
+	rc.Source.Notes = validation.Notes
+	rc.Source.Questions = validation.Questions
 	rc.Source.InlineComments = p.publishInlineDraftComments(ctx, scmContext, rc, validation.Accepted)
 	p.trace(ctx, run.ID, "inline_comments_processed", StatusRunning, "inline draft comments processed", inlineCommentMeta(rc.Source.InlineComments))
 	rc.DraftReport = renderReport(rc)
@@ -1216,10 +1222,14 @@ func reviewSystemPrompt(rc *review.Context) string {
 		"If more read-only context is required before final findings, return {\"tool_requests\": [{\"name\": \"get_changed_files\", \"input\": {}, \"reason\": \"...\"}], \"findings\": [], \"skill_coverage\": []}.",
 		"Otherwise return {\"findings\": [...], \"skill_coverage\": [...]}.",
 		"Allowed reasoner tools are read-only only: get_merge_request, get_changed_files, list_discussions, get_diff_summary, get_selected_context, get_inline_positions.",
-		"Each finding must include id, severity, title, description, suggestion, location, and confidence.",
+		"Each finding must include id, severity, title, description, suggestion, location, confidence, finding_type, strength, and evidence_authority.",
+		"finding_type must be one of finding, note, question. strength must be one of confirmed, likely, speculative, note, question.",
+		"evidence_authority must be one of sot, decision, implementation_context, design_context, supporting, memory.",
 		"Each skill_coverage item must include name, status, evidence, tools, checks, and notes for every active required skill.",
 		"Only report actionable issues in changed files.",
 		"Use selected skills, repository knowledge, and approved memory as review guidance, not as standalone proof.",
+		"Evidence authority rules: repository source-of-truth evidence (sot) and approved decisions can justify findings; design, ownership, runbook, supporting docs, and memory can support findings but cannot justify blocking findings alone.",
+		"If evidence is incomplete, output finding_type note or question, or strength likely/speculative, rather than high-confidence confirmed finding.",
 		"Cite selected repository source paths or requirement IDs in knowledge-backed findings.",
 		"Actively compare changed code and tests against selected API, contract, SRS/PRD, ADR, data-model, and rules evidence.",
 		"If changed code or tests intentionally accept behavior that contradicts selected contract/API examples, schema descriptions, invariant IDs, or requirement IDs, report that as a contract-drift finding unless another selected repository source explicitly supersedes it.",
@@ -1246,7 +1256,10 @@ func reviewSystemPrompt(rc *review.Context) string {
 		fmt.Fprintf(&b, "\n\n[EVIDENCE kind=skill path=%q title=%q]\n%s\n[/EVIDENCE]\n", section.Path, section.Title, section.Content)
 	}
 	for _, section := range rc.CorpusSections {
-		fmt.Fprintf(&b, "\n\n[EVIDENCE kind=repo_knowledge path=%q heading_or_key=%q section_kind=%q]\n%s\n[/EVIDENCE]\n", section.Path, section.Title, section.Kind, section.Content)
+		authority := evidenceAuthorityForSection(rc.Source.Evidence, section)
+		fmt.Fprintf(&b, "\n\n[EVIDENCE kind=repo_knowledge path=%q heading_or_key=%q section_kind=%q]\n", section.Path, section.Title, section.Kind)
+		fmt.Fprintf(&b, "authority_level=%q can_justify_finding=%t supports_only=%t\n", authority.AuthorityLevel, authority.CanJustifyFinding, authority.SupportsOnly)
+		fmt.Fprintf(&b, "%s\n[/EVIDENCE]\n", section.Content)
 	}
 	if rc.Source.Memory.Conventions != nil || rc.Source.Memory.Decisions != nil || rc.Source.Memory.History != nil {
 		b.WriteString("\n\n[EVIDENCE kind=approved_memory]\n")
@@ -1272,6 +1285,25 @@ func reviewUserMessage(rc *review.Context, batch []review.FileDiff) string {
 		fmt.Fprintf(&b, "[EVIDENCE kind=diff path=%q]\n```diff\n%s\n```\n[/EVIDENCE]\n\n", file.Path, file.Patch)
 	}
 	return b.String()
+}
+
+func evidenceAuthorityForSection(evidence []review.EvidenceItem, section review.Section) review.EvidenceItem {
+	for _, item := range evidence {
+		if item.Source == section.Path && item.HeadingOrKey == section.Title {
+			if item.AuthorityLevel == "" {
+				item.AuthorityLevel = "supporting"
+			}
+			return item
+		}
+	}
+	return review.EvidenceItem{
+		Source:            section.Path,
+		HeadingOrKey:      section.Title,
+		Kind:              section.Kind,
+		AuthorityLevel:    "supporting",
+		CanJustifyFinding: false,
+		SupportsOnly:      true,
+	}
 }
 
 func reviewToolFollowupUserMessage(rc *review.Context, round int, observations []review.ToolObservation) string {
@@ -1307,7 +1339,7 @@ func repairFindingsSystemPrompt() string {
 		"If the raw output is prose with no clear finding object, return [].",
 		"If JSON is wrapped in Markdown fences, remove the fences.",
 		"If JSON is truncated but a finding is clear, close the object/array using only fields already present or directly implied by field names.",
-		"Each retained finding must include id, severity, title, description, suggestion, location, and confidence.",
+		"Each retained finding must include id, severity, title, description, suggestion, location, confidence, finding_type, strength, and evidence_authority when present or directly implied.",
 	}, "\n")
 }
 
@@ -2183,13 +2215,16 @@ func decodeLenientFinding(raw json.RawMessage) (review.Finding, bool) {
 		location = decodeLenientLocation(rawLocation)
 	}
 	return review.Finding{
-		ID:          stringField(lower, "id"),
-		Severity:    review.Severity(strings.ToLower(stringField(lower, "severity"))),
-		Title:       stringField(lower, "title"),
-		Description: stringField(lower, "description"),
-		Suggestion:  stringField(lower, "suggestion"),
-		Location:    location,
-		Confidence:  confidenceField(lower, "confidence"),
+		ID:                stringField(lower, "id"),
+		Severity:          review.Severity(strings.ToLower(stringField(lower, "severity"))),
+		Title:             stringField(lower, "title"),
+		Description:       stringField(lower, "description"),
+		Suggestion:        stringField(lower, "suggestion"),
+		Location:          location,
+		Confidence:        confidenceField(lower, "confidence"),
+		FindingType:       firstNonEmptyPipeline(stringField(lower, "finding_type"), stringField(lower, "type")),
+		Strength:          stringField(lower, "strength"),
+		EvidenceAuthority: stringField(lower, "evidence_authority"),
 	}, true
 }
 
@@ -2339,33 +2374,66 @@ func renderReport(rc *review.Context) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<!-- 7review:bot-report project=%s change=%s -->\n", rc.Request.ProjectID, rc.Request.ChangeID)
 	b.WriteString("## 7review Draft\n\n")
-	if len(rc.Findings) == 0 {
+	if len(rc.Findings) == 0 && len(rc.Source.HumanCheck) == 0 && len(rc.Source.Notes) == 0 && len(rc.Source.Questions) == 0 {
 		b.WriteString("No validated findings.\n")
 		appendNoFindingAudit(&b, rc)
 		appendWarnings(&b, rc)
 		return b.String()
 	}
-	for _, finding := range rc.Findings {
-		fmt.Fprintf(&b, "### %s: %s\n\n", finding.Severity, finding.Title)
+	appendFindingSection(&b, "Findings", rc.Findings, rc)
+	appendFindingSection(&b, "Needs Human Check", rc.Source.HumanCheck, rc)
+	appendFindingSection(&b, "Notes", rc.Source.Notes, rc)
+	appendFindingSection(&b, "Questions", rc.Source.Questions, rc)
+	appendValidationAudit(&b, rc)
+	appendWarnings(&b, rc)
+	return b.String()
+}
+
+func appendFindingSection(b *strings.Builder, title string, findings []review.Finding, rc *review.Context) {
+	if len(findings) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "### %s\n\n", title)
+	for _, finding := range findings {
+		fmt.Fprintf(b, "#### %s: %s\n\n", finding.Severity, finding.Title)
 		if finding.Location.Path != "" {
-			fmt.Fprintf(&b, "**Location:** `%s`", finding.Location.Path)
+			fmt.Fprintf(b, "**Location:** `%s`", finding.Location.Path)
 			if finding.Location.Line > 0 {
-				fmt.Fprintf(&b, ":%d", finding.Location.Line)
+				fmt.Fprintf(b, ":%d", finding.Location.Line)
 			}
 			b.WriteString("\n\n")
 		}
+		if finding.FindingType != "" || finding.Strength != "" || finding.EvidenceAuthority != "" {
+			fmt.Fprintf(b, "**Classification:** type=%s strength=%s authority=%s\n\n",
+				firstNonEmptyPipeline(finding.FindingType, "finding"),
+				firstNonEmptyPipeline(finding.Strength, "likely"),
+				firstNonEmptyPipeline(finding.EvidenceAuthority, "supporting"))
+		}
+		if finding.ValidationReason != "" {
+			fmt.Fprintf(b, "**Validation:** %s\n\n", finding.ValidationReason)
+		}
 		if finding.Description != "" {
-			fmt.Fprintf(&b, "%s\n\n", finding.Description)
+			fmt.Fprintf(b, "%s\n\n", finding.Description)
 		}
 		if finding.Suggestion != "" {
-			fmt.Fprintf(&b, "**Suggestion:** %s\n\n", finding.Suggestion)
+			fmt.Fprintf(b, "**Suggestion:** %s\n\n", finding.Suggestion)
 		}
 		if status := inlineStatusForFinding(rc.Source.InlineComments, stableFindingID(finding)); status != "" {
-			fmt.Fprintf(&b, "**Inline:** %s\n\n", status)
+			fmt.Fprintf(b, "**Inline:** %s\n\n", status)
 		}
 	}
-	appendWarnings(&b, rc)
-	return b.String()
+}
+
+func appendValidationAudit(b *strings.Builder, rc *review.Context) {
+	total := len(rc.Findings) + len(rc.Source.HumanCheck) + len(rc.Source.Notes) + len(rc.Source.Questions)
+	if total == 0 {
+		return
+	}
+	b.WriteString("### Validation Audit\n\n")
+	fmt.Fprintf(b, "- findings: %d\n", len(rc.Findings))
+	fmt.Fprintf(b, "- needs_human_check: %d\n", len(rc.Source.HumanCheck))
+	fmt.Fprintf(b, "- notes: %d\n", len(rc.Source.Notes))
+	fmt.Fprintf(b, "- questions: %d\n\n", len(rc.Source.Questions))
 }
 
 func inlineStatusForFinding(comments []review.InlineComment, findingID string) string {

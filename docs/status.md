@@ -19,6 +19,9 @@ private URLs, and other deployment-specific details.
 - Provider-native read-only tool calls inside the review loop.
 - Deterministic validation for required finding fields, confidence, changed-file
   location, and addressable inline comment positions.
+- Source-of-truth authority metadata in selected evidence manifests.
+- Finding strength classification with draft-only downgrades for speculative or
+  weak-authority issues.
 - Draft report publishing, inline draft comments, human approval, final
   publishing, and approved memory writeback.
 - Operator CLI/TUI/chat workflows for setup, status, run inspection, reruns,
@@ -69,18 +72,19 @@ The current system is weaker at distinguishing:
   findings.
 - Final publication should remain human-approved.
 
-## Review Quality Roadmap
+## Review Quality Gate
 
-The next quality pass should treat 7review as an assisted draft reviewer, not as
-an autonomous final reviewer. The goal is to reduce false positives, preserve
-useful review notes, and make source-of-truth authority explicit.
+7review treats model output as draft review material, not as autonomous final
+judgment. The pipeline now applies a deterministic quality gate to reduce false
+positives, preserve useful review notes, and make source-of-truth authority
+explicit.
 
 ### Source-Of-Truth Authority
 
-The document graph should expose authority as a first-class signal, not only as
+The document graph exposes authority as a first-class signal, not only as
 section kind or selection score.
 
-Recommended authority levels:
+Authority levels:
 
 - `sot`: binding source of truth, such as requirements, contracts, API specs,
   data models, security rules, and approved repository rules.
@@ -93,7 +97,7 @@ Recommended authority levels:
 - `memory`: approved historical memory, always lower authority than repository
   files.
 
-The `evidence_manifest` should explain:
+The `evidence_manifest` explains:
 
 - why the section was selected
 - which review signal pulled it in
@@ -103,7 +107,7 @@ The `evidence_manifest` should explain:
 
 ### Finding Strength
 
-The validator should classify every model issue before publishing:
+The validator classifies every model issue before publishing:
 
 - `confirmed`: direct evidence in changed code plus a cited source-of-truth
   rule.
@@ -114,12 +118,12 @@ The validator should classify every model issue before publishing:
 - `note`: useful non-blocking observation or positive context.
 - `question`: a clarification needed from the author.
 
-Only `confirmed` findings, and a narrow subset of high-confidence `likely`
-findings, should become inline comments by default.
+Only `confirmed` findings become inline comments by default in V1. `likely`
+items stay in the draft under human-check sections.
 
 ### Skill-Specific Strictness
 
-Some skills need stricter reporting rules:
+Current skill-strictness rules:
 
 - Data migrations should not report TTL, pruning, or performance risks unless
   there is volume evidence, a known slow query, a missing required index, or an
@@ -134,7 +138,7 @@ Some skills need stricter reporting rules:
 
 ### Findings, Notes, And Questions
 
-The report model should separate:
+The draft report separates:
 
 - `findings`: actionable bugs or violated requirements.
 - `notes`: useful observations, positive confirmations, or low-risk
@@ -153,20 +157,20 @@ A strong finding should include:
 - violated rule restated in the finding
 - explanation of how the diff violates that rule
 
-If any of these are missing, the system should downgrade the issue to `likely`,
-`note`, or `question`, or reject it when it is not useful.
+If any of these are missing, the system downgrades the issue to `likely`,
+`note`, or `question`, or rejects it when it is not useful.
 
 ### Publish Policy
 
-Default publication should be:
+Default publication is:
 
 - draft summary for all accepted findings, notes, and questions
 - inline comments only for `confirmed` findings on addressable changed lines
-- `likely` findings inline only when confidence and citations are strong
+- `likely` findings kept in draft-only human-check sections
 - speculative items kept in a "Needs human check" section
 - final publication always behind human approval
 
-### Benchmark Reviews
+### Remaining Hardening: Benchmark Reviews
 
 Create a small benchmark set of known reviews and expected outcomes. Each case
 should measure:

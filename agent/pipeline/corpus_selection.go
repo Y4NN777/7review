@@ -1167,18 +1167,61 @@ func selectionReason(section corpusSection, reasons []string) string {
 func buildEvidenceManifest(scored []scoredCorpusSection) []review.EvidenceItem {
 	out := make([]review.EvidenceItem, 0, len(scored))
 	for _, item := range scored {
+		authorityLevel := evidenceAuthorityLevel(item.section)
+		canJustify := authorityLevel == "sot" || authorityLevel == "decision"
 		out = append(out, review.EvidenceItem{
-			Source:          item.section.Path,
-			HeadingOrKey:    item.section.Title,
-			Kind:            item.section.Kind,
-			Authority:       item.section.Authority,
-			MatchedSignals:  append([]string(nil), item.matchedSignals...),
-			SelectionReason: item.reason,
-			Score:           item.score,
-			ContentBytes:    len(item.section.Content),
+			Source:            item.section.Path,
+			HeadingOrKey:      item.section.Title,
+			Kind:              item.section.Kind,
+			Authority:         item.section.Authority,
+			AuthorityLevel:    authorityLevel,
+			CanJustifyFinding: canJustify,
+			SupportsOnly:      !canJustify,
+			MatchedSignals:    append([]string(nil), item.matchedSignals...),
+			SelectionReason:   item.reason,
+			Score:             item.score,
+			ContentBytes:      len(item.section.Content),
 		})
 	}
 	return out
+}
+
+func evidenceAuthorityLevel(section corpusSection) string {
+	lower := strings.ToLower(filepath.ToSlash(section.Path) + "\n" + section.Title + "\n" + section.Authority)
+	switch {
+	case section.Authority == "baseline_rules",
+		section.Authority == "rules",
+		section.Authority == "requirements",
+		section.Authority == "contract",
+		section.Authority == "api_contract",
+		section.Authority == "security",
+		section.Kind == review.KindRules,
+		section.Kind == review.KindPlanning,
+		section.Kind == review.KindContract,
+		section.Kind == review.KindAPI,
+		section.Kind == review.KindSecurity:
+		return "sot"
+	case strings.Contains(lower, "adr"),
+		strings.Contains(lower, "decision"),
+		section.Kind == review.KindArchitecture:
+		if strings.Contains(lower, "ownership") || strings.Contains(lower, "owner") || strings.Contains(lower, "runbook") {
+			return "implementation_context"
+		}
+		return "decision"
+	case section.Kind == review.KindDelivery,
+		strings.Contains(lower, "ownership"),
+		strings.Contains(lower, "owner"),
+		strings.Contains(lower, "runbook"),
+		strings.Contains(lower, "operations"):
+		return "implementation_context"
+	case section.Kind == review.KindDesign,
+		strings.Contains(lower, "design"),
+		strings.Contains(lower, "accessibility"),
+		strings.Contains(lower, "tokens"):
+		return "design_context"
+	default:
+		return "supporting"
+	}
 }
 
 func routeMatches(text, route string) bool {

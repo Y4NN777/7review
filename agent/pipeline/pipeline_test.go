@@ -951,6 +951,99 @@ func TestDefaultFindingValidatorAllowsAddedFileWithoutHunkLines(t *testing.T) {
 	}
 }
 
+func TestDefaultFindingValidatorClassifiesSourceOfTruthFinding(t *testing.T) {
+	rc := review.NewContext(review.Request{ChangedPaths: []string{"api/profile.py"}})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "api/profile.py",
+		Patch: "@@ -1 +1 @@\n+return {\"end_reason\": \"missed\"}\n",
+	}}}
+	rc.Source.Evidence = []review.EvidenceItem{{
+		Source:            "docs/CONTRACT.md",
+		HeadingOrKey:      "Call schema",
+		Authority:         "contract",
+		AuthorityLevel:    "sot",
+		CanJustifyFinding: true,
+		SelectionReason:   "constraint_trace: CALL-02",
+	}}
+
+	report, err := DefaultFindingValidator{}.Validate(context.Background(), rc, []review.Finding{{
+		ID:                "API-CONTRACT-001",
+		Severity:          review.SeverityHigh,
+		Title:             "Contract drift",
+		Description:       "docs/CONTRACT.md requires public schema coverage for CALL-02, but the changed code ratifies end_reason without contract coverage.",
+		Suggestion:        "Update the public schema.",
+		Location:          review.Location{Path: "api/profile.py", Line: 1},
+		Confidence:        0.91,
+		FindingType:       "finding",
+		Strength:          "confirmed",
+		EvidenceAuthority: "sot",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Accepted) != 1 || report.Accepted[0].ValidationStatus != "accepted" {
+		t.Fatalf("expected confirmed SOT finding accepted: %#v", report)
+	}
+}
+
+func TestDefaultFindingValidatorDowngradesSpeculativePerformanceConcern(t *testing.T) {
+	rc := review.NewContext(review.Request{ChangedPaths: []string{"db/migrations/013_calls.sql"}})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "db/migrations/013_calls.sql",
+		Patch: "@@ -1 +1 @@\n+CREATE INDEX ix_call_participants_active ON call_participants (call_id) WHERE left_at IS NULL;\n",
+	}}}
+
+	report, err := DefaultFindingValidator{}.Validate(context.Background(), rc, []review.Finding{{
+		ID:          "PERF-001",
+		Severity:    review.SeverityLow,
+		Title:       "Partial index may need pruning",
+		Description: "The partial index could have TTL/pruning performance issues in the future.",
+		Location:    review.Location{Path: "db/migrations/013_calls.sql", Line: 1},
+		Confidence:  0.82,
+		Strength:    "speculative",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Notes) != 1 || len(report.Accepted) != 0 {
+		t.Fatalf("expected speculative performance concern downgraded to note: %#v", report)
+	}
+}
+
+func TestDefaultFindingValidatorKeepsLikelyFindingForHumanCheck(t *testing.T) {
+	rc := review.NewContext(review.Request{ChangedPaths: []string{"services/calls.py"}})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "services/calls.py",
+		Patch: "@@ -1 +1 @@\n+conversation_id = None\n",
+	}}}
+	rc.Source.Evidence = []review.EvidenceItem{{
+		Source:            "docs/DESIGN.md",
+		HeadingOrKey:      "Ad-hoc calls",
+		Authority:         "design",
+		AuthorityLevel:    "design_context",
+		CanJustifyFinding: false,
+		SupportsOnly:      true,
+	}}
+
+	report, err := DefaultFindingValidator{}.Validate(context.Background(), rc, []review.Finding{{
+		ID:                "DESIGN-001",
+		Severity:          review.SeverityHigh,
+		Title:             "Nullable conversation relation",
+		Description:       "docs/DESIGN.md discusses nullable ad-hoc calls, so this needs human confirmation before treating it as a defect.",
+		Location:          review.Location{Path: "services/calls.py", Line: 1},
+		Confidence:        0.86,
+		FindingType:       "finding",
+		Strength:          "confirmed",
+		EvidenceAuthority: "design_context",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.HumanCheck) != 1 || len(report.Accepted) != 0 {
+		t.Fatalf("expected design-context finding kept for human check: %#v", report)
+	}
+}
+
 func TestResolveInlineDraftCommentsSkipsUnchangedLines(t *testing.T) {
 	rc := review.NewContext(review.Request{})
 	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{

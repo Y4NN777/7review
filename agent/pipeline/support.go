@@ -565,8 +565,11 @@ func shouldSkip(path string) bool {
 }
 
 type ValidationReport struct {
-	Accepted []review.Finding
-	Rejected []RejectedFinding
+	Accepted   []review.Finding
+	HumanCheck []review.Finding
+	Notes      []review.Finding
+	Questions  []review.Finding
+	Rejected   []RejectedFinding
 }
 
 type RejectedFinding struct {
@@ -600,6 +603,7 @@ func (v DefaultFindingValidator) Validate(_ context.Context, rc *review.Context,
 	var report ValidationReport
 	seen := make(map[string]bool)
 	for _, finding := range findings {
+		finding = normalizeReviewFinding(rc, finding)
 		if finding.ID != "" && seen[finding.ID] {
 			report.Rejected = append(report.Rejected, RejectedFinding{Finding: finding, Reason: "duplicate finding id"})
 			continue
@@ -608,32 +612,225 @@ func (v DefaultFindingValidator) Validate(_ context.Context, rc *review.Context,
 			seen[finding.ID] = true
 		}
 		if !validSeverity(finding.Severity) {
-			report.Rejected = append(report.Rejected, RejectedFinding{Finding: finding, Reason: fmt.Sprintf("invalid severity %q", finding.Severity)})
-			continue
+			if finding.FindingType == "note" || finding.FindingType == "question" {
+				finding.Severity = review.SeverityInfo
+			} else {
+				report.Rejected = append(report.Rejected, RejectedFinding{Finding: finding, Reason: fmt.Sprintf("invalid severity %q", finding.Severity)})
+				continue
+			}
 		}
-		if finding.Confidence < minConfidence {
+		if finding.Confidence < minConfidence && finding.FindingType == "finding" {
 			report.Rejected = append(report.Rejected, RejectedFinding{Finding: finding, Reason: "confidence below threshold"})
 			continue
 		}
+		if finding.FindingType == "note" || finding.Strength == "note" {
+			report.Notes = append(report.Notes, markFindingValidation(finding, "downgraded", "classified as review note"))
+			continue
+		}
+		if finding.FindingType == "question" || finding.Strength == "question" {
+			report.Questions = append(report.Questions, markFindingValidation(finding, "downgraded", "classified as review question"))
+			continue
+		}
+		if shouldDowngradeSpeculative(finding) {
+			report.Notes = append(report.Notes, markFindingValidation(finding, "downgraded", "speculative or unsupported concern"))
+			continue
+		}
 		if strings.TrimSpace(finding.Location.Path) == "" {
+			if finding.Strength == "likely" {
+				report.HumanCheck = append(report.HumanCheck, markFindingValidation(finding, "needs_human_check", "likely finding has no changed-file location"))
+				continue
+			}
 			report.Rejected = append(report.Rejected, RejectedFinding{Finding: finding, Reason: "missing changed-file location"})
 			continue
 		}
 		if finding.Location.Path != "" && len(changed) > 0 && !changed[finding.Location.Path] {
+			if finding.Strength != "confirmed" {
+				report.HumanCheck = append(report.HumanCheck, markFindingValidation(finding, "needs_human_check", "location is not in changed paths"))
+				continue
+			}
 			report.Rejected = append(report.Rejected, RejectedFinding{Finding: finding, Reason: "location is not in changed paths"})
 			continue
 		}
 		if finding.Location.Line <= 0 {
+			if finding.Strength == "likely" {
+				report.HumanCheck = append(report.HumanCheck, markFindingValidation(finding, "needs_human_check", "likely finding has no changed-line location"))
+				continue
+			}
 			report.Rejected = append(report.Rejected, RejectedFinding{Finding: finding, Reason: "missing changed-line location"})
 			continue
 		}
 		if len(changedLines) > 0 && !findingLineAddressable(rc, finding.Location.Path, finding.Location.Line, changedLines) {
+			if finding.Strength != "confirmed" {
+				report.HumanCheck = append(report.HumanCheck, markFindingValidation(finding, "needs_human_check", "location line is not an added or changed line"))
+				continue
+			}
 			report.Rejected = append(report.Rejected, RejectedFinding{Finding: finding, Reason: "location line is not an added or changed line"})
 			continue
 		}
-		report.Accepted = append(report.Accepted, finding)
+		if shouldDowngradeByAuthority(finding) {
+			report.HumanCheck = append(report.HumanCheck, markFindingValidation(finding, "needs_human_check", "finding is not backed by source-of-truth evidence"))
+			continue
+		}
+		if finding.Strength == "likely" {
+			report.HumanCheck = append(report.HumanCheck, markFindingValidation(finding, "needs_human_check", "likely finding requires human confirmation"))
+			continue
+		}
+		report.Accepted = append(report.Accepted, markFindingValidation(finding, "accepted", "confirmed source-of-truth-backed finding"))
 	}
 	return report, nil
+}
+
+func normalizeReviewFinding(rc *review.Context, finding review.Finding) review.Finding {
+	finding.FindingType = normalizeFindingType(finding.FindingType)
+	finding.EvidenceAuthority = normalizeEvidenceAuthority(firstNonEmpty(finding.EvidenceAuthority, inferFindingEvidenceAuthority(rc, finding)))
+	finding.Strength = normalizeFindingStrength(finding.Strength, finding.FindingType, finding.EvidenceAuthority)
+	if finding.Strength == "confirmed" && !canAuthorityJustifyFinding(finding.EvidenceAuthority) {
+		finding.Strength = "likely"
+	}
+	if finding.FindingType == "finding" && finding.Strength == "note" {
+		finding.FindingType = "note"
+	}
+	if finding.FindingType == "finding" && finding.Strength == "question" {
+		finding.FindingType = "question"
+	}
+	return finding
+}
+
+func normalizeFindingType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "note", "notes":
+		return "note"
+	case "question", "questions":
+		return "question"
+	default:
+		return "finding"
+	}
+}
+
+func normalizeFindingStrength(value string, findingType string, evidenceAuthority string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "confirmed", "likely", "speculative", "note", "question":
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+	switch findingType {
+	case "note":
+		return "note"
+	case "question":
+		return "question"
+	default:
+		if canAuthorityJustifyFinding(evidenceAuthority) {
+			return "confirmed"
+		}
+		return "likely"
+	}
+}
+
+func normalizeEvidenceAuthority(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "sot", "decision", "implementation_context", "design_context", "supporting", "memory":
+		return strings.ToLower(strings.TrimSpace(value))
+	case "contract", "api_contract", "requirements", "security", "rules", "baseline_rules", "data":
+		return "sot"
+	case "architecture", "adr":
+		return "decision"
+	case "design":
+		return "design_context"
+	default:
+		return "supporting"
+	}
+}
+
+func inferFindingEvidenceAuthority(rc *review.Context, finding review.Finding) string {
+	if rc == nil {
+		return "supporting"
+	}
+	if len(rc.Source.Evidence) == 0 {
+		return "sot"
+	}
+	text := strings.ToLower(finding.Title + "\n" + finding.Description + "\n" + finding.Suggestion)
+	best := "supporting"
+	for _, evidence := range rc.Source.Evidence {
+		if evidence.Source == "" && evidence.HeadingOrKey == "" {
+			continue
+		}
+		candidate := firstNonEmpty(evidence.AuthorityLevel, normalizeEvidenceAuthority(evidence.Authority))
+		if evidenceMentioned(text, evidence) && authorityRank(candidate) > authorityRank(best) {
+			best = candidate
+		}
+	}
+	return best
+}
+
+func evidenceMentioned(text string, evidence review.EvidenceItem) bool {
+	if text == "" {
+		return false
+	}
+	candidates := []string{evidence.Source, evidence.HeadingOrKey}
+	candidates = append(candidates, evidence.MatchedSignals...)
+	for _, candidate := range candidates {
+		candidate = strings.ToLower(strings.TrimSpace(candidate))
+		if candidate != "" && strings.Contains(text, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func authorityRank(value string) int {
+	switch normalizeEvidenceAuthority(value) {
+	case "sot":
+		return 5
+	case "decision":
+		return 4
+	case "implementation_context":
+		return 3
+	case "design_context":
+		return 2
+	case "memory":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func canAuthorityJustifyFinding(value string) bool {
+	value = normalizeEvidenceAuthority(value)
+	return value == "sot" || value == "decision"
+}
+
+func shouldDowngradeSpeculative(finding review.Finding) bool {
+	if finding.Strength == "speculative" {
+		return true
+	}
+	text := strings.ToLower(finding.Title + "\n" + finding.Description + "\n" + finding.Suggestion)
+	if strings.Contains(text, "ttl") || strings.Contains(text, "pruning") || strings.Contains(text, "performance") || strings.Contains(text, "latency") {
+		hasConcreteEvidence := strings.Contains(text, "requirement") ||
+			strings.Contains(text, "measured") ||
+			strings.Contains(text, "slow query") ||
+			strings.Contains(text, "missing index") ||
+			strings.Contains(text, "explicit")
+		return !hasConcreteEvidence
+	}
+	return false
+}
+
+func shouldDowngradeByAuthority(finding review.Finding) bool {
+	if finding.FindingType != "finding" {
+		return false
+	}
+	if finding.Strength == "confirmed" {
+		return !canAuthorityJustifyFinding(finding.EvidenceAuthority)
+	}
+	if finding.Severity == review.SeverityHigh || finding.Severity == review.SeverityCritical {
+		return !canAuthorityJustifyFinding(finding.EvidenceAuthority)
+	}
+	return false
+}
+
+func markFindingValidation(finding review.Finding, status, reason string) review.Finding {
+	finding.ValidationStatus = status
+	finding.ValidationReason = reason
+	return finding
 }
 
 func validSeverity(severity review.Severity) bool {

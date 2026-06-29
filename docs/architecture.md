@@ -625,6 +625,9 @@ The merged flow is:
 - heading/key
 - kind
 - authority
+- authority level
+- whether the section can justify a finding by itself
+- whether the section is supporting context only
 - matched signals
 - selection reason
 - score
@@ -723,12 +726,17 @@ fall back to a single completion response.
 
 ## Prompt And Finding Contracts
 
-The review system prompt requires JSON findings and labeled evidence use. It
-also tells the model:
+The review system prompt requires JSON findings, labeled evidence use, and
+explicit issue classification. It also tells the model:
 
 - only report actionable issues in changed files
 - cite selected repository source paths or requirement IDs for
   knowledge-backed findings
+- provide `finding_type`, `strength`, and `evidence_authority`
+- treat source-of-truth evidence and approved decisions as finding-grade
+  authority
+- treat design, ownership, runbook, supporting docs, and memory as supporting
+  context unless paired with source-of-truth evidence
 - treat approved memory as lower authority than repository files
 - preserve source path, heading/key, identifiers, and selection reason through
   Headroom-compressed evidence
@@ -744,14 +752,18 @@ The finding parser accepts:
 - JSON fenced blocks
 - balanced JSON spans inside prose
 
-`DefaultFindingValidator` rejects:
+`DefaultFindingValidator` classifies parsed output into accepted findings,
+human-check items, notes, questions, and rejected findings. It rejects:
 
 - duplicate finding IDs
 - invalid severity
-- confidence below `0.45` by default
-- locations outside changed paths
+- confidence below `0.45` by default for actual findings
+- publishable findings without a changed-file and changed-line location
+- locations outside changed paths for confirmed findings
 
-Only accepted findings are rendered into draft and final reports.
+It downgrades speculative performance/TTL/pruning concerns, weak-authority
+claims, and likely findings into draft-only sections instead of inline comments.
+Only accepted confirmed findings are sent to inline publishing by default.
 
 ## SCM Boundary
 

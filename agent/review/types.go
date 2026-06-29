@@ -11,14 +11,17 @@ type Section struct {
 // EvidenceItem explains why one repository section was selected for review.
 // It is operator-facing metadata; model-facing content stays in Section.
 type EvidenceItem struct {
-	Source          string   `json:"source"`
-	HeadingOrKey    string   `json:"heading_or_key"`
-	Kind            Kind     `json:"kind"`
-	Authority       string   `json:"authority"`
-	MatchedSignals  []string `json:"matched_signals,omitempty"`
-	SelectionReason string   `json:"selection_reason"`
-	Score           int      `json:"score"`
-	ContentBytes    int      `json:"content_bytes"`
+	Source            string   `json:"source"`
+	HeadingOrKey      string   `json:"heading_or_key"`
+	Kind              Kind     `json:"kind"`
+	Authority         string   `json:"authority"`
+	AuthorityLevel    string   `json:"authority_level,omitempty"`
+	CanJustifyFinding bool     `json:"can_justify_finding,omitempty"`
+	SupportsOnly      bool     `json:"supports_only,omitempty"`
+	MatchedSignals    []string `json:"matched_signals,omitempty"`
+	SelectionReason   string   `json:"selection_reason"`
+	Score             int      `json:"score"`
+	ContentBytes      int      `json:"content_bytes"`
 }
 
 // SkillActivation records why one review skill is active for a run.

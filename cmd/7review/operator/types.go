@@ -148,14 +148,17 @@ type ContextSection struct {
 }
 
 type ContextEvidence struct {
-	Source          string   `json:"source"`
-	HeadingOrKey    string   `json:"heading_or_key"`
-	Kind            string   `json:"kind"`
-	Authority       string   `json:"authority"`
-	MatchedSignals  []string `json:"matched_signals"`
-	SelectionReason string   `json:"selection_reason"`
-	Score           int      `json:"score"`
-	ContentBytes    int      `json:"content_bytes"`
+	Source            string   `json:"source"`
+	HeadingOrKey      string   `json:"heading_or_key"`
+	Kind              string   `json:"kind"`
+	Authority         string   `json:"authority"`
+	AuthorityLevel    string   `json:"authority_level"`
+	CanJustifyFinding bool     `json:"can_justify_finding"`
+	SupportsOnly      bool     `json:"supports_only"`
+	MatchedSignals    []string `json:"matched_signals"`
+	SelectionReason   string   `json:"selection_reason"`
+	Score             int      `json:"score"`
+	ContentBytes      int      `json:"content_bytes"`
 }
 
 type DiffSummary struct {

@@ -19,13 +19,18 @@ type Location struct {
 
 // Finding is the structured form expected from the review agent.
 type Finding struct {
-	ID          string
-	Severity    Severity
-	Title       string
-	Description string
-	Suggestion  string
-	Location    Location
-	Confidence  float64
+	ID                string
+	Severity          Severity
+	Title             string
+	Description       string
+	Suggestion        string
+	Location          Location
+	Confidence        float64
+	FindingType       string `json:"finding_type,omitempty"`
+	Strength          string `json:"strength,omitempty"`
+	EvidenceAuthority string `json:"evidence_authority,omitempty"`
+	ValidationStatus  string `json:"validation_status,omitempty"`
+	ValidationReason  string `json:"validation_reason,omitempty"`
 }
 
 // InlineComment records provider-neutral inline publishing state for a finding.

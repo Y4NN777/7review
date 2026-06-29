@@ -26,6 +26,9 @@ type Source struct {
 	ToolRequests     []ToolRequest
 	ToolObservations []ToolObservation
 	Findings         []Finding
+	HumanCheck       []Finding
+	Notes            []Finding
+	Questions        []Finding
 	InlineComments   []InlineComment
 	Report           Report
 	Run              RunMetadata
