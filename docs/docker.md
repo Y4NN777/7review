@@ -100,13 +100,17 @@ make docker-build    # build images
 make docker-up       # build and start in the background
 make docker-status   # run the agent status command inside the container
 make docker-ready    # call /ready through the published host port
+make docker-review-gitlab PROJECT_ID=25 MR=19
+make docker-review-github REPO=owner/repo PR=7
 make docker-logs     # follow agent logs
 make docker-tui      # open the operator TUI inside the agent container
 make docker-down     # stop the stack
 make compose-smoke   # build, wait for health, run status, then clean up
 ```
 
-`docker-ready` uses `REVIEW_API_TOKEN` and `HTTP_PORT` from the environment.
+`docker-ready` and the manual review targets use `REVIEW_API_TOKEN`. The review
+targets execute the authenticated `7review review` command inside the agent
+container and send work through the same bounded worker queue as webhooks.
 
 For a repeatable local deployment smoke test that builds the images, waits for
 all three services to become healthy, checks `/ready` from inside the agent
@@ -159,7 +163,15 @@ The default Docker setup uses:
 ```sh
 WEBHOOK_WORKERS=4
 WEBHOOK_QUEUE_SIZE=32
+WEBHOOK_REVIEW_MODE=manual_first
+REVIEW_LABEL_INCLUDE=7review,ready-for-review
+REVIEW_LABEL_EXCLUDE=no-review,wip,draft
 ```
+
+With `manual_first`, webhook deliveries are accepted but only enqueue a review
+when include policy matches and no exclude/allowlist rule rejects the event. Use
+`WEBHOOK_REVIEW_MODE=auto` for the previous always-review webhook behavior, or
+`WEBHOOK_REVIEW_MODE=off` to accept valid webhook payloads without enqueueing.
 
 `WEBHOOK_WORKERS=2` allows two review jobs to be active at the same time.
 `max_parallel` controls batch fan-out inside a single review.

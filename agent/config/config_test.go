@@ -57,6 +57,65 @@ func TestLoadConfig_SidecarTimeoutDefaults(t *testing.T) {
 	if cfg.EmbeddingModel != "nomic-embed-text:latest" {
 		t.Fatalf("unexpected embedding model %q", cfg.EmbeddingModel)
 	}
+	if cfg.WebhookReviewMode != "manual_first" {
+		t.Fatalf("unexpected webhook review mode %q", cfg.WebhookReviewMode)
+	}
+	if strings.Join(cfg.ReviewLabelInclude, ",") != "7review,ready-for-review" {
+		t.Fatalf("unexpected include labels %#v", cfg.ReviewLabelInclude)
+	}
+	if strings.Join(cfg.ReviewLabelExclude, ",") != "no-review,wip,draft" {
+		t.Fatalf("unexpected exclude labels %#v", cfg.ReviewLabelExclude)
+	}
+}
+
+func TestLoadConfig_WebhookReviewPolicyOverrides(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "token")
+	t.Setenv("GITHUB_WEBHOOK_SECRET", "secret")
+	t.Setenv("REVIEW_API_TOKEN", "agent-token")
+	t.Setenv("HEADROOM_URL", "http://headroom")
+	t.Setenv("MEMPALACE_URL", "http://mempalace")
+	t.Setenv("OLLAMA_BASE_URL", "http://ollama:11434")
+	t.Setenv("WEBHOOK_REVIEW_MODE", "auto")
+	t.Setenv("REVIEW_LABEL_INCLUDE", " review ,ready,review")
+	t.Setenv("REVIEW_LABEL_EXCLUDE", " no-review , draft ")
+	t.Setenv("REVIEW_ALLOWED_PROJECTS", "25, 26")
+	t.Setenv("REVIEW_ALLOWED_REPOS", "owner/repo, org/app")
+	t.Setenv("REVIEW_BRANCH_INCLUDE", "main, release")
+	t.Setenv("REVIEW_BRANCH_EXCLUDE", "wip")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.WebhookReviewMode != "auto" {
+		t.Fatalf("unexpected mode %q", cfg.WebhookReviewMode)
+	}
+	if strings.Join(cfg.ReviewLabelInclude, ",") != "review,ready" ||
+		strings.Join(cfg.ReviewLabelExclude, ",") != "no-review,draft" ||
+		strings.Join(cfg.ReviewAllowedProjects, ",") != "25,26" ||
+		strings.Join(cfg.ReviewAllowedRepos, ",") != "owner/repo,org/app" ||
+		strings.Join(cfg.ReviewBranchInclude, ",") != "main,release" ||
+		strings.Join(cfg.ReviewBranchExclude, ",") != "wip" {
+		t.Fatalf("policy lists not parsed: %#v", cfg)
+	}
+}
+
+func TestLoadConfig_RejectsInvalidWebhookReviewMode(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "token")
+	t.Setenv("GITHUB_WEBHOOK_SECRET", "secret")
+	t.Setenv("REVIEW_API_TOKEN", "agent-token")
+	t.Setenv("HEADROOM_URL", "http://headroom")
+	t.Setenv("MEMPALACE_URL", "http://mempalace")
+	t.Setenv("OLLAMA_BASE_URL", "http://ollama:11434")
+	t.Setenv("WEBHOOK_REVIEW_MODE", "always")
+
+	_, err := LoadConfig()
+	if err == nil {
+		t.Fatal("expected invalid review mode error")
+	}
+	if !strings.Contains(err.Error(), "WEBHOOK_REVIEW_MODE") {
+		t.Fatalf("expected mode error, got %v", err)
+	}
 }
 
 func TestLoadConfig_CorpusRootOverride(t *testing.T) {

@@ -22,11 +22,20 @@ type RunReader interface {
 }
 
 type RunActions interface {
+	RequestReview(context.Context, ReviewRequestInput) (any, error)
 	ApproveRun(context.Context, string, string) error
 	PublishFinal(context.Context, string, string) error
 	SuppressFinding(context.Context, string, string, string) error
 	ReviseDraft(context.Context, string, string) error
 	RerunReview(context.Context, string, string) error
+}
+
+type ReviewRequestInput struct {
+	Provider   string
+	ProjectID  string
+	MRIID      int
+	Repository string
+	PRNumber   int
 }
 
 type ReadyChecker interface {
@@ -220,6 +229,16 @@ func (e ToolExecutor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteR
 			return ExecuteResponse{}, err
 		}
 		return ExecuteResponse{Name: name, Result: map[string]any{"accepted": true, "run": run}}, nil
+	case "request_review":
+		if e.Actions == nil {
+			return ExecuteResponse{}, fmt.Errorf("tools: run actions are not configured")
+		}
+		input, err := parseReviewRequestInput(req.Input)
+		if err != nil {
+			return ExecuteResponse{}, err
+		}
+		result, err := e.Actions.RequestReview(ctx, input)
+		return ExecuteResponse{Name: name, Result: result}, err
 	case "publish_final":
 		if e.Actions == nil {
 			return ExecuteResponse{}, fmt.Errorf("tools: run actions are not configured")
@@ -314,6 +333,10 @@ func stringInput(input map[string]any, keys ...string) string {
 			}
 		case json.Number:
 			return v.String()
+		case int:
+			return fmt.Sprintf("%d", v)
+		case int64:
+			return fmt.Sprintf("%d", v)
 		case float64:
 			return strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%.0f", v), ".0"), ".")
 		}
@@ -328,4 +351,42 @@ func legacyRunID(input map[string]any) string {
 		return ""
 	}
 	return project + "!" + mr
+}
+
+func parseReviewRequestInput(input map[string]any) (ReviewRequestInput, error) {
+	provider := strings.ToLower(stringInput(input, "provider"))
+	switch provider {
+	case "gitlab":
+		project := stringInput(input, "project_id", "project")
+		mr := intInput(input, "mr_iid", "mr")
+		if project == "" {
+			return ReviewRequestInput{}, fmt.Errorf("tools: request_review requires project_id for gitlab")
+		}
+		if mr <= 0 {
+			return ReviewRequestInput{}, fmt.Errorf("tools: request_review requires mr_iid for gitlab")
+		}
+		return ReviewRequestInput{Provider: provider, ProjectID: project, MRIID: mr}, nil
+	case "github":
+		repo := stringInput(input, "repository", "repo")
+		pr := intInput(input, "pr_number", "pr")
+		if repo == "" {
+			return ReviewRequestInput{}, fmt.Errorf("tools: request_review requires repository for github")
+		}
+		if pr <= 0 {
+			return ReviewRequestInput{}, fmt.Errorf("tools: request_review requires pr_number for github")
+		}
+		return ReviewRequestInput{Provider: provider, Repository: repo, ProjectID: repo, PRNumber: pr}, nil
+	default:
+		return ReviewRequestInput{}, fmt.Errorf("tools: request_review requires provider gitlab or github")
+	}
+}
+
+func intInput(input map[string]any, keys ...string) int {
+	value := stringInput(input, keys...)
+	if value == "" {
+		return 0
+	}
+	var n int
+	_, _ = fmt.Sscanf(value, "%d", &n)
+	return n
 }

@@ -22,6 +22,7 @@ func TestCatalogContainsModelFacingReviewTools(t *testing.T) {
 		"list_provider_status":    false,
 		"get_publish_status":      false,
 		"revise_draft":            false,
+		"request_review":          false,
 		"suppress_finding":        false,
 		"rerun_review":            false,
 		"preview_memory_proposal": false,
@@ -68,6 +69,9 @@ func TestCatalogMarksHILSideEffects(t *testing.T) {
 			t.Fatalf("%s should be read-only/non-gated: %#v", name, tool)
 		}
 	}
+	if tool := byName["request_review"]; !tool.SideEffects || tool.RequiresApproval {
+		t.Fatalf("request_review should enqueue work without HIL approval: %#v", tool)
+	}
 }
 
 func TestCatalogImplementationStatusIsExplicit(t *testing.T) {
@@ -76,7 +80,7 @@ func TestCatalogImplementationStatusIsExplicit(t *testing.T) {
 	for _, tool := range catalog {
 		byName[tool.Name] = tool
 	}
-	for _, name := range []string{"list_runs", "get_run", "get_run_timeline", "stream_run_chat", "check_ready", "get_config_status", "list_skills", "get_selected_context", "get_diff_summary", "list_provider_status", "get_publish_status", "preview_memory_proposal", "suppress_finding", "revise_draft", "rerun_review", "approve_run", "publish_final"} {
+	for _, name := range []string{"list_runs", "get_run", "get_run_timeline", "stream_run_chat", "check_ready", "get_config_status", "list_skills", "get_selected_context", "get_diff_summary", "list_provider_status", "get_publish_status", "preview_memory_proposal", "request_review", "suppress_finding", "revise_draft", "rerun_review", "approve_run", "publish_final"} {
 		if !byName[name].Implemented {
 			t.Fatalf("%s should be marked implemented: %#v", name, byName[name])
 		}

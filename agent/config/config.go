@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config holds all runtime settings, loaded from environment variables.
@@ -25,6 +26,13 @@ type Config struct {
 	WebhookWorkers              int
 	WebhookQueueSize            int
 	WebhookJobTimeout           int
+	WebhookReviewMode           string
+	ReviewLabelInclude          []string
+	ReviewLabelExclude          []string
+	ReviewAllowedProjects       []string
+	ReviewAllowedRepos          []string
+	ReviewBranchInclude         []string
+	ReviewBranchExclude         []string
 	HeadroomURL                 string
 	HeadroomTimeout             int
 	MemPalaceURL                string
@@ -90,6 +98,13 @@ func LoadConfig() (*Config, error) {
 		WebhookWorkers:              getEnvInt("WEBHOOK_WORKERS", 4),
 		WebhookQueueSize:            getEnvInt("WEBHOOK_QUEUE_SIZE", 128),
 		WebhookJobTimeout:           getEnvInt("WEBHOOK_JOB_TIMEOUT_MS", 15*60*1000),
+		WebhookReviewMode:           getEnv("WEBHOOK_REVIEW_MODE", "manual_first"),
+		ReviewLabelInclude:          getEnvList("REVIEW_LABEL_INCLUDE", "7review,ready-for-review"),
+		ReviewLabelExclude:          getEnvList("REVIEW_LABEL_EXCLUDE", "no-review,wip,draft"),
+		ReviewAllowedProjects:       getEnvList("REVIEW_ALLOWED_PROJECTS", ""),
+		ReviewAllowedRepos:          getEnvList("REVIEW_ALLOWED_REPOS", ""),
+		ReviewBranchInclude:         getEnvList("REVIEW_BRANCH_INCLUDE", ""),
+		ReviewBranchExclude:         getEnvList("REVIEW_BRANCH_EXCLUDE", ""),
 		HeadroomURL:                 os.Getenv("HEADROOM_URL"),
 		HeadroomTimeout:             getEnvInt("HEADROOM_TIMEOUT_MS", 5000),
 		MemPalaceURL:                os.Getenv("MEMPALACE_URL"),
@@ -172,6 +187,11 @@ func LoadConfig() (*Config, error) {
 			missing = append(missing, err.Error())
 		}
 	}
+	switch c.WebhookReviewMode {
+	case "manual_first", "auto", "off":
+	default:
+		missing = append(missing, "WEBHOOK_REVIEW_MODE must be one of: manual_first, auto, off")
+	}
 
 	// At least one LLM provider key must be present.
 	hasProvider := c.AnthropicAPIKey != "" || c.OpenAIAPIKey != "" ||
@@ -252,6 +272,24 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func getEnvList(key, fallback string) []string {
+	raw := getEnv(key, fallback)
+	if raw == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		item := strings.TrimSpace(part)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	return out
 }
 
 func getEnvInt(key string, fallback int) int {

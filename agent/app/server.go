@@ -22,6 +22,8 @@ type Server struct {
 	work     chan workItem
 	seenMu   sync.Mutex
 	seen     map[string]time.Time
+	activeMu sync.Mutex
+	active   map[string]bool
 	stats    workerStats
 }
 
@@ -58,6 +60,7 @@ func NewServer() (*Server, error) {
 		},
 		mux:  http.NewServeMux(),
 		seen: make(map[string]time.Time),
+		active: make(map[string]bool),
 	}
 	s.work = make(chan workItem, cfg.WebhookQueueSize)
 	gitlab := tools.NewGitLabClient(cfg.GitLabURL, cfg.GitLabToken)

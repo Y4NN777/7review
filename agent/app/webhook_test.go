@@ -14,9 +14,9 @@ import (
 
 func TestGitLabWebhookIgnoresNonMergeRequestEvents(t *testing.T) {
 	called := false
-	handler := gitLabWebhookHandler("secret", func(review.Request) error {
+	handler := gitLabWebhookHandler("secret", func(review.Request) (reviewDispatchResult, error) {
 		called = true
-		return nil
+		return reviewDispatchResult{Status: "enqueued"}, nil
 	})
 	req := httptest.NewRequest(http.MethodPost, "/webhook/gitlab", strings.NewReader(`{
 		"object_kind":"note",
@@ -39,9 +39,9 @@ func TestGitLabWebhookIgnoresNonMergeRequestEvents(t *testing.T) {
 
 func TestGitLabWebhookNormalizesReviewableEventMetadata(t *testing.T) {
 	var got review.Request
-	handler := gitLabWebhookHandler("secret", func(req review.Request) error {
+	handler := gitLabWebhookHandler("secret", func(req review.Request) (reviewDispatchResult, error) {
 		got = req
-		return nil
+		return reviewDispatchResult{Status: "enqueued"}, nil
 	})
 	req := httptest.NewRequest(http.MethodPost, "/webhook/gitlab", strings.NewReader(`{
 		"object_kind":"merge_request",
@@ -82,9 +82,9 @@ func TestGitLabWebhookNormalizesReviewableEventMetadata(t *testing.T) {
 
 func TestGitLabWebhookNormalizesLabelPayloadVariants(t *testing.T) {
 	var got review.Request
-	handler := gitLabWebhookHandler("secret", func(req review.Request) error {
+	handler := gitLabWebhookHandler("secret", func(req review.Request) (reviewDispatchResult, error) {
 		got = req
-		return nil
+		return reviewDispatchResult{Status: "enqueued"}, nil
 	})
 	req := httptest.NewRequest(http.MethodPost, "/webhook/gitlab", strings.NewReader(`{
 		"object_kind":"merge_request",
@@ -118,9 +118,9 @@ func TestGitLabWebhookNormalizesLabelPayloadVariants(t *testing.T) {
 }
 
 func TestGitLabWebhookRejectsOversizedPayload(t *testing.T) {
-	handler := gitLabWebhookHandler("", func(review.Request) error {
+	handler := gitLabWebhookHandler("", func(review.Request) (reviewDispatchResult, error) {
 		t.Fatal("handler should not run for oversized payload")
-		return nil
+		return reviewDispatchResult{Status: "enqueued"}, nil
 	})
 	req := httptest.NewRequest(http.MethodPost, "/webhook/gitlab", strings.NewReader(strings.Repeat("x", int(webhookMaxBodyBytes)+1)))
 	rec := httptest.NewRecorder()
@@ -148,9 +148,9 @@ func TestGitHubWebhookNormalizesDeliveryAndAction(t *testing.T) {
 		}
 	}`
 	var got review.Request
-	handler := gitHubWebhookHandler("secret", func(req review.Request) error {
+	handler := gitHubWebhookHandler("secret", func(req review.Request) (reviewDispatchResult, error) {
 		got = req
-		return nil
+		return reviewDispatchResult{Status: "enqueued"}, nil
 	})
 	req := httptest.NewRequest(http.MethodPost, "/webhook/github", strings.NewReader(body))
 	req.Header.Set("X-GitHub-Event", "pull_request")
@@ -172,9 +172,9 @@ func TestGitHubWebhookNormalizesDeliveryAndAction(t *testing.T) {
 }
 
 func TestGitHubWebhookRejectsOversizedPayload(t *testing.T) {
-	handler := gitHubWebhookHandler("", func(review.Request) error {
+	handler := gitHubWebhookHandler("", func(review.Request) (reviewDispatchResult, error) {
 		t.Fatal("handler should not run for oversized payload")
-		return nil
+		return reviewDispatchResult{Status: "enqueued"}, nil
 	})
 	req := httptest.NewRequest(http.MethodPost, "/webhook/github", strings.NewReader(strings.Repeat("x", int(webhookMaxBodyBytes)+1)))
 	req.Header.Set("X-GitHub-Event", "pull_request")

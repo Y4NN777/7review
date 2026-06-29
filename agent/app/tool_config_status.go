@@ -8,29 +8,36 @@ import (
 )
 
 type configStatusDTO struct {
-	ListenAddr                  string `json:"listen_addr"`
-	CorpusRoot                  string `json:"corpus_root"`
-	MaxSupportingCorpusSections int    `json:"max_supporting_corpus_sections"`
-	MemoryDir                   string `json:"memory_dir"`
-	HILChannel                  string `json:"hil_channel"`
-	Provider                    string `json:"provider"`
-	ReviewModel                 string `json:"review_model"`
-	SmallModel                  string `json:"small_model"`
-	EmbeddingModel              string `json:"embedding_model,omitempty"`
-	Orchestrator                string `json:"orchestrator_config,omitempty"`
-	HasGitLab                   bool   `json:"has_gitlab"`
-	HasGitHub                   bool   `json:"has_github"`
-	HasOpenAI                   bool   `json:"has_openai"`
-	HasOpenRouter               bool   `json:"has_openrouter"`
-	HasDeepSeek                 bool   `json:"has_deepseek"`
-	HasAnthropic                bool   `json:"has_anthropic"`
-	HasMistral                  bool   `json:"has_mistral"`
-	HasGemini                   bool   `json:"has_gemini"`
-	HasOllama                   bool   `json:"has_ollama"`
-	HeadroomURL                 string `json:"headroom_url"`
-	MemPalaceURL                string `json:"mempalace_url"`
-	WebhookWorkers              int    `json:"webhook_workers"`
-	WebhookQueueSize            int    `json:"webhook_queue_size"`
+	ListenAddr                  string   `json:"listen_addr"`
+	CorpusRoot                  string   `json:"corpus_root"`
+	MaxSupportingCorpusSections int      `json:"max_supporting_corpus_sections"`
+	MemoryDir                   string   `json:"memory_dir"`
+	HILChannel                  string   `json:"hil_channel"`
+	Provider                    string   `json:"provider"`
+	ReviewModel                 string   `json:"review_model"`
+	SmallModel                  string   `json:"small_model"`
+	EmbeddingModel              string   `json:"embedding_model,omitempty"`
+	Orchestrator                string   `json:"orchestrator_config,omitempty"`
+	HasGitLab                   bool     `json:"has_gitlab"`
+	HasGitHub                   bool     `json:"has_github"`
+	HasOpenAI                   bool     `json:"has_openai"`
+	HasOpenRouter               bool     `json:"has_openrouter"`
+	HasDeepSeek                 bool     `json:"has_deepseek"`
+	HasAnthropic                bool     `json:"has_anthropic"`
+	HasMistral                  bool     `json:"has_mistral"`
+	HasGemini                   bool     `json:"has_gemini"`
+	HasOllama                   bool     `json:"has_ollama"`
+	HeadroomURL                 string   `json:"headroom_url"`
+	MemPalaceURL                string   `json:"mempalace_url"`
+	WebhookWorkers              int      `json:"webhook_workers"`
+	WebhookQueueSize            int      `json:"webhook_queue_size"`
+	WebhookReviewMode           string   `json:"webhook_review_mode"`
+	ReviewLabelInclude          []string `json:"review_label_include,omitempty"`
+	ReviewLabelExclude          []string `json:"review_label_exclude,omitempty"`
+	ReviewAllowedProjects       []string `json:"review_allowed_projects,omitempty"`
+	ReviewAllowedRepos          []string `json:"review_allowed_repos,omitempty"`
+	ReviewBranchInclude         []string `json:"review_branch_include,omitempty"`
+	ReviewBranchExclude         []string `json:"review_branch_exclude,omitempty"`
 }
 
 type skillStatusDTO struct {
@@ -96,6 +103,13 @@ func configStatus(cfg *config.Config) configStatusDTO {
 		MemPalaceURL:                cfg.MemPalaceURL,
 		WebhookWorkers:              cfg.WebhookWorkers,
 		WebhookQueueSize:            cfg.WebhookQueueSize,
+		WebhookReviewMode:           cfg.WebhookReviewMode,
+		ReviewLabelInclude:          append([]string(nil), cfg.ReviewLabelInclude...),
+		ReviewLabelExclude:          append([]string(nil), cfg.ReviewLabelExclude...),
+		ReviewAllowedProjects:       append([]string(nil), cfg.ReviewAllowedProjects...),
+		ReviewAllowedRepos:          append([]string(nil), cfg.ReviewAllowedRepos...),
+		ReviewBranchInclude:         append([]string(nil), cfg.ReviewBranchInclude...),
+		ReviewBranchExclude:         append([]string(nil), cfg.ReviewBranchExclude...),
 	}
 }
 

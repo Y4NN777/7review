@@ -9,3 +9,6 @@ __pycache__/
 dist/
 tmp/
 docker-compose.override.yml
+site/node_modules/
+site/build/
+site/.docusaurus/

@@ -55,6 +55,13 @@ func main() {
 		runListRuns()
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "review" {
+		if err := runRequestReview(os.Args[2:], os.Stdout, operatorRequestHTTPClient()); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "sessions" {
 		if err := runSessions(os.Args[2:], os.Stdout, operatorRequestHTTPClient()); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -109,6 +116,53 @@ func runListRuns() {
 		os.Exit(1)
 	}
 	fmt.Println(body)
+}
+
+type requestReviewCommandResult struct {
+	RunID  string `json:"run_id"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+func runRequestReview(args []string, out io.Writer, client *http.Client) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: 7review review gitlab --project <project-id> --mr <iid> [--server <url>]\n       7review review github --repo <owner/repo> --pr <number> [--server <url>]")
+	}
+	provider := strings.ToLower(strings.TrimSpace(args[0]))
+	opts := map[string]any{"provider": provider}
+	serverURL := "http://localhost:8080"
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		switch flagName(arg) {
+		case "--server":
+			serverURL = flagValue(args, &i)
+		case "--project", "--project-id":
+			opts["project_id"] = flagValue(args, &i)
+		case "--mr", "--mr-iid":
+			opts["mr_iid"] = parsePositiveInt(flagValue(args, &i))
+		case "--repo", "--repository":
+			opts["repository"] = flagValue(args, &i)
+		case "--pr", "--pr-number":
+			opts["pr_number"] = parsePositiveInt(flagValue(args, &i))
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return fmt.Errorf("unknown review flag %s", arg)
+			}
+		}
+	}
+	var result requestReviewCommandResult
+	if err := executeRemoteTool(client, serverURL, "request_review", opts, &result); err != nil {
+		return err
+	}
+	if result.RunID == "" {
+		return fmt.Errorf("request_review returned no run id")
+	}
+	if result.Reason != "" {
+		fmt.Fprintf(out, "review %s for %s: %s\n", result.Status, result.RunID, result.Reason)
+		return nil
+	}
+	fmt.Fprintf(out, "review %s for %s\n", result.Status, result.RunID)
+	return nil
 }
 
 func runSessions(args []string, out io.Writer, client *http.Client) error {

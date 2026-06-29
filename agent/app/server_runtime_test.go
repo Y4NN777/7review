@@ -255,7 +255,7 @@ func TestClaimDeliveryPurgesExpiredEntries(t *testing.T) {
 
 func TestDeliveryKeyReleasedWhenQueuedWebhookRunFails(t *testing.T) {
 	s := &Server{
-		cfg:      &config.Config{GitLabURL: "https://gitlab.example.com", GitLabToken: "token", WebhookSecret: "secret"},
+		cfg:      &config.Config{GitLabURL: "https://gitlab.example.com", GitLabToken: "token", WebhookSecret: "secret", WebhookReviewMode: "auto"},
 		pipeline: &pipeline.Pipeline{},
 		mux:      http.NewServeMux(),
 		work:     make(chan workItem, 1),

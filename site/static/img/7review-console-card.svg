@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">7review operator console</title>
+  <desc id="desc">A dark terminal-style documentation card showing real 7review commands.</desc>
+  <rect width="1200" height="630" fill="#0B0C0A"/>
+  <g fill="none" stroke="#26312B" stroke-width="1">
+    <path d="M80 80h1040v470H80z"/>
+    <path d="M80 144h1040"/>
+    <path d="M360 144v406"/>
+    <path d="M80 438h1040"/>
+  </g>
+  <g font-family="IBM Plex Mono, JetBrains Mono, monospace" font-size="26">
+    <text x="112" y="120" fill="#00E676">7review</text>
+    <text x="254" y="120" fill="#A9B7AD">operator documentation</text>
+    <text x="930" y="120" fill="#FFB800">manual_first</text>
+    <text x="112" y="198" fill="#A9B7AD">Paths</text>
+    <text x="112" y="248" fill="#00E676">Manual Reviews</text>
+    <text x="112" y="298" fill="#A9B7AD">Webhook Policy</text>
+    <text x="112" y="348" fill="#A9B7AD">Docker Runtime</text>
+    <text x="112" y="398" fill="#A9B7AD">Troubleshooting</text>
+    <text x="408" y="205" fill="#A9B7AD">$ 7review review github --repo owner/repo --pr 7</text>
+    <text x="408" y="255" fill="#00E676">review enqueued for owner/repo!7</text>
+    <text x="408" y="326" fill="#A9B7AD">$ 7review status --server http://localhost:8080</text>
+    <text x="408" y="376" fill="#00E676">queue ok depth=0 capacity=128</text>
+    <text x="112" y="502" fill="#FFB800">final publication remains human-approved</text>
+  </g>
+</svg>

@@ -1,0 +1,77 @@
+---
+sidebar_position: 2
+title: Démarrage rapide
+description: Démarrer 7review en local ou avec Docker.
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Démarrage rapide
+
+Commence par générer la configuration, lancer le serveur, puis vérifier la
+readiness.
+
+<Tabs>
+<TabItem value="local" label="Local" default>
+
+```bash
+go run ./cmd/7review setup
+
+set -a
+. ./.env
+set +a
+
+go run ./cmd/7review
+```
+
+Dans un autre terminal :
+
+```bash
+go run ./cmd/7review status --server http://localhost:8080
+```
+
+</TabItem>
+<TabItem value="docker" label="Docker">
+
+```bash
+go run ./cmd/7review setup
+make docker-up
+make docker-status
+```
+
+</TabItem>
+</Tabs>
+
+## Première review manuelle
+
+<Tabs>
+<TabItem value="github" label="GitHub" default>
+
+```bash
+7review review github \
+  --repo owner/repo \
+  --pr 7 \
+  --server http://localhost:8080
+```
+
+</TabItem>
+<TabItem value="gitlab" label="GitLab">
+
+```bash
+7review review gitlab \
+  --project 25 \
+  --mr 19 \
+  --server http://localhost:8080
+```
+
+</TabItem>
+</Tabs>
+
+## Inspecter le run
+
+```bash
+7review sessions --server http://localhost:8080
+7review session owner/repo!7 --server http://localhost:8080
+7review chat owner/repo!7 --server http://localhost:8080
+```

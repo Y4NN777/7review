@@ -12,7 +12,7 @@ import (
 	"github.com/Y4NN777/7review/agent/review"
 )
 
-func gitHubWebhookHandler(secret string, handler mergeRequestHandler) http.HandlerFunc {
+func gitHubWebhookHandler(secret string, handler reviewRequestHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -72,11 +72,15 @@ func gitHubWebhookHandler(secret string, handler mergeRequestHandler) http.Handl
 			req.Labels = append(req.Labels, label.Name)
 		}
 
-		if err := handler(req); err != nil {
+		result, err := handler(req)
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
+		if result.Status == "ignored" && result.Reason != "" {
+			_, _ = w.Write([]byte(result.Reason))
+		}
 	}
 }
 

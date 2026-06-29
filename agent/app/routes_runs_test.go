@@ -43,7 +43,7 @@ func TestRoutesEnableOnlyConfiguredGitHubWebhook(t *testing.T) {
 		"pull_request":{"title":"Fix","head":{"sha":"abc"},"base":{"sha":"def"}}
 	}`
 	s := &Server{
-		cfg:      &config.Config{GitHubAPIURL: "https://api.github.com", GitHubToken: "token", GitHubWebhookSecret: "github-secret"},
+		cfg:      &config.Config{GitHubAPIURL: "https://api.github.com", GitHubToken: "token", GitHubWebhookSecret: "github-secret", WebhookReviewMode: "auto"},
 		pipeline: &pipeline.Pipeline{},
 		mux:      http.NewServeMux(),
 		work:     make(chan workItem, 1),

@@ -10,9 +10,9 @@ import (
 	"github.com/Y4NN777/7review/agent/review"
 )
 
-type mergeRequestHandler func(review.Request) error
+type reviewRequestHandler func(review.Request) (reviewDispatchResult, error)
 
-func gitLabWebhookHandler(secret string, handler mergeRequestHandler) http.HandlerFunc {
+func gitLabWebhookHandler(secret string, handler reviewRequestHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -65,7 +65,7 @@ func gitLabWebhookHandler(secret string, handler mergeRequestHandler) http.Handl
 			return
 		}
 
-		if err := handler(review.Request{
+		result, err := handler(review.Request{
 			Provider:     "gitlab",
 			DeliveryID:   firstNonEmptyString(r.Header.Get("X-Gitlab-Event-UUID"), r.Header.Get("X-Gitlab-Delivery")),
 			EventAction:  event.ObjectAttributes.Action,
@@ -80,11 +80,15 @@ func gitLabWebhookHandler(secret string, handler mergeRequestHandler) http.Handl
 			TargetBranch: event.ObjectAttributes.TargetBranch,
 			Author:       event.User.Username,
 			Labels:       mergeGitLabLabels(event.ObjectAttributes.Labels, event.Labels),
-		}); err != nil {
+		})
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
+		if result.Status == "ignored" && result.Reason != "" {
+			_, _ = w.Write([]byte(result.Reason))
+		}
 	}
 }
 

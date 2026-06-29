@@ -210,6 +210,21 @@ func Catalog() []ToolSpec {
 			}),
 		},
 		{
+			Name:           "request_review",
+			Description:    "Manually enqueue a review for one merge or pull request through the bounded worker queue.",
+			LifecycleStage: "review",
+			Implemented:    true,
+			Executor:       "POST /tools/execute {\"name\":\"request_review\"}",
+			SideEffects:    true,
+			InputSchema: objectSchema(map[string]any{
+				"provider":   stringSchema("SCM provider: gitlab or github."),
+				"project_id": stringSchema("Project ID for gitlab."),
+				"mr_iid":     numberSchema("Merge request IID for gitlab."),
+				"repository": stringSchema("Repository for github, as owner/repo."),
+				"pr_number":  numberSchema("Pull request number for github."),
+			}),
+		},
+		{
 			Name:           "preview_memory_proposal",
 			Description:    "Preview what approved final review knowledge would write to durable memory before the write occurs.",
 			LifecycleStage: "memory",

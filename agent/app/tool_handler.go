@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/Y4NN777/7review/agent/review"
 	"github.com/Y4NN777/7review/agent/tools"
 )
 
@@ -53,6 +55,22 @@ func (r appToolRunner) ReviseDraft(ctx context.Context, run string, request stri
 
 func (r appToolRunner) RerunReview(ctx context.Context, run string, reason string) error {
 	return r.server.pipeline.RerunReview(ctx, run, reason)
+}
+
+func (r appToolRunner) RequestReview(ctx context.Context, input tools.ReviewRequestInput) (any, error) {
+	req := review.Request{Provider: input.Provider, EventAction: "manual"}
+	switch input.Provider {
+	case "gitlab":
+		req.ProjectID = input.ProjectID
+		req.MRIID = input.MRIID
+		req.ChangeID = strconv.Itoa(input.MRIID)
+	case "github":
+		req.ProjectID = input.Repository
+		req.Repository = input.Repository
+		req.MRIID = input.PRNumber
+		req.ChangeID = strconv.Itoa(input.PRNumber)
+	}
+	return r.server.requestReview(ctx, req)
 }
 
 func (r appToolRunner) CheckReady(ctx context.Context) (any, error) {

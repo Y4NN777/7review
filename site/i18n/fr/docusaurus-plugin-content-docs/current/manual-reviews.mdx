@@ -1,0 +1,53 @@
+---
+sidebar_position: 4
+title: Reviews manuelles
+description: Mettre en file une PR GitHub ou une MR GitLab précise.
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Reviews manuelles
+
+La review manuelle est le chemin de contrôle principal. Elle crée une requête
+normale et l'envoie dans la même file bornée que les webhooks.
+
+<Tabs>
+<TabItem value="cli" label="CLI" default>
+
+```bash
+7review review github --repo owner/repo --pr 7 --server http://localhost:8080
+7review review gitlab --project 25 --mr 19 --server http://localhost:8080
+```
+
+</TabItem>
+<TabItem value="api" label="API outil">
+
+```bash
+curl -fsS \
+  -H "Authorization: Bearer $REVIEW_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"request_review","input":{"provider":"gitlab","project_id":"25","mr_iid":19}}' \
+  http://localhost:8080/tools/execute
+```
+
+</TabItem>
+<TabItem value="docker" label="Docker Make">
+
+```bash
+make docker-review-gitlab PROJECT_ID=25 MR=19
+make docker-review-github REPO=owner/repo PR=7
+```
+
+</TabItem>
+</Tabs>
+
+## IDs de run
+
+| Provider | Run ID |
+| --- | --- |
+| GitLab | `<project_id>!<mr_iid>` |
+| GitHub | `<owner/repo>!<pr_number>` |
+
+Si le même run est déjà en file ou en cours, la demande est rejetée au lieu
+d'être doublée.

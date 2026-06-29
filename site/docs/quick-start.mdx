@@ -1,0 +1,90 @@
+---
+sidebar_position: 2
+title: Quick Start
+description: Start 7review locally or with Docker.
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Quick Start
+
+Start with setup, then run the server, then check readiness.
+
+<Tabs>
+<TabItem value="local" label="Local" default>
+
+```bash
+go run ./cmd/7review setup
+
+set -a
+. ./.env
+set +a
+
+go run ./cmd/7review
+```
+
+In another terminal:
+
+```bash
+go run ./cmd/7review status --server http://localhost:8080
+```
+
+</TabItem>
+<TabItem value="docker" label="Docker">
+
+```bash
+go run ./cmd/7review setup
+make docker-up
+make docker-status
+```
+
+Use the readiness target when you want the raw `/ready` check:
+
+```bash
+make docker-ready
+```
+
+</TabItem>
+</Tabs>
+
+## Required before review
+
+- one SCM provider: GitHub or GitLab
+- one model provider credential or endpoint
+- `HEADROOM_URL`
+- `MEMPALACE_URL`
+- `REVIEW_API_TOKEN`
+
+## First manual review
+
+<Tabs>
+<TabItem value="github" label="GitHub" default>
+
+```bash
+7review review github \
+  --repo owner/repo \
+  --pr 7 \
+  --server http://localhost:8080
+```
+
+</TabItem>
+<TabItem value="gitlab" label="GitLab">
+
+```bash
+7review review gitlab \
+  --project 25 \
+  --mr 19 \
+  --server http://localhost:8080
+```
+
+</TabItem>
+</Tabs>
+
+## Verify the run
+
+```bash
+7review sessions --server http://localhost:8080
+7review session owner/repo!7 --server http://localhost:8080
+7review chat owner/repo!7 --server http://localhost:8080
+```

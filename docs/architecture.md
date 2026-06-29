@@ -176,10 +176,25 @@ flowchart TD
 ```
 
 Webhook handlers never run review work inline. They validate the provider
-secret/signature, normalize the event into `review.Request`, claim the delivery
-ID for duplicate suppression, and enqueue a `workItem`. Workers run with
+secret/signature, normalize the event into `review.Request`, apply the webhook
+review policy, claim the delivery ID for duplicate suppression, and enqueue a
+`workItem` only when policy allows it. Valid webhook events ignored by policy
+return `202 Accepted` with an ignored reason. Workers run with
 `WEBHOOK_JOB_TIMEOUT_MS`; panics are converted into worker errors and queue
 statistics are exposed through readiness.
+
+Manual review requests use the same queue through the authenticated
+`request_review` operator tool and CLI:
+
+```sh
+7review review gitlab --project <project-id> --mr <iid> --server http://localhost:8080
+7review review github --repo <owner/repo> --pr <number> --server http://localhost:8080
+```
+
+Manual run IDs are provider-neutral: `<project_id>!<mr_iid>` for GitLab and
+`<owner/repo>!<pr_number>` for GitHub. If that run is already queued or running,
+the request is rejected instead of double-enqueued; otherwise a later manual
+request can overwrite a completed/failed run as a fresh rerun.
 
 Configured production adapters are strict. If configuration names Headroom,
 MemPalace, or SCM credentials but the pipeline has a no-op adapter for that
@@ -206,6 +221,13 @@ Operator routes are protected by `REVIEW_API_TOKEN`:
 
 `GET /health` is a simple process health endpoint. `/ready` checks the
 pipeline, orchestrator, queue, run store, Headroom, and MemPalace.
+
+`POST /tools/execute` includes `request_review` for manual PR/MR review
+requests:
+
+```json
+{"name":"request_review","input":{"provider":"gitlab","project_id":"25","mr_iid":19}}
+```
 
 ## Review Lifecycle
 

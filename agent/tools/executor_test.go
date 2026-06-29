@@ -33,6 +33,12 @@ type fakeActions struct {
 	revisedRequest   string
 	rerunRun         string
 	rerunReason      string
+	reviewInput      ReviewRequestInput
+}
+
+func (f *fakeActions) RequestReview(_ context.Context, input ReviewRequestInput) (any, error) {
+	f.reviewInput = input
+	return map[string]any{"run_id": input.ProjectID + "!7", "status": "enqueued"}, nil
 }
 
 func (f *fakeActions) ApproveRun(_ context.Context, run string, report string) error {
@@ -252,6 +258,25 @@ func TestToolExecutorExecutesApprovalAndPublish(t *testing.T) {
 	}
 }
 
+func TestToolExecutorExecutesRequestReview(t *testing.T) {
+	actions := &fakeActions{}
+	executor := ToolExecutor{Actions: actions}
+
+	resp, err := executor.Execute(context.Background(), ExecuteRequest{
+		Name:  "request_review",
+		Input: map[string]any{"provider": "github", "repository": "owner/repo", "pr_number": float64(7)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actions.reviewInput.Provider != "github" || actions.reviewInput.Repository != "owner/repo" || actions.reviewInput.PRNumber != 7 {
+		t.Fatalf("unexpected request review input: %#v", actions.reviewInput)
+	}
+	if resp.Result == nil {
+		t.Fatalf("expected request review result")
+	}
+}
+
 func TestImplementedCatalogToolsHaveExecutablePath(t *testing.T) {
 	executor := ToolExecutor{
 		Runs:        &fakeRunTools{},
@@ -274,6 +299,7 @@ func TestImplementedCatalogToolsHaveExecutablePath(t *testing.T) {
 		"get_publish_status":      {"run": "p!7"},
 		"preview_memory_proposal": {"run": "p!7"},
 		"revise_draft":            {"run": "p!7", "request": "clarify evidence"},
+		"request_review":          {"provider": "github", "repository": "owner/repo", "pr_number": 7},
 		"suppress_finding":        {"run": "p!7", "finding_id": "F1", "reason": "false positive"},
 		"rerun_review":            {"run": "p!7", "reason": "new commits"},
 		"approve_run":             {"run": "p!7", "report": "final"},

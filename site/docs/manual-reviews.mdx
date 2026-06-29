@@ -1,0 +1,68 @@
+---
+sidebar_position: 4
+title: Manual Reviews
+description: Enqueue a specific GitHub PR or GitLab MR.
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+# Manual Reviews
+
+Manual review is the primary control path. It creates a normal `review.Request`
+and sends it through the same bounded worker queue as webhook work.
+
+<Tabs>
+<TabItem value="cli" label="CLI" default>
+
+```bash
+7review review github --repo owner/repo --pr 7 --server http://localhost:8080
+7review review gitlab --project 25 --mr 19 --server http://localhost:8080
+```
+
+</TabItem>
+<TabItem value="tool" label="Tool API">
+
+```bash
+curl -fsS \
+  -H "Authorization: Bearer $REVIEW_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"request_review","input":{"provider":"gitlab","project_id":"25","mr_iid":19}}' \
+  http://localhost:8080/tools/execute
+```
+
+</TabItem>
+<TabItem value="docker" label="Docker Make">
+
+```bash
+make docker-review-gitlab PROJECT_ID=25 MR=19
+make docker-review-github REPO=owner/repo PR=7
+```
+
+</TabItem>
+</Tabs>
+
+## Run IDs
+
+Manual review run IDs are provider-neutral:
+
+| Provider | Run ID |
+| --- | --- |
+| GitLab | `<project_id>!<mr_iid>` |
+| GitHub | `<owner/repo>!<pr_number>` |
+
+## Queue behavior
+
+- Uses `WEBHOOK_WORKERS`.
+- Uses `WEBHOOK_QUEUE_SIZE`.
+- Uses `WEBHOOK_JOB_TIMEOUT_MS`.
+- Rejects a duplicate if the same run is already queued or running.
+- Allows a fresh rerun after a previous run has completed or failed.
+
+## Inspect the result
+
+```bash
+7review sessions --server http://localhost:8080
+7review session owner/repo!7 --server http://localhost:8080
+7review history owner/repo!7 --server http://localhost:8080
+```

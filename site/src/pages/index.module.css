@@ -1,0 +1,504 @@
+.page {
+  background: #ffffff;
+  min-height: calc(100vh - var(--ifm-navbar-height));
+  color: #101418;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(360px, 0.72fr);
+  gap: 40px;
+  align-items: stretch;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 72px 28px 38px;
+}
+
+.heroText {
+  background: #ffffff;
+  padding: 18px 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 520px;
+}
+
+.eyebrow {
+  color: #002fa7;
+  margin: 0 0 20px;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  font-weight: 700;
+}
+
+.hero h1 {
+  color: #101418;
+  font-size: clamp(2.7rem, 4.7vw, 5rem);
+  line-height: 1.02;
+  margin: 0;
+  letter-spacing: 0;
+  max-width: 860px;
+}
+
+.lede {
+  color: #435060;
+  max-width: 700px;
+  margin: 26px 0 0;
+  font-size: 1.04rem;
+  line-height: 1.75;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.primaryAction,
+.secondaryAction {
+  border: 1px solid #002fa7;
+  color: #ffffff;
+  background: #002fa7;
+  padding: 13px 17px;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.secondaryAction {
+  color: #002fa7;
+  background: #ffffff;
+}
+
+.primaryAction:hover,
+.secondaryAction:hover {
+  color: #ffffff;
+  background: #0a1f5f;
+  border-color: #0a1f5f;
+  text-decoration: none;
+}
+
+.checks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 38px;
+  max-width: 900px;
+  border: 1px solid #c9d2df;
+  background: #c9d2df;
+}
+
+.checks span {
+  color: #263241;
+  background: #f7f9fc;
+  padding: 13px 14px;
+  font-size: 0.82rem;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+}
+
+.mascotPanel {
+  border: 1px solid #c9d2df;
+  background: #f7f9fc;
+  min-height: 520px;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  overflow: hidden;
+}
+
+.mascotPanel img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 18px;
+}
+
+.mascotCaption {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  border-top: 1px solid #c9d2df;
+  padding: 14px 16px;
+  color: #435060;
+  font-size: 0.82rem;
+}
+
+.mascotCaption span:first-child {
+  color: #002fa7;
+  font-weight: 700;
+}
+
+.agentSection {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 8px 28px 36px;
+  display: grid;
+  grid-template-columns: minmax(320px, 0.7fr) minmax(0, 1.3fr);
+  gap: 24px;
+}
+
+.agentIntro {
+  border-top: 3px solid #002fa7;
+  padding-top: 18px;
+}
+
+.agentIntro span {
+  color: #002fa7;
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.agentIntro h2 {
+  color: #101418;
+  font-size: clamp(2rem, 3.6vw, 3.35rem);
+  line-height: 1.05;
+  margin: 18px 0 0;
+}
+
+.agentIntro p {
+  color: #435060;
+  line-height: 1.7;
+  margin: 20px 0 0;
+}
+
+.loopGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  background: #c9d2df;
+  border: 1px solid #c9d2df;
+}
+
+.loopStep {
+  background: #ffffff;
+  padding: 22px;
+  min-height: 218px;
+}
+
+.loopStep span {
+  color: #002fa7;
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+
+.loopStep h3 {
+  color: #101418;
+  margin: 34px 0 0;
+  font-size: 1.1rem;
+}
+
+.loopStep p {
+  color: #435060;
+  margin: 12px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.62;
+}
+
+.console {
+  border: 1px solid #c9d2df;
+  background: #ffffff;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+.consoleHeader,
+.consoleFooter {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 18px;
+  color: #435060;
+  border-bottom: 1px solid #c9d2df;
+  font-size: 0.84rem;
+}
+
+.consoleHeader span:first-child {
+  color: #002fa7;
+  font-weight: 700;
+}
+
+.consoleFooter {
+  border-top: 1px solid #c9d2df;
+  border-bottom: 0;
+  color: #0a1f5f;
+  background: #f7f9fc;
+}
+
+.consoleBody {
+  padding: 0 18px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  background: #dce3ec;
+}
+
+.commandRow {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding: 18px;
+  border-bottom: 0;
+  background: #ffffff;
+  align-items: start;
+}
+
+.commandLabel {
+  color: #002fa7;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  font-weight: 700;
+}
+
+.commandLine {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  color: #657386;
+  min-width: 0;
+}
+
+.commandLine code {
+  color: #101418;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.routeGrid {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 28px 88px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.routeCard {
+  border: 1px solid #c9d2df;
+  background: #ffffff;
+  padding: 22px;
+  color: #101418;
+  text-decoration: none;
+  min-height: 178px;
+}
+
+.routeCard span {
+  color: #002fa7;
+  font-weight: 700;
+}
+
+.routeCard p {
+  color: #435060;
+  margin: 15px 0 0;
+  font-size: 0.92rem;
+  line-height: 1.62;
+}
+
+.routeCard:hover {
+  border-color: #002fa7;
+  text-decoration: none;
+}
+
+.operatorSection {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 28px 28px;
+}
+
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: end;
+  border-top: 1px solid #c9d2df;
+  padding: 28px 0 16px;
+}
+
+.sectionHeader span {
+  color: #002fa7;
+  font-weight: 700;
+  font-size: 0.86rem;
+}
+
+.sectionHeader h2 {
+  color: #101418;
+  font-size: clamp(1.5rem, 3vw, 2.4rem);
+  margin: 0;
+}
+
+@media (max-width: 1180px) {
+  .hero {
+    grid-template-columns: 1fr;
+    padding-top: 42px;
+  }
+
+  .heroText,
+  .mascotPanel {
+    min-height: auto;
+  }
+
+  .checks,
+  .consoleBody,
+  .routeGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agentSection {
+    grid-template-columns: 1fr;
+  }
+
+  .loopGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .hero {
+    padding: 26px 16px 24px;
+  }
+
+  .heroText {
+    padding: 24px;
+  }
+
+  .hero h1 {
+    font-size: 2.35rem;
+  }
+
+  .checks,
+  .agentSection,
+  .loopGrid,
+  .consoleBody,
+  .routeGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .consoleHeader,
+  .consoleFooter,
+  .mascotCaption {
+    flex-direction: column;
+  }
+
+  .commandRow {
+    grid-template-columns: 1fr;
+  }
+
+  .routeGrid {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .operatorSection {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .agentSection {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+:global(html[data-theme='dark']) .page {
+  background: #0b0c0a;
+  color: #f4fff7;
+}
+
+:global(html[data-theme='dark']) .heroText {
+  background: #0b0c0a;
+}
+
+:global(html[data-theme='dark']) .hero h1,
+:global(html[data-theme='dark']) .agentIntro h2,
+:global(html[data-theme='dark']) .loopStep h3,
+:global(html[data-theme='dark']) .sectionHeader h2,
+:global(html[data-theme='dark']) .commandLine code,
+:global(html[data-theme='dark']) .routeCard {
+  color: #f4fff7;
+}
+
+:global(html[data-theme='dark']) .lede,
+:global(html[data-theme='dark']) .mascotCaption,
+:global(html[data-theme='dark']) .agentIntro p,
+:global(html[data-theme='dark']) .loopStep p,
+:global(html[data-theme='dark']) .consoleHeader,
+:global(html[data-theme='dark']) .routeCard p {
+  color: #a9b7ad;
+}
+
+:global(html[data-theme='dark']) .eyebrow,
+:global(html[data-theme='dark']) .mascotCaption span:first-child,
+:global(html[data-theme='dark']) .agentIntro span,
+:global(html[data-theme='dark']) .loopStep span,
+:global(html[data-theme='dark']) .consoleHeader span:first-child,
+:global(html[data-theme='dark']) .commandLabel,
+:global(html[data-theme='dark']) .routeCard span,
+:global(html[data-theme='dark']) .sectionHeader span {
+  color: #8aa7ff;
+}
+
+:global(html[data-theme='dark']) .primaryAction {
+  border-color: #8aa7ff;
+  background: #8aa7ff;
+  color: #0b0c0a;
+}
+
+:global(html[data-theme='dark']) .secondaryAction {
+  border-color: #8aa7ff;
+  background: #0b0c0a;
+  color: #8aa7ff;
+}
+
+:global(html[data-theme='dark']) .primaryAction:hover,
+:global(html[data-theme='dark']) .secondaryAction:hover {
+  border-color: #b7c7ff;
+  background: #b7c7ff;
+  color: #0b0c0a;
+}
+
+:global(html[data-theme='dark']) .checks,
+:global(html[data-theme='dark']) .loopGrid,
+:global(html[data-theme='dark']) .consoleBody {
+  border-color: #26312b;
+  background: #26312b;
+}
+
+:global(html[data-theme='dark']) .checks span,
+:global(html[data-theme='dark']) .mascotPanel,
+:global(html[data-theme='dark']) .loopStep,
+:global(html[data-theme='dark']) .console,
+:global(html[data-theme='dark']) .commandRow,
+:global(html[data-theme='dark']) .routeCard {
+  background: #111418;
+  border-color: #26312b;
+}
+
+:global(html[data-theme='dark']) .mascotCaption,
+:global(html[data-theme='dark']) .consoleHeader,
+:global(html[data-theme='dark']) .consoleFooter,
+:global(html[data-theme='dark']) .sectionHeader {
+  border-color: #26312b;
+}
+
+:global(html[data-theme='dark']) .consoleFooter {
+  background: #161b22;
+  color: #b7c7ff;
+}
+
+:global(html[data-theme='dark']) .agentIntro {
+  border-top-color: #8aa7ff;
+}
+
+:global(html[data-theme='dark']) .routeCard:hover {
+  border-color: #8aa7ff;
+}

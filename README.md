@@ -14,10 +14,11 @@ report and writes approved memory.
 ## Current Status
 
 7review is usable as a local-first draft review agent for GitHub pull requests
-and GitLab merge requests. It receives SCM webhooks, enriches changes, selects
-repository knowledge, runs model review with governed read-only tools, validates
-findings, publishes draft comments, and keeps final publication behind human
-approval.
+and GitLab merge requests. Operators can manually request a review for a
+specific PR/MR, while SCM webhooks are policy-gated before they enqueue work.
+The agent enriches changes, selects repository knowledge, runs model review
+with governed read-only tools, validates findings, publishes draft comments,
+and keeps final publication behind human approval.
 
 Core capabilities:
 
@@ -35,6 +36,7 @@ Core capabilities:
 - Docker Compose runtime with agent, Headroom bridge, and MemPalace bridge
 - operator CLI/TUI/chat for setup, status, run inspection, approval, reruns,
   final publishing, and memory review
+- authenticated manual review trigger through CLI or `/tools/execute`
 
 Current operating recommendation: use 7review as an automated draft reviewer
 with human-in-the-loop approval. It is not yet intended to auto-publish final
@@ -139,6 +141,10 @@ graph retrieval, operator surface, and verification commands, see
 For current verification state, live smoke coverage, and known review-quality
 limits, see [`docs/status.md`](docs/status.md).
 
+The web documentation site lives in [`site/`](site). It is built with
+Docusaurus, includes English and French operator docs, and is configured for
+GitHub Pages at `/7review/`.
+
 ## Quick Start
 
 Generate a local environment file:
@@ -180,6 +186,20 @@ Check the running Docker agent:
 make docker-status
 ```
 
+Run the documentation site locally:
+
+```sh
+make site-install
+make site-dev
+```
+
+Manually enqueue one review:
+
+```sh
+go run ./cmd/7review review gitlab --project 25 --mr 19 --server http://localhost:8080
+go run ./cmd/7review review github --repo owner/repo --pr 7 --server http://localhost:8080
+```
+
 ## Required Configuration
 
 7review requires:
@@ -202,7 +222,18 @@ MEMORY_DIR=./.7review
 CORPUS_ROOT=.
 WEBHOOK_WORKERS=4
 WEBHOOK_QUEUE_SIZE=128
+WEBHOOK_REVIEW_MODE=manual_first
+REVIEW_LABEL_INCLUDE=7review,ready-for-review
+REVIEW_LABEL_EXCLUDE=no-review,wip,draft
 ```
+
+Webhook review modes:
+
+- `manual_first`: default; webhook events enqueue review only when include
+  policy matches.
+- `auto`: webhook events enqueue review unless explicit excludes or allowlists
+  reject them.
+- `off`: valid webhook events are accepted but ignored by review policy.
 
 GitHub:
 
