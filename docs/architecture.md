@@ -732,7 +732,8 @@ explicit issue classification. It also tells the model:
 - only report actionable issues in changed files
 - cite selected repository source paths or requirement IDs for
   knowledge-backed findings
-- provide `finding_type`, `strength`, and `evidence_authority`
+- provide `finding_type`, `strength`, `evidence_authority`, and structured
+  `citations`
 - treat source-of-truth evidence and approved decisions as finding-grade
   authority
 - treat design, ownership, runbook, supporting docs, and memory as supporting
@@ -762,10 +763,14 @@ human-check items, notes, questions, and rejected findings. It rejects:
 - locations outside changed paths for confirmed findings
 
 It downgrades speculative performance/TTL/pruning concerns, weak-authority
-claims, and likely findings into draft-only sections instead of inline comments.
-Only accepted confirmed findings are sent to inline publishing by default. The
-accepted, human-check, note, and question categories are exposed in run details,
-selected-context tool output, model audit counters, and the draft report.
+claims, unverifiable source citations, and likely findings into draft-only
+sections instead of inline comments. A confirmed knowledge-backed finding must
+cite selected source-of-truth evidence with a source path, heading/key, cited
+rule text that appears in the selected section, and an explanation of how the
+changed line violates that rule. Only accepted confirmed findings are sent to
+inline publishing by default. The accepted, human-check, note, and question
+categories are exposed in run details, selected-context tool output, model audit
+counters, and the draft report.
 
 ## SCM Boundary
 

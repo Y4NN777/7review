@@ -17,6 +17,14 @@ type Location struct {
 	Line int
 }
 
+// EvidenceCitation ties a finding to an exact selected repository evidence item.
+type EvidenceCitation struct {
+	Source       string `json:"source"`
+	HeadingOrKey string `json:"heading_or_key,omitempty"`
+	Rule         string `json:"rule"`
+	Violation    string `json:"violation"`
+}
+
 // Finding is the structured form expected from the review agent.
 type Finding struct {
 	ID                string
@@ -26,11 +34,12 @@ type Finding struct {
 	Suggestion        string
 	Location          Location
 	Confidence        float64
-	FindingType       string `json:"finding_type,omitempty"`
-	Strength          string `json:"strength,omitempty"`
-	EvidenceAuthority string `json:"evidence_authority,omitempty"`
-	ValidationStatus  string `json:"validation_status,omitempty"`
-	ValidationReason  string `json:"validation_reason,omitempty"`
+	FindingType       string             `json:"finding_type,omitempty"`
+	Strength          string             `json:"strength,omitempty"`
+	EvidenceAuthority string             `json:"evidence_authority,omitempty"`
+	Citations         []EvidenceCitation `json:"citations,omitempty"`
+	ValidationStatus  string             `json:"validation_status,omitempty"`
+	ValidationReason  string             `json:"validation_reason,omitempty"`
 }
 
 // InlineComment records provider-neutral inline publishing state for a finding.

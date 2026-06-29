@@ -965,6 +965,12 @@ func TestDefaultFindingValidatorClassifiesSourceOfTruthFinding(t *testing.T) {
 		CanJustifyFinding: true,
 		SelectionReason:   "constraint_trace: CALL-02",
 	}}
+	rc.Source.CorpusSections = []review.Section{{
+		Path:    "docs/CONTRACT.md",
+		Title:   "Call schema",
+		Kind:    review.KindContract,
+		Content: "CALL-02 requires every ratified call field to be represented in the public schema.",
+	}}
 
 	report, err := DefaultFindingValidator{}.Validate(context.Background(), rc, []review.Finding{{
 		ID:                "API-CONTRACT-001",
@@ -977,12 +983,63 @@ func TestDefaultFindingValidatorClassifiesSourceOfTruthFinding(t *testing.T) {
 		FindingType:       "finding",
 		Strength:          "confirmed",
 		EvidenceAuthority: "sot",
+		Citations: []review.EvidenceCitation{{
+			Source:       "docs/CONTRACT.md",
+			HeadingOrKey: "Call schema",
+			Rule:         "CALL-02 requires every ratified call field to be represented in the public schema.",
+			Violation:    "The changed line returns end_reason without corresponding public schema coverage.",
+		}},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(report.Accepted) != 1 || report.Accepted[0].ValidationStatus != "accepted" {
 		t.Fatalf("expected confirmed SOT finding accepted: %#v", report)
+	}
+}
+
+func TestDefaultFindingValidatorDowngradesUnverifiableConfirmedCitation(t *testing.T) {
+	rc := review.NewContext(review.Request{ChangedPaths: []string{"api/profile.py"}})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "api/profile.py",
+		Patch: "@@ -1 +1 @@\n+return {\"end_reason\": \"missed\"}\n",
+	}}}
+	rc.Source.Evidence = []review.EvidenceItem{{
+		Source:            "docs/CONTRACT.md",
+		HeadingOrKey:      "Call schema",
+		Authority:         "contract",
+		AuthorityLevel:    "sot",
+		CanJustifyFinding: true,
+	}}
+	rc.Source.CorpusSections = []review.Section{{
+		Path:    "docs/CONTRACT.md",
+		Title:   "Call schema",
+		Kind:    review.KindContract,
+		Content: "CALL-02 requires every ratified call field to be represented in the public schema.",
+	}}
+
+	report, err := DefaultFindingValidator{}.Validate(context.Background(), rc, []review.Finding{{
+		ID:                "API-CONTRACT-002",
+		Severity:          review.SeverityHigh,
+		Title:             "Contract drift",
+		Description:       "The schema is missing end_reason.",
+		Location:          review.Location{Path: "api/profile.py", Line: 1},
+		Confidence:        0.91,
+		FindingType:       "finding",
+		Strength:          "confirmed",
+		EvidenceAuthority: "sot",
+		Citations: []review.EvidenceCitation{{
+			Source:       "docs/CONTRACT.md",
+			HeadingOrKey: "Call schema",
+			Rule:         "This sentence is not in the selected source section.",
+			Violation:    "The changed line returns end_reason.",
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.HumanCheck) != 1 || len(report.Accepted) != 0 || !strings.Contains(report.HumanCheck[0].ValidationReason, "citations") {
+		t.Fatalf("expected unverifiable citation to downgrade to human check: %#v", report)
 	}
 }
 
@@ -1078,7 +1135,13 @@ func TestParseFindingsAcceptsLenientModelShapes(t *testing.T) {
 			"description": "Changed code returns a raw UUID while the API contract requires usr_ identifiers.",
 			"suggestion": "Return the contract identifier shape or update the contract.",
 			"location": {"file": "services/backend/app/profile/service.py", "line": "58", "heading": "ignored"},
-			"confidence": "high"
+			"confidence": "high",
+			"citations": [{
+				"source": "docs/CONTRACT.md",
+				"heading": "User IDs",
+				"rule": "User IDs use usr_ prefix.",
+				"violation": "The changed line returns a raw UUID."
+			}]
 		}]
 	}`
 
@@ -1090,6 +1153,9 @@ func TestParseFindingsAcceptsLenientModelShapes(t *testing.T) {
 	finding := findings[0]
 	if finding.Confidence < 0.89 || finding.Location.Path != "services/backend/app/profile/service.py" || finding.Location.Line != 58 {
 		t.Fatalf("lenient fields were not normalized: %#v", finding)
+	}
+	if len(finding.Citations) != 1 || finding.Citations[0].HeadingOrKey != "User IDs" || finding.Citations[0].Rule == "" {
+		t.Fatalf("lenient citations were not normalized: %#v", finding.Citations)
 	}
 }
 

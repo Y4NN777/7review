@@ -22,6 +22,7 @@ private URLs, and other deployment-specific details.
 - Source-of-truth authority metadata in selected evidence manifests.
 - Finding strength classification with draft-only downgrades for speculative or
   weak-authority issues.
+- Verifiable citation checks for confirmed knowledge-backed findings.
 - Draft report publishing, inline draft comments, human approval, final
   publishing, and approved memory writeback.
 - Operator CLI/TUI/chat workflows for setup, status, run inspection, reruns,
@@ -157,8 +158,11 @@ A strong finding should include:
 - violated rule restated in the finding
 - explanation of how the diff violates that rule
 
-If any of these are missing, the system downgrades the issue to `likely`,
-`note`, or `question`, or rejects it when it is not useful.
+Confirmed knowledge-backed findings must provide structured `citations` with
+`source`, `heading_or_key`, `rule`, and `violation`. The cited `rule` must match
+the selected source section text. If any of these are missing or unverifiable,
+the system downgrades the issue to human check, `note`, or `question`, or
+rejects it when it is not useful.
 
 ### Publish Policy
 

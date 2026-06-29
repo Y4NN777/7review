@@ -671,6 +671,10 @@ func (v DefaultFindingValidator) Validate(_ context.Context, rc *review.Context,
 			report.HumanCheck = append(report.HumanCheck, markFindingValidation(finding, "needs_human_check", "finding is not backed by source-of-truth evidence"))
 			continue
 		}
+		if ok, reason := validateFindingCitations(rc, finding); !ok {
+			report.HumanCheck = append(report.HumanCheck, markFindingValidation(finding, "needs_human_check", reason))
+			continue
+		}
 		if finding.Strength == "likely" {
 			report.HumanCheck = append(report.HumanCheck, markFindingValidation(finding, "needs_human_check", "likely finding requires human confirmation"))
 			continue
@@ -825,6 +829,100 @@ func shouldDowngradeByAuthority(finding review.Finding) bool {
 		return !canAuthorityJustifyFinding(finding.EvidenceAuthority)
 	}
 	return false
+}
+
+func validateFindingCitations(rc *review.Context, finding review.Finding) (bool, string) {
+	if finding.FindingType != "finding" || finding.Strength != "confirmed" {
+		return true, ""
+	}
+	if rc == nil || len(rc.Source.Evidence) == 0 {
+		return true, ""
+	}
+	if !canAuthorityJustifyFinding(finding.EvidenceAuthority) {
+		return false, "confirmed finding is not backed by source-of-truth evidence"
+	}
+	if len(finding.Citations) == 0 {
+		return false, "confirmed finding is missing a verifiable source citation"
+	}
+	sections := corpusContentByRef(rc)
+	for _, citation := range finding.Citations {
+		if validFindingCitation(rc.Source.Evidence, sections, citation) {
+			return true, ""
+		}
+	}
+	return false, "confirmed finding citations do not match selected source-of-truth evidence"
+}
+
+func validFindingCitation(evidence []review.EvidenceItem, sections map[string]string, citation review.EvidenceCitation) bool {
+	source := strings.TrimSpace(citation.Source)
+	rule := strings.TrimSpace(citation.Rule)
+	violation := strings.TrimSpace(citation.Violation)
+	if source == "" || rule == "" || violation == "" {
+		return false
+	}
+	for _, item := range evidence {
+		if item.Source != source {
+			continue
+		}
+		if citation.HeadingOrKey != "" && item.HeadingOrKey != "" && citation.HeadingOrKey != item.HeadingOrKey {
+			continue
+		}
+		authority := firstNonEmpty(item.AuthorityLevel, normalizeEvidenceAuthority(item.Authority))
+		if !canAuthorityJustifyFinding(authority) {
+			continue
+		}
+		content := sections[evidenceRef(item.Source, item.HeadingOrKey)]
+		if content == "" && citation.HeadingOrKey == "" {
+			content = firstSectionContentForSource(sections, item.Source)
+		}
+		if evidenceTextContains(content, rule) {
+			return true
+		}
+	}
+	return false
+}
+
+func corpusContentByRef(rc *review.Context) map[string]string {
+	out := make(map[string]string)
+	add := func(section review.Section) {
+		if section.Path == "" {
+			return
+		}
+		out[evidenceRef(section.Path, section.Title)] = section.Content
+	}
+	for _, section := range rc.Source.CorpusSections {
+		add(section)
+	}
+	for _, section := range rc.CorpusSections {
+		add(section)
+	}
+	return out
+}
+
+func evidenceRef(source, heading string) string {
+	return source + "\x00" + heading
+}
+
+func firstSectionContentForSource(sections map[string]string, source string) string {
+	prefix := source + "\x00"
+	for key, content := range sections {
+		if strings.HasPrefix(key, prefix) {
+			return content
+		}
+	}
+	return ""
+}
+
+func evidenceTextContains(content, rule string) bool {
+	content = normalizeCitationText(content)
+	rule = normalizeCitationText(rule)
+	return content != "" && rule != "" && strings.Contains(content, rule)
+}
+
+func normalizeCitationText(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	fields := strings.Fields(value)
+	return strings.Join(fields, " ")
 }
 
 func markFindingValidation(finding review.Finding, status, reason string) review.Finding {

@@ -1222,15 +1222,16 @@ func reviewSystemPrompt(rc *review.Context) string {
 		"If more read-only context is required before final findings, return {\"tool_requests\": [{\"name\": \"get_changed_files\", \"input\": {}, \"reason\": \"...\"}], \"findings\": [], \"skill_coverage\": []}.",
 		"Otherwise return {\"findings\": [...], \"skill_coverage\": [...]}.",
 		"Allowed reasoner tools are read-only only: get_merge_request, get_changed_files, list_discussions, get_diff_summary, get_selected_context, get_inline_positions.",
-		"Each finding must include id, severity, title, description, suggestion, location, confidence, finding_type, strength, and evidence_authority.",
+		"Each finding must include id, severity, title, description, suggestion, location, confidence, finding_type, strength, evidence_authority, and citations.",
 		"finding_type must be one of finding, note, question. strength must be one of confirmed, likely, speculative, note, question.",
 		"evidence_authority must be one of sot, decision, implementation_context, design_context, supporting, memory.",
+		"Each citations item must include source, heading_or_key, rule, and violation; rule must quote or restate an exact selected evidence sentence or clause, and violation must explain how the changed line violates it.",
 		"Each skill_coverage item must include name, status, evidence, tools, checks, and notes for every active required skill.",
 		"Only report actionable issues in changed files.",
 		"Use selected skills, repository knowledge, and approved memory as review guidance, not as standalone proof.",
 		"Evidence authority rules: repository source-of-truth evidence (sot) and approved decisions can justify findings; design, ownership, runbook, supporting docs, and memory can support findings but cannot justify blocking findings alone.",
 		"If evidence is incomplete, output finding_type note or question, or strength likely/speculative, rather than high-confidence confirmed finding.",
-		"Cite selected repository source paths or requirement IDs in knowledge-backed findings.",
+		"Cite selected repository source paths or requirement IDs in knowledge-backed findings, and put the verifiable cited rule in citations[].rule.",
 		"Actively compare changed code and tests against selected API, contract, SRS/PRD, ADR, data-model, and rules evidence.",
 		"If changed code or tests intentionally accept behavior that contradicts selected contract/API examples, schema descriptions, invariant IDs, or requirement IDs, report that as a contract-drift finding unless another selected repository source explicitly supersedes it.",
 		"For knowledge-backed findings, set location.path to the changed file that implements or tests the violation; cite contract/API/SRS paths in description or suggestion, not as the finding location.",
@@ -1339,7 +1340,7 @@ func repairFindingsSystemPrompt() string {
 		"If the raw output is prose with no clear finding object, return [].",
 		"If JSON is wrapped in Markdown fences, remove the fences.",
 		"If JSON is truncated but a finding is clear, close the object/array using only fields already present or directly implied by field names.",
-		"Each retained finding must include id, severity, title, description, suggestion, location, confidence, finding_type, strength, and evidence_authority when present or directly implied.",
+		"Each retained finding must include id, severity, title, description, suggestion, location, confidence, finding_type, strength, evidence_authority, and citations when present or directly implied.",
 	}, "\n")
 }
 
@@ -2217,6 +2218,10 @@ func decodeLenientFinding(raw json.RawMessage) (review.Finding, bool) {
 	if rawLocation, ok := lower["location"]; ok {
 		location = decodeLenientLocation(rawLocation)
 	}
+	var citations []review.EvidenceCitation
+	if rawCitations, ok := lower["citations"]; ok {
+		citations = decodeLenientCitations(rawCitations)
+	}
 	return review.Finding{
 		ID:                stringField(lower, "id"),
 		Severity:          review.Severity(strings.ToLower(stringField(lower, "severity"))),
@@ -2228,7 +2233,32 @@ func decodeLenientFinding(raw json.RawMessage) (review.Finding, bool) {
 		FindingType:       firstNonEmptyPipeline(stringField(lower, "finding_type"), stringField(lower, "type")),
 		Strength:          stringField(lower, "strength"),
 		EvidenceAuthority: stringField(lower, "evidence_authority"),
+		Citations:         citations,
 	}, true
+}
+
+func decodeLenientCitations(raw json.RawMessage) []review.EvidenceCitation {
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil
+	}
+	out := make([]review.EvidenceCitation, 0, len(items))
+	for _, item := range items {
+		lower := make(map[string]json.RawMessage, len(item))
+		for key, value := range item {
+			lower[strings.ToLower(key)] = value
+		}
+		citation := review.EvidenceCitation{
+			Source:       stringField(lower, "source"),
+			HeadingOrKey: firstNonEmptyPipeline(stringField(lower, "heading_or_key"), stringField(lower, "heading")),
+			Rule:         stringField(lower, "rule"),
+			Violation:    stringField(lower, "violation"),
+		}
+		if citation.Source != "" || citation.Rule != "" || citation.Violation != "" {
+			out = append(out, citation)
+		}
+	}
+	return out
 }
 
 func decodeLenientLocation(raw json.RawMessage) review.Location {
@@ -2414,6 +2444,20 @@ func appendFindingSection(b *strings.Builder, title string, findings []review.Fi
 		}
 		if finding.ValidationReason != "" {
 			fmt.Fprintf(b, "**Validation:** %s\n\n", finding.ValidationReason)
+		}
+		if len(finding.Citations) > 0 {
+			b.WriteString("**Citations:**\n")
+			for _, citation := range finding.Citations {
+				ref := citation.Source
+				if citation.HeadingOrKey != "" {
+					ref += "#" + citation.HeadingOrKey
+				}
+				fmt.Fprintf(b, "- `%s`: %s\n", ref, citation.Rule)
+				if citation.Violation != "" {
+					fmt.Fprintf(b, "  Violation: %s\n", citation.Violation)
+				}
+			}
+			b.WriteString("\n")
 		}
 		if finding.Description != "" {
 			fmt.Fprintf(b, "%s\n\n", finding.Description)
