@@ -69,12 +69,111 @@ The current system is weaker at distinguishing:
   findings.
 - Final publication should remain human-approved.
 
-## Planned Hardening
+## Review Quality Roadmap
 
-- Add finding strength classification: confirmed issue, likely issue, note, and
-  question.
-- Publish inline comments only for confirmed or high-confidence findings.
-- Require stronger citation checks for contract/design-backed claims.
-- Keep speculative findings in draft summary or human-check sections.
-- Build a benchmark set of known reviews with expected true positives, false
-  positives, and missed findings.
+The next quality pass should treat 7review as an assisted draft reviewer, not as
+an autonomous final reviewer. The goal is to reduce false positives, preserve
+useful review notes, and make source-of-truth authority explicit.
+
+### Source-Of-Truth Authority
+
+The document graph should expose authority as a first-class signal, not only as
+section kind or selection score.
+
+Recommended authority levels:
+
+- `sot`: binding source of truth, such as requirements, contracts, API specs,
+  data models, security rules, and approved repository rules.
+- `decision`: ADRs and approved architecture decisions.
+- `implementation_context`: ownership docs, runbooks, operational notes, and
+  code-adjacent documentation.
+- `design_context`: design docs, tokens, accessibility rules, states, and
+  component behavior.
+- `supporting`: useful references that cannot justify a finding alone.
+- `memory`: approved historical memory, always lower authority than repository
+  files.
+
+The `evidence_manifest` should explain:
+
+- why the section was selected
+- which review signal pulled it in
+- which authority level it has
+- whether it can justify a finding by itself
+- whether it only supports another source
+
+### Finding Strength
+
+The validator should classify every model issue before publishing:
+
+- `confirmed`: direct evidence in changed code plus a cited source-of-truth
+  rule.
+- `likely`: strong evidence, but part of the needed context is absent or
+  inferred.
+- `speculative`: hypothesis, future debt, unmeasured performance concern, or
+  risk without a concrete violated rule.
+- `note`: useful non-blocking observation or positive context.
+- `question`: a clarification needed from the author.
+
+Only `confirmed` findings, and a narrow subset of high-confidence `likely`
+findings, should become inline comments by default.
+
+### Skill-Specific Strictness
+
+Some skills need stricter reporting rules:
+
+- Data migrations should not report TTL, pruning, or performance risks unless
+  there is volume evidence, a known slow query, a missing required index, or an
+  explicit repository requirement.
+- Contract drift is strong when a changed field, enum, route, event, or schema
+  is ratified in code but missing from the API or schema source of truth.
+- Design decisions should not be inverted into defects. If an ADR or system
+  model allows a nullable relation or temporary gap, the review should only
+  report a missing follow-up when another source requires that follow-up.
+- Ownership and runbook docs should guide maintainability notes, but should not
+  create blocking findings without a violated source-of-truth rule.
+
+### Findings, Notes, And Questions
+
+The report model should separate:
+
+- `findings`: actionable bugs or violated requirements.
+- `notes`: useful observations, positive confirmations, or low-risk
+  maintainability context.
+- `questions`: points that need author clarification.
+
+This prevents weak concerns from being published as inline defects while still
+keeping useful reviewer context in the draft.
+
+### Citation Validation
+
+A strong finding should include:
+
+- changed file and changed line
+- exact source document or section
+- violated rule restated in the finding
+- explanation of how the diff violates that rule
+
+If any of these are missing, the system should downgrade the issue to `likely`,
+`note`, or `question`, or reject it when it is not useful.
+
+### Publish Policy
+
+Default publication should be:
+
+- draft summary for all accepted findings, notes, and questions
+- inline comments only for `confirmed` findings on addressable changed lines
+- `likely` findings inline only when confidence and citations are strong
+- speculative items kept in a "Needs human check" section
+- final publication always behind human approval
+
+### Benchmark Reviews
+
+Create a small benchmark set of known reviews and expected outcomes. Each case
+should measure:
+
+- true positives
+- false positives
+- missed findings
+- citation quality
+- correct downgrade of speculative concerns
+- correct use of source-of-truth authority
