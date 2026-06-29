@@ -166,6 +166,12 @@ review uncertainty.
 
 Return a traceability matrix row for each issue: identifier, source path/heading, changed path, expected behavior, actual behavior, evidence confidence, and required remediation. For missing identifiers, include searched sources and why traceability is required.
 
+For `confirmed` findings, include structured citations: `source`,
+`heading_or_key`, `rule`, and `violation`. The `rule` must match selected
+source-of-truth evidence, and `violation` must tie the changed path/line to the
+broken trace. If the source clause is missing, output a note or question instead
+of an inline finding.
+
 ## Severity Guidance
 
 - critical/high: violated security control, data invariant, legal/privacy rule,

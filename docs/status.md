@@ -174,10 +174,11 @@ Default publication is:
 - speculative items kept in a "Needs human check" section
 - final publication always behind human approval
 
-### Remaining Hardening: Benchmark Reviews
+### Benchmark Reviews
 
-Create a small benchmark set of known reviews and expected outcomes. Each case
-should measure:
+The deterministic validator has a small structural benchmark covering confirmed
+source citations, invented citations, speculative concerns, and explicit
+questions. A larger live benchmark set of known reviews should still measure:
 
 - true positives
 - false positives

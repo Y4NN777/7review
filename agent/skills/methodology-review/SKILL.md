@@ -183,6 +183,12 @@ changed path and the state transition or data flow that proves the shortcut.
 
 Methodology findings must name the skipped or reordered lifecycle boundary and the artifact that proves it: source state, selected corpus, selected skill, reduced context, validation result, report, publish action, or memory proposal. Include the test that would fail if the lifecycle regresses.
 
+For `confirmed` findings, include structured citations: `source`,
+`heading_or_key`, `rule`, and `violation`. The `rule` must match selected
+repository evidence, and `violation` must explain how the changed code or state
+transition breaks that rule. If the rule cannot be cited this way, use
+`finding_type=note` or `strength=likely`.
+
 ## False Positive Checks
 
 - Do not report a missing stage if the change is outside the review lifecycle.

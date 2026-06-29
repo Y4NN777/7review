@@ -916,13 +916,62 @@ func firstSectionContentForSource(sections map[string]string, source string) str
 func evidenceTextContains(content, rule string) bool {
 	content = normalizeCitationText(content)
 	rule = normalizeCitationText(rule)
-	return content != "" && rule != "" && strings.Contains(content, rule)
+	if content == "" || rule == "" {
+		return false
+	}
+	if strings.Contains(content, rule) {
+		return true
+	}
+	ruleTerms := citationTerms(rule)
+	if len(ruleTerms) < 4 {
+		return false
+	}
+	contentTerms := make(map[string]struct{})
+	for _, term := range citationTerms(content) {
+		contentTerms[term] = struct{}{}
+	}
+	matched := 0
+	for _, term := range ruleTerms {
+		if _, ok := contentTerms[term]; ok {
+			matched++
+		}
+	}
+	return matched*100/len(ruleTerms) >= 75
 }
 
 func normalizeCitationText(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	fields := strings.Fields(value)
 	return strings.Join(fields, " ")
+}
+
+func citationTerms(value string) []string {
+	raw := strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-')
+	})
+	seen := make(map[string]struct{})
+	out := make([]string, 0, len(raw))
+	for _, term := range raw {
+		term = strings.Trim(term, "_-")
+		if len(term) < 3 || citationStopTerm(term) {
+			continue
+		}
+		if _, ok := seen[term]; ok {
+			continue
+		}
+		seen[term] = struct{}{}
+		out = append(out, term)
+	}
+	return out
+}
+
+func citationStopTerm(term string) bool {
+	switch term {
+	case "the", "and", "for", "with", "without", "from", "that", "this", "into", "must", "should", "shall", "when", "then", "only", "every", "each":
+		return true
+	default:
+		return false
+	}
 }
 
 func markFindingValidation(finding review.Finding, status, reason string) review.Finding {

@@ -1043,6 +1043,51 @@ func TestDefaultFindingValidatorDowngradesUnverifiableConfirmedCitation(t *testi
 	}
 }
 
+func TestDefaultFindingValidatorAcceptsCitationWithSameKeyTerms(t *testing.T) {
+	rc := review.NewContext(review.Request{ChangedPaths: []string{"api/profile.py"}})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "api/profile.py",
+		Patch: "@@ -1 +1 @@\n+return {\"end_reason\": \"missed\"}\n",
+	}}}
+	rc.Source.Evidence = []review.EvidenceItem{{
+		Source:            "docs/CONTRACT.md",
+		HeadingOrKey:      "Call schema",
+		Authority:         "contract",
+		AuthorityLevel:    "sot",
+		CanJustifyFinding: true,
+	}}
+	rc.Source.CorpusSections = []review.Section{{
+		Path:    "docs/CONTRACT.md",
+		Title:   "Call schema",
+		Kind:    review.KindContract,
+		Content: "CALL-02 requires every ratified call field to be represented in the public schema.",
+	}}
+
+	report, err := DefaultFindingValidator{}.Validate(context.Background(), rc, []review.Finding{{
+		ID:                "API-CONTRACT-003",
+		Severity:          review.SeverityHigh,
+		Title:             "Contract drift",
+		Description:       "The schema is missing end_reason.",
+		Location:          review.Location{Path: "api/profile.py", Line: 1},
+		Confidence:        0.91,
+		FindingType:       "finding",
+		Strength:          "confirmed",
+		EvidenceAuthority: "sot",
+		Citations: []review.EvidenceCitation{{
+			Source:       "docs/CONTRACT.md",
+			HeadingOrKey: "Call schema",
+			Rule:         "ratified call field represented public schema",
+			Violation:    "The changed line returns end_reason.",
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Accepted) != 1 || len(report.HumanCheck) != 0 {
+		t.Fatalf("expected key-term citation to be accepted: %#v", report)
+	}
+}
+
 func TestDefaultFindingValidatorDowngradesSpeculativePerformanceConcern(t *testing.T) {
 	rc := review.NewContext(review.Request{ChangedPaths: []string{"db/migrations/013_calls.sql"}})
 	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
@@ -1099,6 +1144,120 @@ func TestDefaultFindingValidatorKeepsLikelyFindingForHumanCheck(t *testing.T) {
 	if len(report.HumanCheck) != 1 || len(report.Accepted) != 0 {
 		t.Fatalf("expected design-context finding kept for human check: %#v", report)
 	}
+}
+
+func TestReviewQualityBenchmark_CoreCases(t *testing.T) {
+	tests := []struct {
+		name          string
+		finding       review.Finding
+		wantAccepted  int
+		wantHuman     int
+		wantNotes     int
+		wantQuestions int
+	}{
+		{
+			name: "confirmed source citation",
+			finding: review.Finding{
+				ID:                "B1",
+				Severity:          review.SeverityHigh,
+				Title:             "Contract drift",
+				Description:       "The changed code ratifies a field missing from the schema.",
+				Location:          review.Location{Path: "api/profile.py", Line: 1},
+				Confidence:        0.91,
+				FindingType:       "finding",
+				Strength:          "confirmed",
+				EvidenceAuthority: "sot",
+				Citations: []review.EvidenceCitation{{
+					Source:       "docs/CONTRACT.md",
+					HeadingOrKey: "Call schema",
+					Rule:         "CALL-02 requires every ratified call field to be represented in the public schema.",
+					Violation:    "The changed line returns end_reason.",
+				}},
+			},
+			wantAccepted: 1,
+		},
+		{
+			name: "invented citation",
+			finding: review.Finding{
+				ID:                "B2",
+				Severity:          review.SeverityHigh,
+				Title:             "Contract drift",
+				Description:       "The changed code violates an invented clause.",
+				Location:          review.Location{Path: "api/profile.py", Line: 1},
+				Confidence:        0.91,
+				FindingType:       "finding",
+				Strength:          "confirmed",
+				EvidenceAuthority: "sot",
+				Citations: []review.EvidenceCitation{{
+					Source:       "docs/CONTRACT.md",
+					HeadingOrKey: "Call schema",
+					Rule:         "Invented rule that is absent.",
+					Violation:    "The changed line returns end_reason.",
+				}},
+			},
+			wantHuman: 1,
+		},
+		{
+			name: "speculative performance",
+			finding: review.Finding{
+				ID:          "B3",
+				Severity:    review.SeverityLow,
+				Title:       "Pruning concern",
+				Description: "TTL/pruning performance could degrade eventually.",
+				Location:    review.Location{Path: "api/profile.py", Line: 1},
+				Confidence:  0.8,
+				Strength:    "speculative",
+			},
+			wantNotes: 1,
+		},
+		{
+			name: "explicit question",
+			finding: review.Finding{
+				ID:          "B4",
+				Severity:    review.SeverityInfo,
+				Title:       "Clarify intent",
+				Description: "Should this behavior be public?",
+				Confidence:  0.8,
+				FindingType: "question",
+			},
+			wantQuestions: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rc := reviewQualityBenchmarkContext()
+			report, err := DefaultFindingValidator{}.Validate(context.Background(), rc, []review.Finding{tc.finding})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(report.Accepted) != tc.wantAccepted || len(report.HumanCheck) != tc.wantHuman || len(report.Notes) != tc.wantNotes || len(report.Questions) != tc.wantQuestions {
+				t.Fatalf("unexpected benchmark classification: %#v", report)
+			}
+		})
+	}
+}
+
+func reviewQualityBenchmarkContext() *review.Context {
+	rc := review.NewContext(review.Request{ChangedPaths: []string{"api/profile.py"}})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "api/profile.py",
+		Patch: "@@ -1 +1 @@\n+return {\"end_reason\": \"missed\"}\n",
+	}}}
+	rc.Source.Evidence = []review.EvidenceItem{{
+		Source:            "docs/CONTRACT.md",
+		HeadingOrKey:      "Call schema",
+		Authority:         "contract",
+		AuthorityLevel:    "sot",
+		CanJustifyFinding: true,
+	}}
+	rc.Source.CorpusSections = []review.Section{{
+		Path:    "docs/CONTRACT.md",
+		Title:   "Call schema",
+		Kind:    review.KindContract,
+		Content: "CALL-02 requires every ratified call field to be represented in the public schema.",
+	}}
+	return rc
 }
 
 func TestResolveInlineDraftCommentsSkipsUnchangedLines(t *testing.T) {

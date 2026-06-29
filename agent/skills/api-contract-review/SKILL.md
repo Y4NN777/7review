@@ -129,6 +129,13 @@ An API finding should cite:
 
 Return only contract issues that name the public surface, consumer, changed field or behavior, and compatibility path. Each issue must say whether the fix belongs in code, schema/docs, generated clients, tests, or migration guidance. Do not emit generic "update docs" advice without the exact contract artifact.
 
+For `confirmed` findings, include structured citations: `source`,
+`heading_or_key`, `rule`, and `violation`. The `rule` must match the selected
+API/schema/contract source, and `violation` must name the changed field, route,
+event, status, or behavior that contradicts it. If the implementation may be
+intentional but the contract source is absent, use `strength=likely` or
+`finding_type=question`.
+
 ## False Positive Checks
 
 Do not report if:

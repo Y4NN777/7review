@@ -140,6 +140,13 @@ A data finding must include:
 
 Report data risks as a sequence problem: what shape exists before deploy, what the new code expects, which operation crosses the boundary, and what expand/backfill/dual-read/contract step is missing. Include the rollback or replay consequence.
 
+For `confirmed` findings, include structured citations: `source`,
+`heading_or_key`, `rule`, and `violation`. The `rule` must match selected data,
+contract, migration, or operational source evidence. TTL, pruning, and
+performance concerns without a cited requirement, measured risk, missing
+required index, or realistic volume evidence must be notes/questions, not
+confirmed findings.
+
 ## False Positive Checks
 
 Do not report if:

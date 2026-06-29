@@ -129,6 +129,12 @@ A reliability finding must describe:
 
 Reliability output must be an executable failure scenario: trigger, code path, missing containment, user/operator impact, and deterministic test. Prefer one concrete incident path over broad advice about adding retries or logs.
 
+For `confirmed` findings, include structured citations: `source`,
+`heading_or_key`, `rule`, and `violation`. The `rule` must match selected
+reliability, contract, runbook, or architecture evidence. The `violation` must
+describe a reachable failure path from the changed line; otherwise use
+`strength=likely`, `speculative`, or `finding_type=note`.
+
 ## False Positive Checks
 
 Do not report if:

@@ -160,6 +160,11 @@ A design-contract finding must include:
 
 Each design finding must name the contract clause, the changed behavior, and the violated system property. State whether the correct resolution is to change implementation, update the design source, add a missing acceptance test, or record an explicit exception.
 
+For `confirmed` findings, include structured citations: `source`,
+`heading_or_key`, `rule`, and `violation`. The `rule` must match selected design
+or decision evidence. If the design source allows the behavior or only raises a
+future follow-up, output a note/question instead of a blocking finding.
+
 ## False Positive Checks
 
 Do not report if:
