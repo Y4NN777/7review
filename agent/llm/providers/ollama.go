@@ -38,6 +38,9 @@ func (o *Ollama) Complete(ctx context.Context, req LLMRequest) (string, error) {
 			"num_predict": req.MaxTokens,
 		},
 	}
+	if len(req.Tools) > 0 {
+		payload["tools"] = openAIToolDefinitions(req.Tools)
+	}
 
 	body, _ := json.Marshal(payload)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST",
@@ -57,7 +60,8 @@ func (o *Ollama) Complete(ctx context.Context, req LLMRequest) (string, error) {
 
 	var out struct {
 		Message struct {
-			Content string `json:"content"`
+			Content   string           `json:"content"`
+			ToolCalls []openAIToolCall `json:"tool_calls"`
 		} `json:"message"`
 		Error string `json:"error"`
 	}
@@ -66,6 +70,9 @@ func (o *Ollama) Complete(ctx context.Context, req LLMRequest) (string, error) {
 	}
 	if out.Error != "" {
 		return "", fmt.Errorf("ollama: API error: %s", out.Error)
+	}
+	if len(out.Message.ToolCalls) > 0 {
+		return openAIToolCallsEnvelope(out.Message.ToolCalls), nil
 	}
 	return out.Message.Content, nil
 }

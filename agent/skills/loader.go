@@ -19,15 +19,16 @@ type Loader struct {
 
 // Skill is metadata and body loaded from a repository-local SKILL.md file.
 type Skill struct {
-	Name          string
-	Description   string
-	License       string
-	Compatibility string
-	AllowedTools  string
-	Metadata      map[string]string
-	Path          string
-	Frontmatter   string
-	Body          string
+	Name           string
+	Description    string
+	License        string
+	Compatibility  string
+	AllowedTools   string
+	RequiredChecks string
+	Metadata       map[string]string
+	Path           string
+	Frontmatter    string
+	Body           string
 }
 
 // Load initializes available skills.
@@ -59,21 +60,46 @@ func (s *Loader) Load() error {
 
 // Select returns the review guidance skills relevant to the normalized request.
 func (s *Loader) Select(req review.Request) []review.Section {
+	activations := s.SelectActivations(req)
+	selected := make([]review.Section, 0, len(activations))
+	for _, activation := range activations {
+		skill, ok := s.skillByName(activation.Name)
+		if !ok {
+			continue
+		}
+		selected = append(selected, review.Section{
+			Path:    skill.Path,
+			Title:   skill.Name,
+			Content: skill.ActivationContent(),
+			Kind:    review.KindRules,
+		})
+	}
+	return selected
+}
+
+// SelectActivations returns structured skill activation metadata for a request.
+func (s *Loader) SelectActivations(req review.Request) []review.SkillActivation {
 	if s == nil {
 		return nil
 	}
-	var selected []review.Section
+	var selected []review.SkillActivation
 	for _, skill := range s.Skills {
-		if skill.appliesTo(req) {
-			selected = append(selected, review.Section{
-				Path:    skill.Path,
-				Title:   skill.Name,
-				Content: skill.ActivationContent(),
-				Kind:    review.KindRules,
-			})
+		reason, ok := skill.activationReason(req)
+		if !ok {
+			continue
 		}
+		selected = append(selected, skill.activation(reason))
 	}
 	return selected
+}
+
+func (s *Loader) skillByName(name string) (Skill, bool) {
+	for _, skill := range s.Skills {
+		if skill.Name == name {
+			return skill, true
+		}
+	}
+	return Skill{}, false
 }
 
 func loadSkill(path string) (Skill, error) {
@@ -90,15 +116,16 @@ func loadSkill(path string) (Skill, error) {
 	frontmatter := strings.TrimSpace(parts[1])
 	fields := parseFrontmatter(frontmatter)
 	skill := Skill{
-		Name:          fields["name"],
-		Description:   fields["description"],
-		License:       fields["license"],
-		Compatibility: fields["compatibility"],
-		AllowedTools:  fields["allowed-tools"],
-		Metadata:      parseMetadata(frontmatter),
-		Path:          path,
-		Frontmatter:   frontmatter,
-		Body:          strings.TrimSpace(parts[2]),
+		Name:           fields["name"],
+		Description:    fields["description"],
+		License:        fields["license"],
+		Compatibility:  fields["compatibility"],
+		AllowedTools:   fields["allowed-tools"],
+		RequiredChecks: fields["required-checks"],
+		Metadata:       parseMetadata(frontmatter),
+		Path:           path,
+		Frontmatter:    frontmatter,
+		Body:           strings.TrimSpace(parts[2]),
 	}
 	if skill.Name == "" || skill.Description == "" {
 		return Skill{}, fmt.Errorf("skills: %s must define name and description", path)
@@ -217,27 +244,132 @@ func validateSkill(path string, skill Skill) error {
 }
 
 func (s Skill) appliesTo(req review.Request) bool {
+	_, ok := s.activationReason(req)
+	return ok
+}
+
+func (s Skill) activationReason(req review.Request) (string, bool) {
 	name := strings.ToLower(s.Name)
 
 	switch name {
 	case "github-merge-api":
-		return strings.EqualFold(req.Provider, "github")
+		if strings.EqualFold(req.Provider, "github") {
+			return "provider github requires provider API operating rules", true
+		}
+		return "", false
 	case "gitlab-merge-api":
-		return strings.EqualFold(req.Provider, "gitlab")
+		if strings.EqualFold(req.Provider, "gitlab") {
+			return "provider gitlab requires provider API operating rules", true
+		}
+		return "", false
 	}
 	if alwaysOnSkill(name) {
-		return true
+		return "core baseline review skill", true
 	}
-	return s.score(req) >= 2
+	score := s.score(req)
+	if score >= 2 {
+		return fmt.Sprintf("matched request signals score=%d", score), true
+	}
+	return "", false
 }
 
 func alwaysOnSkill(name string) bool {
 	switch name {
-	case "methodology-review", "project-knowledge", "framework-rules-review", "traceability-review":
+	case "methodology-review",
+		"project-knowledge",
+		"framework-rules-review",
+		"traceability-review",
+		"review-publisher",
+		"laws-guards-review",
+		"security-review",
+		"hil-gate-review":
 		return true
 	default:
 		return false
 	}
+}
+
+func (s Skill) activation(reason string) review.SkillActivation {
+	name := strings.ToLower(s.Name)
+	category := skillCategory(name)
+	return review.SkillActivation{
+		Name:           s.Name,
+		Path:           s.Path,
+		Category:       category,
+		RiskTier:       s.Metadata["risk-tier"],
+		ReviewDomain:   s.Metadata["review-domain"],
+		AllowedTools:   splitList(s.AllowedTools),
+		RequiredChecks: skillRequiredChecks(s),
+		Required:       category == "core" || category == "provider-api",
+		Reason:         reason,
+	}
+}
+
+func skillCategory(name string) string {
+	switch name {
+	case "github-merge-api", "gitlab-merge-api":
+		return "provider-api"
+	case "methodology-review",
+		"project-knowledge",
+		"framework-rules-review",
+		"traceability-review",
+		"review-publisher",
+		"laws-guards-review",
+		"security-review",
+		"hil-gate-review":
+		return "core"
+	case "project-wiki", "process-knowledge-review":
+		return "knowledge"
+	default:
+		return "triggered"
+	}
+}
+
+func skillRequiredChecks(skill Skill) []string {
+	checks := splitList(skill.RequiredChecks)
+	if len(checks) > 0 {
+		return checks
+	}
+	checks = splitList(skill.Metadata["required-checks"])
+	if len(checks) > 0 {
+		return checks
+	}
+	switch strings.ToLower(skill.Name) {
+	case "github-merge-api", "gitlab-merge-api":
+		return []string{"webhook-normalization", "scm-enrichment", "diff-normalization", "publish-idempotency"}
+	case "methodology-review":
+		return []string{"lifecycle", "deterministic-boundaries"}
+	case "project-knowledge":
+		return []string{"selected-context", "citations"}
+	case "framework-rules-review":
+		return []string{"local-rules", "changed-path-rules"}
+	case "traceability-review":
+		return []string{"changed-file-evidence", "source-identifier"}
+	case "review-publisher":
+		return []string{"draft-final-boundary", "idempotency"}
+	case "laws-guards-review":
+		return []string{"protected-actions", "validation-boundary"}
+	case "security-review":
+		return []string{"trust-boundary", "secret-redaction"}
+	case "hil-gate-review":
+		return []string{"approval-boundary", "durable-state"}
+	default:
+		return nil
+	}
+}
+
+func splitList(value string) []string {
+	parts := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	})
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func (s Skill) score(req review.Request) int {

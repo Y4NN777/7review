@@ -779,12 +779,14 @@ func toUIRunDetail(run remoteRunRow) *ui.RunDetail {
 			UpdatedAt:   run.UpdatedAt,
 			HILApproved: run.HILApproved,
 		},
-		Findings:    len(run.Findings),
-		DraftBytes:  len(run.DraftReport),
-		FinalBytes:  len(run.FinalReport),
-		ReportReady: strings.TrimSpace(run.DraftReport) != "" || strings.TrimSpace(run.FinalReport) != "",
-		EventCount:  run.EventCount,
-		LatestEvent: latestRemoteRunEvent(run.Events),
+		Findings:         len(run.Findings),
+		DraftBytes:       len(run.DraftReport),
+		FinalBytes:       len(run.FinalReport),
+		ReportReady:      strings.TrimSpace(run.DraftReport) != "" || strings.TrimSpace(run.FinalReport) != "",
+		EventCount:       run.EventCount,
+		LatestEvent:      latestRemoteRunEvent(run.Events),
+		ToolRequests:     run.ToolRequests,
+		ToolObservations: run.ToolObservations,
 	}
 }
 

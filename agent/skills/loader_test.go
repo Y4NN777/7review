@@ -123,6 +123,61 @@ func TestLoaderSelectProjectWikiWhenKnowledgeBuildRequested(t *testing.T) {
 	}
 }
 
+func TestLoaderSelectActivationsClassifiesRequiredCoreAndProviderSkills(t *testing.T) {
+	dir := t.TempDir()
+	writeCustomSkill(t, dir, "methodology-review", `---
+name: methodology-review
+description: Core review lifecycle.
+allowed-tools: scm-api validator
+metadata:
+  review-domain: methodology
+  risk-tier: high
+---
+
+# Methodology Review
+`)
+	writeCustomSkill(t, dir, "gitlab-merge-api", `---
+name: gitlab-merge-api
+description: GitLab merge request API operations.
+allowed-tools: scm-api publisher
+metadata:
+  review-domain: provider-api
+  risk-tier: high
+---
+
+# GitLab Merge API
+`)
+	writeCustomSkill(t, dir, "api-contract-review", skillFixture("api-contract-review", "Use for OpenAPI route and schema changes."))
+
+	loader := &Loader{SkillsDir: dir}
+	if err := loader.Load(); err != nil {
+		t.Fatal(err)
+	}
+
+	activations := loader.SelectActivations(review.Request{
+		Provider:     "gitlab",
+		Title:        "Update OpenAPI schema",
+		ChangedPaths: []string{"docs/openapi.yaml"},
+	})
+	byName := make(map[string]review.SkillActivation)
+	for _, activation := range activations {
+		byName[activation.Name] = activation
+	}
+
+	core := byName["methodology-review"]
+	if core.Category != "core" || !core.Required || core.RiskTier != "high" || !contains(core.AllowedTools, "validator") || !contains(core.RequiredChecks, "lifecycle") {
+		t.Fatalf("core activation not enriched: %#v", core)
+	}
+	provider := byName["gitlab-merge-api"]
+	if provider.Category != "provider-api" || !provider.Required || !strings.Contains(provider.Reason, "gitlab") || !contains(provider.RequiredChecks, "scm-enrichment") {
+		t.Fatalf("provider activation not enriched: %#v", provider)
+	}
+	triggered := byName["api-contract-review"]
+	if triggered.Category != "triggered" || triggered.Required {
+		t.Fatalf("triggered activation not classified: %#v", triggered)
+	}
+}
+
 func TestLoadSkillValidatesAnthropicStyleConstraints(t *testing.T) {
 	dir := t.TempDir()
 	writeSkill(t, dir, "valid-skill", "valid-skill")

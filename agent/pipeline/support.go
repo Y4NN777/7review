@@ -595,6 +595,7 @@ func (v DefaultFindingValidator) Validate(_ context.Context, rc *review.Context,
 	for _, path := range rc.Request.ChangedPaths {
 		changed[path] = true
 	}
+	changedLines := changedNewLinesByPath(rc)
 
 	var report ValidationReport
 	seen := make(map[string]bool)
@@ -614,8 +615,20 @@ func (v DefaultFindingValidator) Validate(_ context.Context, rc *review.Context,
 			report.Rejected = append(report.Rejected, RejectedFinding{Finding: finding, Reason: "confidence below threshold"})
 			continue
 		}
+		if strings.TrimSpace(finding.Location.Path) == "" {
+			report.Rejected = append(report.Rejected, RejectedFinding{Finding: finding, Reason: "missing changed-file location"})
+			continue
+		}
 		if finding.Location.Path != "" && len(changed) > 0 && !changed[finding.Location.Path] {
 			report.Rejected = append(report.Rejected, RejectedFinding{Finding: finding, Reason: "location is not in changed paths"})
+			continue
+		}
+		if finding.Location.Line <= 0 {
+			report.Rejected = append(report.Rejected, RejectedFinding{Finding: finding, Reason: "missing changed-line location"})
+			continue
+		}
+		if len(changedLines) > 0 && !findingLineAddressable(rc, finding.Location.Path, finding.Location.Line, changedLines) {
+			report.Rejected = append(report.Rejected, RejectedFinding{Finding: finding, Reason: "location line is not an added or changed line"})
 			continue
 		}
 		report.Accepted = append(report.Accepted, finding)

@@ -42,3 +42,16 @@ type InlineComment struct {
 	ProviderID string `json:"provider_id,omitempty"`
 	URL        string `json:"url,omitempty"`
 }
+
+// InlinePosition describes provider metadata needed to place an inline comment.
+type InlinePosition struct {
+	Path     string   `json:"path"`
+	OldPath  string   `json:"old_path,omitempty"`
+	NewPath  string   `json:"new_path,omitempty"`
+	Line     int      `json:"line"`
+	Side     string   `json:"side"`
+	Provider string   `json:"provider,omitempty"`
+	DiffRefs DiffRefs `json:"diff_refs"`
+	Valid    bool     `json:"valid"`
+	Reason   string   `json:"reason,omitempty"`
+}

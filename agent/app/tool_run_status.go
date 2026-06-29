@@ -11,14 +11,18 @@ import (
 )
 
 type selectedContextStatusDTO struct {
-	Run            string                 `json:"run"`
-	CorpusSections []sectionStatusDTO     `json:"corpus_sections"`
-	Evidence       []evidenceStatusDTO    `json:"evidence_manifest"`
-	SkillSections  []sectionStatusDTO     `json:"skill_sections"`
-	Memory         review.MemoryRecall    `json:"memory"`
-	Model          modelReviewDTO         `json:"model_review"`
-	InlineComments []review.InlineComment `json:"inline_comments,omitempty"`
-	Warnings       []string               `json:"warnings,omitempty"`
+	Run              string                   `json:"run"`
+	CorpusSections   []sectionStatusDTO       `json:"corpus_sections"`
+	Evidence         []evidenceStatusDTO      `json:"evidence_manifest"`
+	SkillSections    []sectionStatusDTO       `json:"skill_sections"`
+	SkillActivations []review.SkillActivation `json:"skill_activations,omitempty"`
+	SkillCoverage    []review.SkillCoverage   `json:"skill_coverage,omitempty"`
+	ToolRequests     []review.ToolRequest     `json:"tool_requests,omitempty"`
+	ToolObservations []review.ToolObservation `json:"tool_observations,omitempty"`
+	Memory           review.MemoryRecall      `json:"memory"`
+	Model            modelReviewDTO           `json:"model_review"`
+	InlineComments   []review.InlineComment   `json:"inline_comments,omitempty"`
+	Warnings         []string                 `json:"warnings,omitempty"`
 }
 
 type runTimelineDTO struct {
@@ -104,6 +108,11 @@ type discussionsDTO struct {
 	Discussions []review.Discussion `json:"discussions"`
 }
 
+type inlinePositionsDTO struct {
+	Run       string                  `json:"run"`
+	Positions []review.InlinePosition `json:"positions"`
+}
+
 func (r appToolRunner) SelectedContext(ctx context.Context, id string) (any, error) {
 	run, err := r.server.pipeline.Jobs.Get(ctx, id)
 	if err != nil {
@@ -111,14 +120,18 @@ func (r appToolRunner) SelectedContext(ctx context.Context, id string) (any, err
 	}
 	source := sourceForRun(run)
 	return selectedContextStatusDTO{
-		Run:            run.ID,
-		CorpusSections: sectionDTOs(source.CorpusSections),
-		Evidence:       evidenceDTOs(source.Evidence, source.CorpusSections),
-		SkillSections:  skillSectionDTOs(source.SkillSections, source.Request),
-		Memory:         source.Memory,
-		Model:          modelReviewStatusDTO(source.Model),
-		InlineComments: append([]review.InlineComment(nil), source.InlineComments...),
-		Warnings:       append([]string(nil), source.Run.Warnings...),
+		Run:              run.ID,
+		CorpusSections:   sectionDTOs(source.CorpusSections),
+		Evidence:         evidenceDTOs(source.Evidence, source.CorpusSections),
+		SkillSections:    skillSectionDTOs(source.SkillSections, source.Request),
+		SkillActivations: append([]review.SkillActivation(nil), source.SkillActivations...),
+		SkillCoverage:    append([]review.SkillCoverage(nil), source.SkillCoverage...),
+		ToolRequests:     append([]review.ToolRequest(nil), source.ToolRequests...),
+		ToolObservations: append([]review.ToolObservation(nil), source.ToolObservations...),
+		Memory:           source.Memory,
+		Model:            modelReviewStatusDTO(source.Model),
+		InlineComments:   append([]review.InlineComment(nil), source.InlineComments...),
+		Warnings:         append([]string(nil), source.Run.Warnings...),
 	}, nil
 }
 
@@ -232,6 +245,15 @@ func (r appToolRunner) ChangedFiles(ctx context.Context, id string) (any, error)
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	return map[string]any{"run": run.ID, "files": files}, nil
+}
+
+func (r appToolRunner) InlinePositions(ctx context.Context, id string) (any, error) {
+	run, err := r.server.pipeline.Jobs.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	source := sourceForRun(run)
+	return inlinePositionsDTO{Run: run.ID, Positions: review.BuildInlinePositions(source)}, nil
 }
 
 func (r appToolRunner) Discussions(ctx context.Context, id string) (any, error) {

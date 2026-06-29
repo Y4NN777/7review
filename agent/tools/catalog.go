@@ -130,6 +130,17 @@ func Catalog() []ToolSpec {
 			}),
 		},
 		{
+			Name:           "get_inline_positions",
+			Description:    "Fetch provider inline-comment path, side, line, and diff-ref metadata for changed new-side lines in one run.",
+			LifecycleStage: "scm",
+			Implemented:    true,
+			Executor:       "POST /tools/execute {\"name\":\"get_inline_positions\"}",
+			SideEffects:    false,
+			InputSchema: objectSchema(map[string]any{
+				"run": stringSchema("Run ID whose provider inline-position metadata should be inspected."),
+			}),
+		},
+		{
 			Name:           "list_discussions",
 			Description:    "Fetch normalized SCM discussions or review comments already known for one run.",
 			LifecycleStage: "scm",

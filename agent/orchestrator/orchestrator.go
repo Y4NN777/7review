@@ -150,6 +150,7 @@ func (o *Orchestrator) Complete(
 	role ModelRole,
 	step string,
 	systemPrompt, userMessage string,
+	tools ...ToolDefinition,
 ) (string, error) {
 	roleCfg, ok := o.cfg.Roles[role]
 	if !ok {
@@ -172,6 +173,7 @@ func (o *Orchestrator) Complete(
 			SystemPrompt: systemPrompt,
 			UserMessage:  userMessage,
 			MaxTokens:    roleCfg.MaxTokens,
+			Tools:        append([]ToolDefinition(nil), tools...),
 		})
 		if err != nil {
 			log.Printf("[orchestrator] %s: %s/%s failed: %v — trying fallback", step, spec.Provider, spec.Model, err)
@@ -200,6 +202,7 @@ func (o *Orchestrator) CompleteParallel(
 	systemPrompt string,
 	batches [][]review.FileDiff,
 	buildUserMsg func(batch []review.FileDiff) string,
+	tools ...ToolDefinition,
 ) error {
 	roleCfg, ok := o.cfg.Roles[RoleReasoner]
 	if !ok {
@@ -208,7 +211,7 @@ func (o *Orchestrator) CompleteParallel(
 
 	if !roleCfg.Parallel || len(batches) == 1 {
 		// Serial fallback — either parallel disabled or only one batch.
-		result, err := o.Complete(ctx, rc, RoleReasoner, "step5", systemPrompt, buildUserMsg(batches[0]))
+		result, err := o.Complete(ctx, rc, RoleReasoner, "step5", systemPrompt, buildUserMsg(batches[0]), tools...)
 		if err != nil {
 			return err
 		}
@@ -237,7 +240,7 @@ func (o *Orchestrator) CompleteParallel(
 		go func() {
 			defer wg.Done()
 			for batchIdx := range jobs {
-				processBatch(ctx, o, rc, roleCfg, chain, systemPrompt, buildUserMsg, batchIdx, len(batches), batches[batchIdx], &mu, &firstErr)
+				processBatch(ctx, o, rc, roleCfg, chain, systemPrompt, buildUserMsg, batchIdx, len(batches), batches[batchIdx], append([]ToolDefinition(nil), tools...), &mu, &firstErr)
 			}
 		}()
 	}
@@ -261,6 +264,7 @@ func processBatch(
 	batchIdx int,
 	batchCount int,
 	batch []review.FileDiff,
+	tools []ToolDefinition,
 	mu *sync.Mutex,
 	firstErr *error,
 ) {
@@ -283,6 +287,7 @@ func processBatch(
 		SystemPrompt: systemPrompt,
 		UserMessage:  userMsg,
 		MaxTokens:    roleCfg.MaxTokens,
+		Tools:        append([]ToolDefinition(nil), tools...),
 	})
 	if err != nil {
 		mu.Lock()

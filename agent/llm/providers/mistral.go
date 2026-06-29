@@ -33,6 +33,10 @@ func (m *Mistral) Complete(ctx context.Context, req LLMRequest) (string, error) 
 			{"role": "user", "content": req.UserMessage},
 		},
 	}
+	if len(req.Tools) > 0 {
+		payload["tools"] = openAIToolDefinitions(req.Tools)
+		payload["tool_choice"] = "auto"
+	}
 
 	body, _ := json.Marshal(payload)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST",
@@ -57,7 +61,8 @@ func (m *Mistral) Complete(ctx context.Context, req LLMRequest) (string, error) 
 	var out struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   string           `json:"content"`
+				ToolCalls []openAIToolCall `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 		Error *struct {
@@ -72,6 +77,9 @@ func (m *Mistral) Complete(ctx context.Context, req LLMRequest) (string, error) 
 	}
 	if len(out.Choices) == 0 {
 		return "", fmt.Errorf("mistral: empty choices")
+	}
+	if len(out.Choices[0].Message.ToolCalls) > 0 {
+		return openAIToolCallsEnvelope(out.Choices[0].Message.ToolCalls), nil
 	}
 	return out.Choices[0].Message.Content, nil
 }

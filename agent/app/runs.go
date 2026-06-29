@@ -47,23 +47,25 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 }
 
 type runDTO struct {
-	ID             string                 `json:"id"`
-	Provider       string                 `json:"provider"`
-	ProjectID      string                 `json:"project_id"`
-	ChangeID       string                 `json:"change_id"`
-	MRIID          int                    `json:"mr_iid"`
-	Title          string                 `json:"title,omitempty"`
-	Status         pipeline.RunStatus     `json:"status"`
-	Error          string                 `json:"error,omitempty"`
-	WebURL         string                 `json:"web_url,omitempty"`
-	UpdatedAt      time.Time              `json:"updated_at"`
-	EventCount     int                    `json:"event_count"`
-	Events         []pipeline.RunEvent    `json:"events,omitempty"`
-	Findings       []review.Finding       `json:"findings,omitempty"`
-	InlineComments []review.InlineComment `json:"inline_comments,omitempty"`
-	DraftReport    string                 `json:"draft_report,omitempty"`
-	FinalReport    string                 `json:"final_report,omitempty"`
-	HILApproved    bool                   `json:"hil_approved"`
+	ID               string                 `json:"id"`
+	Provider         string                 `json:"provider"`
+	ProjectID        string                 `json:"project_id"`
+	ChangeID         string                 `json:"change_id"`
+	MRIID            int                    `json:"mr_iid"`
+	Title            string                 `json:"title,omitempty"`
+	Status           pipeline.RunStatus     `json:"status"`
+	Error            string                 `json:"error,omitempty"`
+	WebURL           string                 `json:"web_url,omitempty"`
+	UpdatedAt        time.Time              `json:"updated_at"`
+	EventCount       int                    `json:"event_count"`
+	Events           []pipeline.RunEvent    `json:"events,omitempty"`
+	Findings         []review.Finding       `json:"findings,omitempty"`
+	InlineComments   []review.InlineComment `json:"inline_comments,omitempty"`
+	ToolRequests     int                    `json:"tool_requests,omitempty"`
+	ToolObservations int                    `json:"tool_observations,omitempty"`
+	DraftReport      string                 `json:"draft_report,omitempty"`
+	FinalReport      string                 `json:"final_report,omitempty"`
+	HILApproved      bool                   `json:"hil_approved"`
 }
 
 func toRunDTO(run pipeline.Run, includeDetails bool) runDTO {
@@ -86,6 +88,8 @@ func toRunDTO(run pipeline.Run, includeDetails bool) runDTO {
 		dto.Findings = run.Findings
 		if run.Source != nil {
 			dto.InlineComments = append([]review.InlineComment(nil), run.Source.InlineComments...)
+			dto.ToolRequests = len(run.Source.ToolRequests)
+			dto.ToolObservations = len(run.Source.ToolObservations)
 		}
 		dto.DraftReport = run.DraftReport
 		dto.FinalReport = run.FinalReport

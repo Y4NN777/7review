@@ -52,12 +52,14 @@ type RunRow struct {
 
 type RunDetail struct {
 	RunRow
-	Findings    int
-	DraftBytes  int
-	FinalBytes  int
-	ReportReady bool
-	EventCount  int
-	LatestEvent string
+	Findings         int
+	DraftBytes       int
+	FinalBytes       int
+	ReportReady      bool
+	EventCount       int
+	LatestEvent      string
+	ToolRequests     int
+	ToolObservations int
 }
 
 type ProviderRow struct {
@@ -819,6 +821,8 @@ func reviewTodoLines(run RunDetail) []string {
 		"findings  " + doneOrOpen(run.Findings > 0),
 		"hil       " + doneOrOpen(run.HILApproved),
 		"final     " + doneOrOpen(run.FinalBytes > 0),
+		fmt.Sprintf("tool req  %d", run.ToolRequests),
+		fmt.Sprintf("tool obs  %d", run.ToolObservations),
 	}
 	return items
 }

@@ -120,7 +120,7 @@ func newE2EServer(t *testing.T, cfg *config.Config) (*Server, *e2ePublisher, *e2
 			"Title":"Missing auth guard",
 			"Description":"The changed handler trusts user input without verifying authorization.",
 			"Suggestion":"Check authorization before processing the request.",
-			"Location":{"Path":"main.go","Line":12},
+			"Location":{"Path":"main.go","Line":10},
 			"Confidence":0.94
 		}]`,
 		revision: "## 7review Draft\n\nRevised after engineer request.\n",

@@ -90,6 +90,7 @@ type fakeObservatory struct {
 	diffRun     string
 	mrRun       string
 	filesRun    string
+	inlineRun   string
 	discussRun  string
 	publishRun  string
 	providerHit bool
@@ -117,6 +118,11 @@ func (f *fakeObservatory) MergeRequest(_ context.Context, run string) (any, erro
 
 func (f *fakeObservatory) ChangedFiles(_ context.Context, run string) (any, error) {
 	f.filesRun = run
+	return map[string]any{"run": run}, nil
+}
+
+func (f *fakeObservatory) InlinePositions(_ context.Context, run string) (any, error) {
+	f.inlineRun = run
 	return map[string]any{"run": run}, nil
 }
 
@@ -174,6 +180,7 @@ func TestToolExecutorExecutesObservabilityTools(t *testing.T) {
 		{Name: "get_diff_summary", Input: map[string]any{"id": "p!7"}},
 		{Name: "get_merge_request", Input: map[string]any{"id": "p!7"}},
 		{Name: "get_changed_files", Input: map[string]any{"id": "p!7"}},
+		{Name: "get_inline_positions", Input: map[string]any{"id": "p!7"}},
 		{Name: "list_discussions", Input: map[string]any{"id": "p!7"}},
 		{Name: "list_provider_status"},
 		{Name: "get_publish_status", Input: map[string]any{"run": "p!7"}},
@@ -262,6 +269,7 @@ func TestImplementedCatalogToolsHaveExecutablePath(t *testing.T) {
 		"get_diff_summary":        {"run": "p!7"},
 		"get_merge_request":       {"run": "p!7"},
 		"get_changed_files":       {"run": "p!7"},
+		"get_inline_positions":    {"run": "p!7"},
 		"list_discussions":        {"run": "p!7"},
 		"get_publish_status":      {"run": "p!7"},
 		"preview_memory_proposal": {"run": "p!7"},

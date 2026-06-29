@@ -21,6 +21,47 @@ type EvidenceItem struct {
 	ContentBytes    int      `json:"content_bytes"`
 }
 
+// SkillActivation records why one review skill is active for a run.
+type SkillActivation struct {
+	Name           string   `json:"name"`
+	Path           string   `json:"path,omitempty"`
+	Category       string   `json:"category"`
+	RiskTier       string   `json:"risk_tier,omitempty"`
+	ReviewDomain   string   `json:"review_domain,omitempty"`
+	AllowedTools   []string `json:"allowed_tools,omitempty"`
+	RequiredChecks []string `json:"required_checks,omitempty"`
+	Required       bool     `json:"required"`
+	Reason         string   `json:"reason"`
+}
+
+// SkillCoverage is the model's auditable acknowledgement of an active skill.
+type SkillCoverage struct {
+	Name     string   `json:"name"`
+	Status   string   `json:"status,omitempty"`
+	Evidence []string `json:"evidence,omitempty"`
+	Tools    []string `json:"tools,omitempty"`
+	Checks   []string `json:"checks,omitempty"`
+	Notes    string   `json:"notes,omitempty"`
+}
+
+// ToolRequest is a model-proposed read-only tool call.
+type ToolRequest struct {
+	Name   string         `json:"name"`
+	Input  map[string]any `json:"input,omitempty"`
+	Reason string         `json:"reason,omitempty"`
+	Round  int            `json:"round,omitempty"`
+}
+
+// ToolObservation records a governed read-only tool call result.
+type ToolObservation struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Reason  string `json:"reason,omitempty"`
+	Result  string `json:"result,omitempty"`
+	Surface string `json:"surface,omitempty"`
+	Round   int    `json:"round,omitempty"`
+}
+
 // Kind classifies rich review context so selection remains generic.
 type Kind string
 

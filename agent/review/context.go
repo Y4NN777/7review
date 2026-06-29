@@ -13,18 +13,22 @@ type Source struct {
 	Request Request
 	SCM     *SCMContext
 
-	ChangedFiles   []ChangedFile
-	Diff           *StructuredDiff
-	CorpusSections []Section
-	Evidence       []EvidenceItem
-	SkillSections  []Section
-	Memory         MemoryRecall
+	ChangedFiles     []ChangedFile
+	Diff             *StructuredDiff
+	CorpusSections   []Section
+	Evidence         []EvidenceItem
+	SkillSections    []Section
+	SkillActivations []SkillActivation
+	Memory           MemoryRecall
 
-	Model          ModelReview
-	Findings       []Finding
-	InlineComments []InlineComment
-	Report         Report
-	Run            RunMetadata
+	Model            ModelReview
+	SkillCoverage    []SkillCoverage
+	ToolRequests     []ToolRequest
+	ToolObservations []ToolObservation
+	Findings         []Finding
+	InlineComments   []InlineComment
+	Report           Report
+	Run              RunMetadata
 }
 
 type ModelReview struct {

@@ -6,21 +6,23 @@ import (
 )
 
 type RunRow struct {
-	ID          string    `json:"id"`
-	Provider    string    `json:"provider"`
-	ProjectID   string    `json:"project_id"`
-	ChangeID    string    `json:"change_id"`
-	Title       string    `json:"title"`
-	Status      string    `json:"status"`
-	Error       string    `json:"error"`
-	WebURL      string    `json:"web_url"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	EventCount  int       `json:"event_count"`
-	Events      []any     `json:"events"`
-	Findings    []any     `json:"findings"`
-	DraftReport string    `json:"draft_report"`
-	FinalReport string    `json:"final_report"`
-	HILApproved bool      `json:"hil_approved"`
+	ID               string    `json:"id"`
+	Provider         string    `json:"provider"`
+	ProjectID        string    `json:"project_id"`
+	ChangeID         string    `json:"change_id"`
+	Title            string    `json:"title"`
+	Status           string    `json:"status"`
+	Error            string    `json:"error"`
+	WebURL           string    `json:"web_url"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	EventCount       int       `json:"event_count"`
+	Events           []any     `json:"events"`
+	Findings         []any     `json:"findings"`
+	ToolRequests     int       `json:"tool_requests"`
+	ToolObservations int       `json:"tool_observations"`
+	DraftReport      string    `json:"draft_report"`
+	FinalReport      string    `json:"final_report"`
+	HILApproved      bool      `json:"hil_approved"`
 }
 
 type RunEvent struct {
@@ -32,19 +34,21 @@ type RunEvent struct {
 }
 
 type RunDetail struct {
-	ID          string     `json:"id"`
-	Provider    string     `json:"provider"`
-	ProjectID   string     `json:"project_id"`
-	ChangeID    string     `json:"change_id"`
-	Status      string     `json:"status"`
-	Title       string     `json:"title"`
-	WebURL      string     `json:"web_url"`
-	EventCount  int        `json:"event_count"`
-	Events      []RunEvent `json:"events"`
-	Findings    []any      `json:"findings"`
-	DraftReport string     `json:"draft_report"`
-	FinalReport string     `json:"final_report"`
-	HILApproved bool       `json:"hil_approved"`
+	ID               string     `json:"id"`
+	Provider         string     `json:"provider"`
+	ProjectID        string     `json:"project_id"`
+	ChangeID         string     `json:"change_id"`
+	Status           string     `json:"status"`
+	Title            string     `json:"title"`
+	WebURL           string     `json:"web_url"`
+	EventCount       int        `json:"event_count"`
+	Events           []RunEvent `json:"events"`
+	Findings         []any      `json:"findings"`
+	ToolRequests     int        `json:"tool_requests"`
+	ToolObservations int        `json:"tool_observations"`
+	DraftReport      string     `json:"draft_report"`
+	FinalReport      string     `json:"final_report"`
+	HILApproved      bool       `json:"hil_approved"`
 }
 
 type ToolEnvelope struct {

@@ -13,6 +13,7 @@ import (
 	"github.com/Y4NN777/7review/agent/llm"
 	"github.com/Y4NN777/7review/agent/orchestrator"
 	"github.com/Y4NN777/7review/agent/review"
+	"github.com/Y4NN777/7review/agent/skills"
 )
 
 func TestRunFailsWhenContextReducerFails(t *testing.T) {
@@ -279,7 +280,7 @@ func TestRunProducesValidatedDraftReportsForGitHubAndGitLab(t *testing.T) {
 		"Title":"Missing timeout",
 		"Description":"The changed path can hang without a timeout.",
 		"Suggestion":"Use a bounded context.",
-		"Location":{"Path":"agent/app/server.go","Line":11},
+		"Location":{"Path":"agent/app/server.go","Line":1},
 		"Confidence":0.91
 	}]`
 
@@ -331,10 +332,12 @@ func TestRunProducesValidatedDraftReportsForGitHubAndGitLab(t *testing.T) {
 				"webhook_received",
 				"scm_enriched",
 				"skills_selected",
+				"skill_plan_built",
 				"repository_knowledge_selected",
 				"memory_recalled",
 				"context_assembled",
 				"model_review_completed",
+				"skill_coverage_validated",
 				"findings_validated",
 				"inline_comments_processed",
 				"draft_published",
@@ -347,6 +350,371 @@ func TestRunProducesValidatedDraftReportsForGitHubAndGitLab(t *testing.T) {
 				t.Fatalf("model route trace missing provider metadata: %#v", run.Events)
 			}
 		})
+	}
+}
+
+func TestParseReviewOutputAcceptsSkillCoverageEnvelope(t *testing.T) {
+	input := `{
+		"findings": [{
+			"id": "F1",
+			"severity": "high",
+			"title": "bug",
+			"description": "desc",
+			"suggestion": "fix",
+			"location": {"path": "agent/app/server.go", "line": 12},
+			"confidence": 0.9
+		}],
+		"skill_coverage": [{
+			"name": "traceability-review",
+			"status": "covered",
+			"evidence": ["agent/app/server.go", "docs/CONTRACT.md#REQ-1"],
+			"tools": ["scm-api"],
+			"notes": "Checked changed file against selected contract."
+		}]
+	}`
+
+	findings, coverage, requests, status := parseReviewOutputDetailed(input)
+	if status != "parsed" || len(findings) != 1 {
+		t.Fatalf("expected parsed finding, status=%s findings=%#v", status, findings)
+	}
+	if len(coverage) != 1 || coverage[0].Name != "traceability-review" || coverage[0].Tools[0] != "scm-api" {
+		t.Fatalf("coverage not parsed: %#v", coverage)
+	}
+	if len(requests) != 0 {
+		t.Fatalf("unexpected tool requests: %#v", requests)
+	}
+}
+
+func TestRunExecutesAllowedReadOnlyToolRequestsBeforeFinalReview(t *testing.T) {
+	store := NewMemoryRunStore()
+	provider := &sequenceLLMProvider{responses: []string{
+		`{"tool_requests":[{"name":"get_changed_files","input":{},"reason":"Need changed file metadata before final review."}],"findings":[],"skill_coverage":[]}`,
+		`{"tool_requests":[{"name":"get_inline_positions","input":{},"reason":"Need exact provider inline position metadata."}],"findings":[],"skill_coverage":[]}`,
+		`{
+			"findings": [{
+				"id": "F1",
+				"severity": "medium",
+				"title": "Missing timeout",
+				"description": "The changed handler still has no timeout.",
+				"suggestion": "Use a bounded context.",
+				"location": {"path": "agent/app/server.go", "line": 2},
+				"confidence": 0.9
+			}],
+			"skill_coverage": [{
+				"name": "gitlab-merge-api",
+				"status": "covered",
+				"tools": ["get_changed_files", "get_inline_positions"],
+				"evidence": ["agent/app/server.go"],
+				"notes": "Used changed file metadata and inline position metadata before final findings."
+			}]
+		}`,
+	}}
+	p := &Pipeline{
+		Config: &config.Config{MaxDiffTokens: 6000, CorpusRoot: t.TempDir()},
+		SkillLoader: &skills.Loader{Skills: []skills.Skill{{
+			Name:         "gitlab-merge-api",
+			Description:  "GitLab API rules",
+			AllowedTools: "scm-api",
+			Metadata:     map[string]string{"risk-tier": "high", "review-domain": "provider-api"},
+			Path:         "agent/skills/gitlab-merge-api/SKILL.md",
+			Body:         "# GitLab API",
+		}}},
+		Orchestrator: orchestrator.NewOrchestrator(
+			orchestrator.DefaultOrchestratorConfig("review", "small", "fake"),
+			map[string]orchestrator.LLMProvider{"fake": provider},
+		),
+		Jobs:             store,
+		Policy:           DefaultPolicyFilter{},
+		FindingValidator: DefaultFindingValidator{},
+		Memory:           NoopMemoryStore{},
+		SCM: staticSCM{context: &review.SCMContext{
+			Provider:  "gitlab",
+			ProjectID: "p",
+			ChangeID:  "7",
+			MRIID:     7,
+			Files: []review.ChangedFile{{
+				NewPath:   "agent/app/server.go",
+				Patch:     "@@ -1,1 +1,2 @@\n package app\n+func changed() {}\n",
+				Additions: 1,
+			}},
+		}},
+		SCMPublisher:   &draftRecordingPublisher{},
+		ContextReducer: NoopContextReducer{},
+	}
+
+	if err := p.Run(context.Background(), review.Request{Provider: "gitlab", ProjectID: "p", ChangeID: "7", MRIID: 7}); err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.Get(context.Background(), "p!7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 3 {
+		t.Fatalf("expected initial and tool-augmented model calls, got %d", provider.calls)
+	}
+	if len(run.Findings) != 1 || run.Findings[0].ID != "F1" {
+		t.Fatalf("expected final finding after tool loop, got %#v", run.Findings)
+	}
+	if run.Context == nil || len(run.Context.Source.ToolRequests) != 2 || len(run.Context.Source.ToolObservations) != 2 {
+		t.Fatalf("tool observation was not saved: %#v", run.Context)
+	}
+	if run.Context.Source.ToolObservations[0].Round != 1 || run.Context.Source.ToolObservations[1].Round != 2 || run.Context.Source.ToolObservations[1].Name != "get_inline_positions" {
+		t.Fatalf("tool rounds were not tracked: %#v", run.Context.Source.ToolObservations)
+	}
+	if !hasRunEvent(run.Events, "tool_call_started") || !hasRunEvent(run.Events, "tool_call_completed") {
+		t.Fatalf("tool call events missing: %#v", run.Events)
+	}
+}
+
+func TestValidateSkillCoverageWarnsForRequiredMissingCoverage(t *testing.T) {
+	activations := []review.SkillActivation{
+		{Name: "traceability-review", Category: "core", Required: true},
+		{Name: "api-contract-review", Category: "triggered", Required: false},
+		{Name: "gitlab-merge-api", Category: "provider-api", Required: true},
+	}
+	coverage := []review.SkillCoverage{
+		{Name: "gitlab-merge-api", Status: "covered"},
+	}
+
+	warnings := validateSkillCoverage(activations, coverage)
+	if len(warnings) != 2 {
+		t.Fatalf("expected missing core and provider evidence warnings, got %#v", warnings)
+	}
+	if !strings.Contains(strings.Join(warnings, "\n"), "traceability-review") {
+		t.Fatalf("missing core warning: %#v", warnings)
+	}
+	if !strings.Contains(strings.Join(warnings, "\n"), "tool or SCM evidence") {
+		t.Fatalf("missing provider evidence warning: %#v", warnings)
+	}
+}
+
+func TestRunRepairsMissingRequiredCoreSkillCoverage(t *testing.T) {
+	store := NewMemoryRunStore()
+	provider := &sequenceLLMProvider{responses: []string{
+		`{"findings":[],"skill_coverage":[]}`,
+		`{"skill_coverage":[{
+			"name":"methodology-review",
+			"status":"covered",
+			"evidence":["agent/app/server.go"],
+			"tools":["validator"],
+			"checks":["lifecycle","deterministic-boundaries"],
+			"notes":"Validated lifecycle and deterministic ownership boundaries."
+		}]}`,
+	}}
+	p := &Pipeline{
+		Config: &config.Config{MaxDiffTokens: 6000, CorpusRoot: t.TempDir()},
+		SkillLoader: &skills.Loader{Skills: []skills.Skill{{
+			Name:         "methodology-review",
+			Description:  "Core lifecycle rules",
+			AllowedTools: "validator",
+			Metadata:     map[string]string{"risk-tier": "high", "review-domain": "methodology"},
+			Path:         "agent/skills/methodology-review/SKILL.md",
+			Body:         "# Methodology",
+		}}},
+		Orchestrator: orchestrator.NewOrchestrator(
+			orchestrator.DefaultOrchestratorConfig("review", "small", "fake"),
+			map[string]orchestrator.LLMProvider{"fake": provider},
+		),
+		Jobs:             store,
+		Policy:           DefaultPolicyFilter{},
+		FindingValidator: DefaultFindingValidator{},
+		Memory:           NoopMemoryStore{},
+		SCM: staticSCM{context: &review.SCMContext{
+			Provider:  "gitlab",
+			ProjectID: "p",
+			ChangeID:  "9",
+			MRIID:     9,
+			Files: []review.ChangedFile{{
+				NewPath: "agent/app/server.go",
+				Patch:   "@@ -1,1 +1,2 @@\n package app\n+func changed() {}\n",
+			}},
+		}},
+		SCMPublisher:   &draftRecordingPublisher{},
+		ContextReducer: NoopContextReducer{},
+	}
+
+	if err := p.Run(context.Background(), review.Request{Provider: "gitlab", ProjectID: "p", ChangeID: "9", MRIID: 9}); err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.Get(context.Background(), "p!9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != StatusDrafted {
+		t.Fatalf("expected repaired coverage to draft run, got %s error=%s", run.Status, run.Error)
+	}
+	if !hasRunEvent(run.Events, "skill_coverage_repaired") {
+		t.Fatalf("missing skill coverage repair event: %#v", run.Events)
+	}
+	if run.Context == nil || len(run.Context.Source.SkillCoverage) != 1 {
+		t.Fatalf("repaired coverage not saved: %#v", run.Context)
+	}
+}
+
+func TestRunSynthesizesCoreSkillCoverageWhenModelAndRepairOmitIt(t *testing.T) {
+	store := NewMemoryRunStore()
+	provider := &sequenceLLMProvider{responses: []string{
+		`{"findings":[],"skill_coverage":[]}`,
+		`{"skill_coverage":[]}`,
+	}}
+	p := &Pipeline{
+		Config: &config.Config{MaxDiffTokens: 6000, CorpusRoot: t.TempDir()},
+		SkillLoader: &skills.Loader{Skills: []skills.Skill{{
+			Name:         "methodology-review",
+			Description:  "Core lifecycle rules",
+			AllowedTools: "validator",
+			Metadata:     map[string]string{"risk-tier": "high", "review-domain": "methodology"},
+			Path:         "agent/skills/methodology-review/SKILL.md",
+			Body:         "# Methodology",
+		}}},
+		Orchestrator: orchestrator.NewOrchestrator(
+			orchestrator.DefaultOrchestratorConfig("review", "small", "fake"),
+			map[string]orchestrator.LLMProvider{"fake": provider},
+		),
+		Jobs:             store,
+		Policy:           DefaultPolicyFilter{},
+		FindingValidator: DefaultFindingValidator{},
+		Memory:           NoopMemoryStore{},
+		SCM: staticSCM{context: &review.SCMContext{
+			Provider:  "gitlab",
+			ProjectID: "p",
+			ChangeID:  "10",
+			MRIID:     10,
+			Files: []review.ChangedFile{{
+				NewPath: "agent/app/server.go",
+				Patch:   "@@ -1,1 +1,2 @@\n package app\n+func changed() {}\n",
+			}},
+		}},
+		SCMPublisher:   &draftRecordingPublisher{},
+		ContextReducer: NoopContextReducer{},
+	}
+
+	if err := p.Run(context.Background(), review.Request{Provider: "gitlab", ProjectID: "p", ChangeID: "10", MRIID: 10}); err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.Get(context.Background(), "p!10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != StatusDrafted {
+		t.Fatalf("expected synthesized coverage to draft run, got %s error=%s", run.Status, run.Error)
+	}
+	if !hasRunEvent(run.Events, "skill_coverage_synthesized") {
+		t.Fatalf("missing synthesized coverage event: %#v", run.Events)
+	}
+	if run.Context == nil || len(run.Context.Source.SkillCoverage) != 1 || run.Context.Source.SkillCoverage[0].Status != "covered" {
+		t.Fatalf("synthesized coverage not saved: %#v", run.Context)
+	}
+	for _, warning := range run.Context.Run.Warnings {
+		if strings.Contains(warning, "methodology-review was active but the model did not provide auditable coverage") {
+			t.Fatalf("stale missing coverage warning survived synthesis: %#v", run.Context.Run.Warnings)
+		}
+	}
+}
+
+func TestRunSynthesizesProviderAPISkillCoverageFromRuntimeEvidence(t *testing.T) {
+	store := NewMemoryRunStore()
+	provider := &sequenceLLMProvider{responses: []string{
+		`{"findings":[],"skill_coverage":[]}`,
+	}}
+	publisher := &draftRecordingPublisher{}
+	p := &Pipeline{
+		Config: &config.Config{MaxDiffTokens: 6000, CorpusRoot: t.TempDir()},
+		SkillLoader: &skills.Loader{Skills: []skills.Skill{{
+			Name:         "gitlab-merge-api",
+			Description:  "GitLab API rules",
+			AllowedTools: "scm-api diff-analyzer publisher validator",
+			Metadata:     map[string]string{"risk-tier": "high", "review-domain": "gitlab-scm"},
+			Path:         "agent/skills/gitlab-merge-api/SKILL.md",
+			Body:         "# GitLab API",
+		}}},
+		Orchestrator: orchestrator.NewOrchestrator(
+			orchestrator.DefaultOrchestratorConfig("review", "small", "fake"),
+			map[string]orchestrator.LLMProvider{"fake": provider},
+		),
+		Jobs:             store,
+		Policy:           DefaultPolicyFilter{},
+		FindingValidator: DefaultFindingValidator{},
+		Memory:           NoopMemoryStore{},
+		SCM: staticSCM{context: &review.SCMContext{
+			Provider:  "gitlab",
+			ProjectID: "p",
+			ChangeID:  "11",
+			MRIID:     11,
+			WebURL:    "https://gitlab.example/p/-/merge_requests/11",
+			Files: []review.ChangedFile{{
+				NewPath: "agent/tools/gitlab.go",
+				Patch:   "@@ -1,1 +1,2 @@\n package tools\n+func changed() {}\n",
+			}},
+		}},
+		SCMPublisher:   publisher,
+		ContextReducer: NoopContextReducer{},
+	}
+
+	if err := p.Run(context.Background(), review.Request{Provider: "gitlab", ProjectID: "p", ChangeID: "11", MRIID: 11}); err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.Get(context.Background(), "p!11")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != StatusDrafted {
+		t.Fatalf("expected provider coverage synthesis to draft run, got %s error=%s", run.Status, run.Error)
+	}
+	if !hasRunEvent(run.Events, "provider_skill_coverage_synthesized") {
+		t.Fatalf("missing provider synthesis event: %#v", run.Events)
+	}
+	if run.Context == nil || len(run.Context.Source.SkillCoverage) != 1 {
+		t.Fatalf("provider coverage not saved: %#v", run.Context)
+	}
+	coverage := run.Context.Source.SkillCoverage[0]
+	if coverage.Name != "gitlab-merge-api" || !containsStringFold(coverage.Tools, "scm-api") || len(coverage.Checks) == 0 {
+		t.Fatalf("provider coverage is not auditable: %#v", coverage)
+	}
+	for _, warning := range run.Context.Run.Warnings {
+		if strings.Contains(warning, "gitlab-merge-api was active but the model did not provide auditable coverage") {
+			t.Fatalf("stale provider warning survived synthesis: %#v", run.Context.Run.Warnings)
+		}
+	}
+	if publisher.draftReport == "" {
+		t.Fatal("draft was not published")
+	}
+}
+
+func TestCoreSkillCoverageErrorsRequireNamedChecks(t *testing.T) {
+	activations := []review.SkillActivation{{
+		Name:           "traceability-review",
+		Category:       "core",
+		Required:       true,
+		RequiredChecks: []string{"changed-file-evidence", "source-identifier"},
+	}}
+	coverage := []review.SkillCoverage{{
+		Name:   "traceability-review",
+		Status: "covered",
+		Checks: []string{"changed-file-evidence"},
+	}}
+
+	errs := coreSkillCoverageErrors(activations, coverage)
+	if len(errs) != 1 || !strings.Contains(errs[0], "source-identifier") {
+		t.Fatalf("expected missing required check, got %#v", errs)
+	}
+}
+
+func TestExecuteReviewToolRequestDeniesWriteTools(t *testing.T) {
+	rc := review.NewContext(review.Request{Provider: "gitlab", ProjectID: "p", ChangeID: "7"})
+	rc.Source.SkillActivations = []review.SkillActivation{{
+		Name:         "gitlab-merge-api",
+		Category:     "provider-api",
+		Required:     true,
+		AllowedTools: []string{"scm-api", "publisher"},
+	}}
+
+	observation := (&Pipeline{}).executeReviewToolRequest(rc, review.ToolRequest{
+		Name:   "publish_final",
+		Reason: "try to write",
+	})
+	if observation.Status != "denied" || !strings.Contains(observation.Reason, "not available") {
+		t.Fatalf("write tool was not denied: %#v", observation)
 	}
 }
 
@@ -450,6 +818,136 @@ func TestResolveInlineDraftCommentsSupportsRenamedNewSideLines(t *testing.T) {
 	}
 	if comments[0].OldPath != "old/name.go" || comments[0].NewPath != "new/name.go" || comments[0].Side != "RIGHT" {
 		t.Fatalf("renamed metadata not preserved: %#v", comments[0])
+	}
+}
+
+func TestResolveInlineDraftCommentsAllowsAddedFileWithoutHunkLines(t *testing.T) {
+	rc := review.NewContext(review.Request{})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "services/backend/migrations/vps/013_appels.py",
+		Patch: "compact gitlab added-file diff",
+	}}}
+	rc.Source.SCM = &review.SCMContext{Files: []review.ChangedFile{{
+		OldPath: "services/backend/migrations/vps/013_appels.py",
+		NewPath: "services/backend/migrations/vps/013_appels.py",
+		Status:  "added",
+		Patch:   "compact gitlab added-file diff",
+	}}}
+	comments := resolveInlineDraftComments(rc, &review.SCMContext{
+		Provider: "gitlab",
+		DiffRefs: review.DiffRefs{BaseSHA: "base", StartSHA: "start", HeadSHA: "head"},
+	}, []review.Finding{{
+		ID:         "F1",
+		Location:   review.Location{Path: "services/backend/migrations/vps/013_appels.py", Line: 25},
+		Title:      "Migration issue",
+		Confidence: 0.9,
+	}})
+
+	if len(comments) != 1 || comments[0].Status != "validated" || comments[0].Line != 25 {
+		t.Fatalf("expected added-file line to be addressable, got %#v", comments)
+	}
+}
+
+func TestNormalizeFindingLocationsInfersSingleChangedFileLine(t *testing.T) {
+	rc := review.NewContext(review.Request{})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "db/migrations/013_calls.sql",
+		Patch: "@@ -0,0 +1,3 @@\n+CREATE TABLE calls (\n+  id uuid PRIMARY KEY\n+);\n",
+	}}}
+	findings, count := normalizeFindingLocations(rc, []review.Finding{{
+		ID:          "F1",
+		Severity:    review.SeverityMedium,
+		Title:       "Missing migration test",
+		Description: "The migration needs coverage.",
+		Confidence:  0.9,
+	}})
+
+	if count != 1 || len(findings) != 1 {
+		t.Fatalf("expected one normalized finding, count=%d findings=%#v", count, findings)
+	}
+	if findings[0].Location.Path != "db/migrations/013_calls.sql" || findings[0].Location.Line != 1 {
+		t.Fatalf("location not inferred from single changed file: %#v", findings[0].Location)
+	}
+}
+
+func TestDefaultFindingValidatorRejectsMissingLocations(t *testing.T) {
+	rc := review.NewContext(review.Request{ChangedPaths: []string{"main.go"}})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{Path: "main.go"}}}
+	report, err := DefaultFindingValidator{}.Validate(context.Background(), rc, []review.Finding{
+		{
+			ID:          "missing-path",
+			Severity:    review.SeverityHigh,
+			Title:       "No path",
+			Description: "Missing path.",
+			Confidence:  0.9,
+		},
+		{
+			ID:          "missing-line",
+			Severity:    review.SeverityHigh,
+			Title:       "No line",
+			Description: "Missing line.",
+			Location:    review.Location{Path: "main.go"},
+			Confidence:  0.9,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Accepted) != 0 || len(report.Rejected) != 2 {
+		t.Fatalf("expected both missing-location findings rejected: %#v", report)
+	}
+	reasons := report.Rejected[0].Reason + "\n" + report.Rejected[1].Reason
+	if !strings.Contains(reasons, "missing changed-file location") || !strings.Contains(reasons, "missing changed-line location") {
+		t.Fatalf("unexpected rejection reasons: %#v", report.Rejected)
+	}
+}
+
+func TestDefaultFindingValidatorRejectsUnchangedLines(t *testing.T) {
+	rc := review.NewContext(review.Request{ChangedPaths: []string{"main.go"}})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "main.go",
+		Patch: "@@ -10,2 +10,3 @@\n unchanged\n+changed\n still\n",
+	}}}
+	report, err := DefaultFindingValidator{}.Validate(context.Background(), rc, []review.Finding{{
+		ID:          "unchanged-line",
+		Severity:    review.SeverityHigh,
+		Title:       "Wrong line",
+		Description: "Line 10 is context, not an added line.",
+		Location:    review.Location{Path: "main.go", Line: 10},
+		Confidence:  0.9,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Accepted) != 0 || len(report.Rejected) != 1 || report.Rejected[0].Reason != "location line is not an added or changed line" {
+		t.Fatalf("expected unchanged line rejection: %#v", report)
+	}
+}
+
+func TestDefaultFindingValidatorAllowsAddedFileWithoutHunkLines(t *testing.T) {
+	rc := review.NewContext(review.Request{ChangedPaths: []string{"added.py"}})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "added.py",
+		Patch: "compact gitlab added-file diff",
+	}}}
+	rc.Source.SCM = &review.SCMContext{Files: []review.ChangedFile{{
+		NewPath: "added.py",
+		Status:  "added",
+		Patch:   "compact gitlab added-file diff",
+	}}}
+	report, err := DefaultFindingValidator{}.Validate(context.Background(), rc, []review.Finding{{
+		ID:          "added-file-line",
+		Severity:    review.SeverityHigh,
+		Title:       "Added file issue",
+		Description: "The added file line is addressable.",
+		Location:    review.Location{Path: "added.py", Line: 25},
+		Confidence:  0.9,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Accepted) != 1 || len(report.Rejected) != 0 {
+		t.Fatalf("expected added-file location accepted: %#v", report)
 	}
 }
 
@@ -577,7 +1075,7 @@ func TestRunRepairsMalformedModelJSONBeforeValidation(t *testing.T) {
 	publisher := &draftRecordingPublisher{}
 	provider := &sequenceLLMProvider{responses: []string{
 		"```json\n[{\"id\":\"PY3-TRANSACTION-MISSING\",\"severity\":\"high\",\"title\":\"Missing transaction\",\"description\":\"Write is not wrapped",
-		`[{"id":"PY3-TRANSACTION-MISSING","severity":"high","title":"Missing transaction","description":"The changed write path is not wrapped in an explicit transaction required by PY-3.","suggestion":"Wrap the write in an explicit transaction.","location":{"path":"api/profile.py","line":3},"confidence":0.91}]`,
+		`[{"id":"PY3-TRANSACTION-MISSING","severity":"high","title":"Missing transaction","description":"The changed write path is not wrapped in an explicit transaction required by PY-3.","suggestion":"Wrap the write in an explicit transaction.","location":{"path":"api/profile.py","line":1},"confidence":0.91}]`,
 	}}
 	p := &Pipeline{
 		Config: &config.Config{MaxDiffTokens: 6000, CorpusRoot: t.TempDir()},

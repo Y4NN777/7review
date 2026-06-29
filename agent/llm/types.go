@@ -8,6 +8,14 @@ type LLMRequest struct {
 	SystemPrompt string
 	UserMessage  string
 	MaxTokens    int
+	Tools        []ToolDefinition
+}
+
+// ToolDefinition is a provider-neutral native tool/function schema.
+type ToolDefinition struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"input_schema"`
 }
 
 // LLMProvider is implemented by each model provider integration.

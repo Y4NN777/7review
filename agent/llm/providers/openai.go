@@ -48,6 +48,10 @@ func (o *OpenAI) Complete(ctx context.Context, req LLMRequest) (string, error) {
 			{"role": "user", "content": req.UserMessage},
 		},
 	}
+	if len(req.Tools) > 0 {
+		payload["tools"] = openAIToolDefinitions(req.Tools)
+		payload["tool_choice"] = "auto"
+	}
 
 	body, _ := json.Marshal(payload)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST",
@@ -74,7 +78,8 @@ func (o *OpenAI) Complete(ctx context.Context, req LLMRequest) (string, error) {
 	var out struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   string           `json:"content"`
+				ToolCalls []openAIToolCall `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 		Error *struct {
@@ -90,7 +95,57 @@ func (o *OpenAI) Complete(ctx context.Context, req LLMRequest) (string, error) {
 	if len(out.Choices) == 0 {
 		return "", fmt.Errorf("%s: empty choices in response", o.name)
 	}
+	if len(out.Choices[0].Message.ToolCalls) > 0 {
+		return openAIToolCallsEnvelope(out.Choices[0].Message.ToolCalls), nil
+	}
 	return out.Choices[0].Message.Content, nil
+}
+
+type openAIToolCall struct {
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+func openAIToolDefinitions(tools []ToolDefinition) []map[string]any {
+	out := make([]map[string]any, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        tool.Name,
+				"description": tool.Description,
+				"parameters":  tool.InputSchema,
+			},
+		})
+	}
+	return out
+}
+
+func openAIToolCallsEnvelope(calls []openAIToolCall) string {
+	type request struct {
+		Name   string         `json:"name"`
+		Input  map[string]any `json:"input,omitempty"`
+		Reason string         `json:"reason,omitempty"`
+	}
+	envelope := struct {
+		ToolRequests  []request `json:"tool_requests"`
+		Findings      []any     `json:"findings"`
+		SkillCoverage []any     `json:"skill_coverage"`
+	}{Findings: []any{}, SkillCoverage: []any{}}
+	for _, call := range calls {
+		input := map[string]any{}
+		if strings.TrimSpace(call.Function.Arguments) != "" {
+			_ = json.Unmarshal([]byte(call.Function.Arguments), &input)
+		}
+		envelope.ToolRequests = append(envelope.ToolRequests, request{Name: call.Function.Name, Input: input, Reason: "provider-native tool call"})
+	}
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return `{"findings":[],"skill_coverage":[]}`
+	}
+	return string(data)
 }
 
 func (o *OpenAI) Stream(ctx context.Context, req LLMRequest, emit StreamHandler) error {

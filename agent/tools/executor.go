@@ -47,6 +47,7 @@ type Observatory interface {
 	DiffSummary(context.Context, string) (any, error)
 	MergeRequest(context.Context, string) (any, error)
 	ChangedFiles(context.Context, string) (any, error)
+	InlinePositions(context.Context, string) (any, error)
 	Discussions(context.Context, string) (any, error)
 	ProviderStatus(context.Context) (any, error)
 	PublishStatus(context.Context, string) (any, error)
@@ -156,6 +157,16 @@ func (e ToolExecutor) Execute(ctx context.Context, req ExecuteRequest) (ExecuteR
 			return ExecuteResponse{}, fmt.Errorf("tools: get_changed_files requires run")
 		}
 		result, err := e.Observatory.ChangedFiles(ctx, run)
+		return ExecuteResponse{Name: name, Result: result}, err
+	case "get_inline_positions":
+		if e.Observatory == nil {
+			return ExecuteResponse{}, fmt.Errorf("tools: observatory is not configured")
+		}
+		run := stringInput(req.Input, "run", "id")
+		if run == "" {
+			return ExecuteResponse{}, fmt.Errorf("tools: get_inline_positions requires run")
+		}
+		result, err := e.Observatory.InlinePositions(ctx, run)
 		return ExecuteResponse{Name: name, Result: result}, err
 	case "list_discussions":
 		if e.Observatory == nil {

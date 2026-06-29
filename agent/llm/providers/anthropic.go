@@ -34,6 +34,9 @@ func (a *Anthropic) Complete(ctx context.Context, req LLMRequest) (string, error
 			{"role": "user", "content": req.UserMessage},
 		},
 	}
+	if len(req.Tools) > 0 {
+		payload["tools"] = anthropicToolDefinitions(req.Tools)
+	}
 
 	body, _ := json.Marshal(payload)
 	httpReq, err := http.NewRequestWithContext(ctx, "POST",
@@ -58,8 +61,10 @@ func (a *Anthropic) Complete(ctx context.Context, req LLMRequest) (string, error
 
 	var out struct {
 		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type  string         `json:"type"`
+			Text  string         `json:"text"`
+			Name  string         `json:"name"`
+			Input map[string]any `json:"input"`
 		} `json:"content"`
 		Error *struct {
 			Message string `json:"message"`
@@ -71,10 +76,56 @@ func (a *Anthropic) Complete(ctx context.Context, req LLMRequest) (string, error
 	if out.Error != nil {
 		return "", fmt.Errorf("anthropic: API error: %s", out.Error.Message)
 	}
+	var toolCalls []anthropicToolCall
 	for _, block := range out.Content {
+		if block.Type == "tool_use" {
+			toolCalls = append(toolCalls, anthropicToolCall{Name: block.Name, Input: block.Input})
+			continue
+		}
 		if block.Type == "text" {
 			return block.Text, nil
 		}
 	}
+	if len(toolCalls) > 0 {
+		return anthropicToolCallsEnvelope(toolCalls), nil
+	}
 	return "", fmt.Errorf("anthropic: no text block in response")
+}
+
+type anthropicToolCall struct {
+	Name  string
+	Input map[string]any
+}
+
+func anthropicToolDefinitions(tools []ToolDefinition) []map[string]any {
+	out := make([]map[string]any, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, map[string]any{
+			"name":         tool.Name,
+			"description":  tool.Description,
+			"input_schema": tool.InputSchema,
+		})
+	}
+	return out
+}
+
+func anthropicToolCallsEnvelope(calls []anthropicToolCall) string {
+	type request struct {
+		Name   string         `json:"name"`
+		Input  map[string]any `json:"input,omitempty"`
+		Reason string         `json:"reason,omitempty"`
+	}
+	envelope := struct {
+		ToolRequests  []request `json:"tool_requests"`
+		Findings      []any     `json:"findings"`
+		SkillCoverage []any     `json:"skill_coverage"`
+	}{Findings: []any{}, SkillCoverage: []any{}}
+	for _, call := range calls {
+		envelope.ToolRequests = append(envelope.ToolRequests, request{Name: call.Name, Input: call.Input, Reason: "provider-native tool call"})
+	}
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return `{"findings":[],"skill_coverage":[]}`
+	}
+	return string(data)
 }
