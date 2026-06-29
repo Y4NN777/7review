@@ -27,3 +27,18 @@ type Finding struct {
 	Location    Location
 	Confidence  float64
 }
+
+// InlineComment records provider-neutral inline publishing state for a finding.
+type InlineComment struct {
+	FindingID  string `json:"finding_id"`
+	Path       string `json:"path"`
+	OldPath    string `json:"old_path,omitempty"`
+	NewPath    string `json:"new_path,omitempty"`
+	Line       int    `json:"line"`
+	Side       string `json:"side,omitempty"`
+	Body       string `json:"body,omitempty"`
+	Status     string `json:"status"`
+	Reason     string `json:"reason,omitempty"`
+	ProviderID string `json:"provider_id,omitempty"`
+	URL        string `json:"url,omitempty"`
+}

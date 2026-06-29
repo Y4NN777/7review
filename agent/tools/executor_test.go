@@ -88,6 +88,9 @@ type fakeObservatory struct {
 	selectedRun string
 	timelineRun string
 	diffRun     string
+	mrRun       string
+	filesRun    string
+	discussRun  string
 	publishRun  string
 	providerHit bool
 }
@@ -104,6 +107,21 @@ func (f *fakeObservatory) RunTimeline(_ context.Context, run string) (any, error
 
 func (f *fakeObservatory) DiffSummary(_ context.Context, run string) (any, error) {
 	f.diffRun = run
+	return map[string]any{"run": run}, nil
+}
+
+func (f *fakeObservatory) MergeRequest(_ context.Context, run string) (any, error) {
+	f.mrRun = run
+	return map[string]any{"run": run}, nil
+}
+
+func (f *fakeObservatory) ChangedFiles(_ context.Context, run string) (any, error) {
+	f.filesRun = run
+	return map[string]any{"run": run}, nil
+}
+
+func (f *fakeObservatory) Discussions(_ context.Context, run string) (any, error) {
+	f.discussRun = run
 	return map[string]any{"run": run}, nil
 }
 
@@ -154,6 +172,9 @@ func TestToolExecutorExecutesObservabilityTools(t *testing.T) {
 		{Name: "get_selected_context", Input: map[string]any{"run": "p!7"}},
 		{Name: "get_run_timeline", Input: map[string]any{"id": "p!7"}},
 		{Name: "get_diff_summary", Input: map[string]any{"id": "p!7"}},
+		{Name: "get_merge_request", Input: map[string]any{"id": "p!7"}},
+		{Name: "get_changed_files", Input: map[string]any{"id": "p!7"}},
+		{Name: "list_discussions", Input: map[string]any{"id": "p!7"}},
 		{Name: "list_provider_status"},
 		{Name: "get_publish_status", Input: map[string]any{"run": "p!7"}},
 		{Name: "preview_memory_proposal", Input: map[string]any{"run": "p!7"}},
@@ -162,7 +183,9 @@ func TestToolExecutorExecutesObservabilityTools(t *testing.T) {
 			t.Fatalf("%s failed: %v", req.Name, err)
 		}
 	}
-	if observatory.selectedRun != "p!7" || observatory.timelineRun != "p!7" || observatory.diffRun != "p!7" || observatory.publishRun != "p!7" || !observatory.providerHit {
+	if observatory.selectedRun != "p!7" || observatory.timelineRun != "p!7" || observatory.diffRun != "p!7" ||
+		observatory.mrRun != "p!7" || observatory.filesRun != "p!7" || observatory.discussRun != "p!7" ||
+		observatory.publishRun != "p!7" || !observatory.providerHit {
 		t.Fatalf("observability tools were not called correctly: %#v", observatory)
 	}
 }
@@ -237,6 +260,9 @@ func TestImplementedCatalogToolsHaveExecutablePath(t *testing.T) {
 		"stream_run_chat":         {"run": "p!7", "message": "hello"},
 		"get_selected_context":    {"run": "p!7"},
 		"get_diff_summary":        {"run": "p!7"},
+		"get_merge_request":       {"run": "p!7"},
+		"get_changed_files":       {"run": "p!7"},
+		"list_discussions":        {"run": "p!7"},
 		"get_publish_status":      {"run": "p!7"},
 		"preview_memory_proposal": {"run": "p!7"},
 		"revise_draft":            {"run": "p!7", "request": "clarify evidence"},

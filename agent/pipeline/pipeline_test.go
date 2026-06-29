@@ -279,7 +279,7 @@ func TestRunProducesValidatedDraftReportsForGitHubAndGitLab(t *testing.T) {
 		"Title":"Missing timeout",
 		"Description":"The changed path can hang without a timeout.",
 		"Suggestion":"Use a bounded context.",
-		"Location":{"Path":"agent/app/server.go","Line":12},
+		"Location":{"Path":"agent/app/server.go","Line":11},
 		"Confidence":0.91
 	}]`
 
@@ -336,6 +336,7 @@ func TestRunProducesValidatedDraftReportsForGitHubAndGitLab(t *testing.T) {
 				"context_assembled",
 				"model_review_completed",
 				"findings_validated",
+				"inline_comments_processed",
 				"draft_published",
 			} {
 				if !hasRunEvent(run.Events, eventType) {
@@ -363,6 +364,111 @@ func TestParseFindingsAcceptsRawArrayEnvelopeFenceAndProse(t *testing.T) {
 				t.Fatalf("expected one finding from %s, got %#v", name, findings)
 			}
 		})
+	}
+}
+
+func TestRunPublishesInlineCommentsForChangedLines(t *testing.T) {
+	store := NewMemoryRunStore()
+	publisher := &draftRecordingPublisher{}
+	modelResponse := `[{
+		"ID":"F1",
+		"Severity":"high",
+		"Title":"Missing timeout",
+		"Description":"The changed path can hang without a timeout.",
+		"Suggestion":"Use a bounded context.",
+		"Location":{"Path":"agent/app/server.go","Line":11},
+		"Confidence":0.91
+	}]`
+	p := &Pipeline{
+		Config: &config.Config{MaxDiffTokens: 6000, CorpusRoot: t.TempDir()},
+		Orchestrator: orchestrator.NewOrchestrator(
+			orchestrator.DefaultOrchestratorConfig("review", "small", "fake"),
+			map[string]orchestrator.LLMProvider{"fake": staticLLMProvider{response: modelResponse}},
+		),
+		Jobs:             store,
+		Policy:           DefaultPolicyFilter{},
+		FindingValidator: DefaultFindingValidator{},
+		Memory:           NoopMemoryStore{},
+		SCM: staticSCM{context: &review.SCMContext{
+			Provider:  "gitlab",
+			ProjectID: "42",
+			ChangeID:  "7",
+			MRIID:     7,
+			DiffRefs:  review.DiffRefs{BaseSHA: "base", StartSHA: "start", HeadSHA: "head"},
+			Files:     []review.ChangedFile{{NewPath: "agent/app/server.go", Patch: "@@ -10,2 +10,3\n old\n+fix\n keep"}},
+		}},
+		SCMPublisher:   publisher,
+		ContextReducer: NoopContextReducer{},
+	}
+
+	if err := p.Run(context.Background(), review.Request{Provider: "gitlab", ProjectID: "42", MRIID: 7, ChangeID: "7", Title: "Fix webhook"}); err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.Get(context.Background(), "42!7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(publisher.inline) != 1 || publisher.inline[0].Path != "agent/app/server.go" || publisher.inline[0].Line != 11 {
+		t.Fatalf("expected inline publish on changed line, got %#v", publisher.inline)
+	}
+	if len(run.Source.InlineComments) != 1 || run.Source.InlineComments[0].Status != "published" {
+		t.Fatalf("expected persisted inline status, got %#v", run.Source.InlineComments)
+	}
+	if !strings.Contains(run.DraftReport, "**Inline:** published") {
+		t.Fatalf("draft missing inline publish status:\n%s", run.DraftReport)
+	}
+	if !eventMetaContains(run.Events, "inline_comments_processed", "published", "1") {
+		t.Fatalf("inline progress event missing published count: %#v", run.Events)
+	}
+}
+
+func TestResolveInlineDraftCommentsSupportsRenamedNewSideLines(t *testing.T) {
+	rc := review.NewContext(review.Request{})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "new/name.go",
+		Patch: "@@ -1,1 +1,2\n old\n+new",
+	}}}
+	rc.Source.ChangedFiles = []review.ChangedFile{{
+		OldPath: "old/name.go",
+		NewPath: "new/name.go",
+		Status:  "renamed",
+		Patch:   "@@ -1,1 +1,2\n old\n+new",
+	}}
+	comments := resolveInlineDraftComments(rc, &review.SCMContext{
+		Provider: "gitlab",
+		DiffRefs: review.DiffRefs{BaseSHA: "base", StartSHA: "start", HeadSHA: "head"},
+	}, []review.Finding{{
+		ID:         "F1",
+		Title:      "Rename issue",
+		Location:   review.Location{Path: "new/name.go", Line: 2},
+		Confidence: 0.9,
+		Severity:   review.SeverityHigh,
+	}})
+
+	if len(comments) != 1 || comments[0].Status != "validated" {
+		t.Fatalf("expected renamed new-side line to be valid, got %#v", comments)
+	}
+	if comments[0].OldPath != "old/name.go" || comments[0].NewPath != "new/name.go" || comments[0].Side != "RIGHT" {
+		t.Fatalf("renamed metadata not preserved: %#v", comments[0])
+	}
+}
+
+func TestResolveInlineDraftCommentsSkipsUnchangedLines(t *testing.T) {
+	rc := review.NewContext(review.Request{})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "main.go",
+		Patch: "@@ -10,2 +10,3\n old\n+new\n keep",
+	}}}
+	comments := resolveInlineDraftComments(rc, &review.SCMContext{Provider: "github", DiffRefs: review.DiffRefs{HeadSHA: "head"}}, []review.Finding{{
+		ID:         "F1",
+		Title:      "Old issue",
+		Location:   review.Location{Path: "main.go", Line: 10},
+		Confidence: 0.9,
+		Severity:   review.SeverityHigh,
+	}})
+
+	if len(comments) != 1 || comments[0].Status != "skipped" || !strings.Contains(comments[0].Reason, "not an added or changed line") {
+		t.Fatalf("expected unchanged line skip, got %#v", comments)
 	}
 }
 
@@ -1104,6 +1210,7 @@ func (fakePublisher) PublishFinal(context.Context, *review.SCMContext, string) e
 type draftRecordingPublisher struct {
 	draftSource *review.SCMContext
 	draftReport string
+	inline      []review.InlineComment
 }
 
 func (p *draftRecordingPublisher) PublishDraft(_ context.Context, source *review.SCMContext, report string) error {
@@ -1114,6 +1221,13 @@ func (p *draftRecordingPublisher) PublishDraft(_ context.Context, source *review
 
 func (p *draftRecordingPublisher) PublishFinal(context.Context, *review.SCMContext, string) error {
 	return nil
+}
+
+func (p *draftRecordingPublisher) PublishInlineDraft(_ context.Context, _ *review.SCMContext, comment review.InlineComment) (review.InlineComment, error) {
+	comment.Status = "published"
+	comment.ProviderID = "inline-" + comment.FindingID
+	p.inline = append(p.inline, comment)
+	return comment, nil
 }
 
 type recordingPublisher struct {

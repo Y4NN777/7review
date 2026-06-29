@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -162,6 +163,8 @@ func (p *Pipeline) Run(ctx context.Context, req review.Request) error {
 	rc.Source.Model = modelReviewAudit(rc, findings, &validation, parseStatus, parseWarning)
 	rc.Findings = validation.Accepted
 	rc.Source.Findings = validation.Accepted
+	rc.Source.InlineComments = p.publishInlineDraftComments(ctx, scmContext, rc, validation.Accepted)
+	p.trace(ctx, run.ID, "inline_comments_processed", StatusRunning, "inline draft comments processed", inlineCommentMeta(rc.Source.InlineComments))
 	rc.DraftReport = renderReport(rc)
 	rc.Source.Report.Draft = rc.DraftReport
 
@@ -180,6 +183,225 @@ func (p *Pipeline) Run(ctx context.Context, req review.Request) error {
 		return err
 	}
 	return nil
+}
+
+func (p *Pipeline) publishInlineDraftComments(ctx context.Context, scm *review.SCMContext, rc *review.Context, findings []review.Finding) []review.InlineComment {
+	comments := resolveInlineDraftComments(rc, scm, findings)
+	log.Printf("[pipeline] inline comments resolved: total=%d publishable=%d", len(comments), countInlineStatus(comments, "validated"))
+	inlinePublisher, ok := p.SCMPublisher.(tools.InlinePublisher)
+	if !ok {
+		for i := range comments {
+			if comments[i].Status == "validated" {
+				comments[i].Status = "skipped"
+				comments[i].Reason = "publisher does not support inline draft comments"
+			}
+		}
+		return comments
+	}
+	for i := range comments {
+		if comments[i].Status != "validated" {
+			log.Printf("[pipeline] inline comment %s skipped before publish: %s", comments[i].FindingID, comments[i].Reason)
+			continue
+		}
+		log.Printf("[pipeline] publishing inline comment %s at %s:%d", comments[i].FindingID, comments[i].Path, comments[i].Line)
+		published, err := inlinePublisher.PublishInlineDraft(ctx, scm, comments[i])
+		if err != nil && published.Reason == "" {
+			published.Status = "failed"
+			published.Reason = err.Error()
+		}
+		comments[i] = published
+		log.Printf("[pipeline] inline comment %s status=%s", comments[i].FindingID, comments[i].Status)
+	}
+	for _, comment := range comments {
+		switch comment.Status {
+		case "skipped":
+			rc.AddWarning(fmt.Sprintf("inline comment skipped for %s: %s", comment.FindingID, comment.Reason))
+		case "failed":
+			rc.AddWarning(fmt.Sprintf("inline comment failed for %s: %s", comment.FindingID, comment.Reason))
+		}
+	}
+	return comments
+}
+
+func inlineCommentMeta(comments []review.InlineComment) map[string]string {
+	return map[string]string{
+		"total":       strconv.Itoa(len(comments)),
+		"published":   strconv.Itoa(countInlineStatus(comments, "published")),
+		"skipped":     strconv.Itoa(countInlineStatus(comments, "skipped")),
+		"failed":      strconv.Itoa(countInlineStatus(comments, "failed")),
+		"publishable": strconv.Itoa(countInlineStatus(comments, "validated")),
+	}
+}
+
+func countInlineStatus(comments []review.InlineComment, status string) int {
+	count := 0
+	for _, comment := range comments {
+		if comment.Status == status {
+			count++
+		}
+	}
+	return count
+}
+
+func resolveInlineDraftComments(rc *review.Context, scm *review.SCMContext, findings []review.Finding) []review.InlineComment {
+	changedLines := changedNewLinesByPath(rc)
+	files := changedFileMetadataByPath(rc)
+	comments := make([]review.InlineComment, 0, len(findings))
+	for _, finding := range findings {
+		findingID := stableFindingID(finding)
+		fileMeta := files[finding.Location.Path]
+		newPath := firstNonEmptyPipeline(fileMeta.NewPath, finding.Location.Path)
+		comment := review.InlineComment{
+			FindingID: findingID,
+			Path:      newPath,
+			OldPath:   firstNonEmptyPipeline(fileMeta.OldPath, newPath),
+			NewPath:   newPath,
+			Line:      finding.Location.Line,
+			Side:      "RIGHT",
+			Body:      inlineFindingBody(finding),
+			Status:    "validated",
+		}
+		switch {
+		case scm == nil:
+			comment.Status = "skipped"
+			comment.Reason = "SCM context is unavailable"
+		case finding.Location.Path == "":
+			comment.Status = "skipped"
+			comment.Reason = "finding has no changed-file location"
+		case finding.Location.Line <= 0:
+			comment.Status = "skipped"
+			comment.Reason = "finding has no line number"
+		case !changedLines[finding.Location.Path][finding.Location.Line]:
+			comment.Status = "skipped"
+			comment.Reason = "finding line is not an added or changed line in the patch"
+		case scm.Provider == "gitlab" && (scm.DiffRefs.BaseSHA == "" || scm.DiffRefs.HeadSHA == "" || scm.DiffRefs.StartSHA == ""):
+			comment.Status = "skipped"
+			comment.Reason = "gitlab diff refs are incomplete"
+		case scm.Provider == "github" && scm.DiffRefs.HeadSHA == "":
+			comment.Status = "skipped"
+			comment.Reason = "github head SHA is missing"
+		}
+		comments = append(comments, comment)
+	}
+	return comments
+}
+
+func changedFileMetadataByPath(rc *review.Context) map[string]review.ChangedFile {
+	out := make(map[string]review.ChangedFile)
+	if rc == nil {
+		return out
+	}
+	for _, file := range rc.Source.ChangedFiles {
+		if file.NewPath != "" {
+			out[file.NewPath] = file
+		}
+	}
+	if rc.Source.SCM != nil {
+		for _, file := range rc.Source.SCM.Files {
+			if file.NewPath != "" {
+				out[file.NewPath] = file
+			}
+		}
+	}
+	return out
+}
+
+func changedNewLinesByPath(rc *review.Context) map[string]map[int]bool {
+	out := make(map[string]map[int]bool)
+	if rc == nil {
+		return out
+	}
+	diff := rc.Diff
+	if diff == nil {
+		diff = rc.Source.Diff
+	}
+	if diff == nil {
+		return out
+	}
+	for _, file := range diff.Files {
+		lines := changedNewLines(file.Patch)
+		if len(lines) == 0 {
+			continue
+		}
+		out[file.Path] = lines
+	}
+	return out
+}
+
+func changedNewLines(patch string) map[int]bool {
+	lines := make(map[int]bool)
+	newLine := 0
+	for _, line := range strings.Split(patch, "\n") {
+		if strings.HasPrefix(line, "@@") {
+			newLine = parseHunkNewStart(line)
+			continue
+		}
+		if newLine == 0 || strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---") {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "+"):
+			lines[newLine] = true
+			newLine++
+		case strings.HasPrefix(line, "-"):
+		default:
+			newLine++
+		}
+	}
+	return lines
+}
+
+func parseHunkNewStart(header string) int {
+	plus := strings.Index(header, "+")
+	if plus < 0 {
+		return 0
+	}
+	rest := header[plus+1:]
+	end := len(rest)
+	for i, r := range rest {
+		if r == ',' || r == ' ' || r == '@' {
+			end = i
+			break
+		}
+	}
+	n, _ := strconv.Atoi(rest[:end])
+	return n
+}
+
+func stableFindingID(finding review.Finding) string {
+	if strings.TrimSpace(finding.ID) != "" {
+		return strings.TrimSpace(finding.ID)
+	}
+	base := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%s-%d-%s", finding.Location.Path, finding.Location.Line, finding.Title)))
+	base = strings.NewReplacer("/", "-", " ", "-", "`", "", "\"", "", "'", "").Replace(base)
+	base = strings.Trim(base, "-")
+	if base == "" {
+		return "finding"
+	}
+	return base
+}
+
+func inlineFindingBody(finding review.Finding) string {
+	var b strings.Builder
+	if finding.Title != "" {
+		fmt.Fprintf(&b, "**%s**\n\n", finding.Title)
+	}
+	if finding.Description != "" {
+		fmt.Fprintf(&b, "%s\n\n", finding.Description)
+	}
+	if finding.Suggestion != "" {
+		fmt.Fprintf(&b, "**Suggestion:** %s", finding.Suggestion)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func firstNonEmptyPipeline(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func isFatalModelParseStatus(status string) bool {
@@ -367,6 +589,7 @@ func (p *Pipeline) SuppressFinding(ctx context.Context, id string, findingID str
 	}
 	rc.Findings = kept
 	rc.Source.Findings = kept
+	rc.Source.InlineComments = filterInlineComments(rc.Source.InlineComments, findingID)
 	rc.HILRejectedIDs = appendUnique(rc.HILRejectedIDs, findingID)
 	rc.HILAddedNotes = append(rc.HILAddedNotes, fmt.Sprintf("suppressed %s: %s", findingID, reason))
 	rc.DraftReport = renderReport(rc)
@@ -375,6 +598,17 @@ func (p *Pipeline) SuppressFinding(ctx context.Context, id string, findingID str
 		return err
 	}
 	return p.Jobs.Update(ctx, id, StatusDrafted, nil)
+}
+
+func filterInlineComments(comments []review.InlineComment, findingID string) []review.InlineComment {
+	var kept []review.InlineComment
+	for _, comment := range comments {
+		if strings.EqualFold(strings.TrimSpace(comment.FindingID), findingID) {
+			continue
+		}
+		kept = append(kept, comment)
+	}
+	return kept
 }
 
 func (p *Pipeline) ReviseDraft(ctx context.Context, id string, request string) error {
@@ -1213,9 +1447,32 @@ func renderReport(rc *review.Context) string {
 		if finding.Suggestion != "" {
 			fmt.Fprintf(&b, "**Suggestion:** %s\n\n", finding.Suggestion)
 		}
+		if status := inlineStatusForFinding(rc.Source.InlineComments, stableFindingID(finding)); status != "" {
+			fmt.Fprintf(&b, "**Inline:** %s\n\n", status)
+		}
 	}
 	appendWarnings(&b, rc)
 	return b.String()
+}
+
+func inlineStatusForFinding(comments []review.InlineComment, findingID string) string {
+	for _, comment := range comments {
+		if comment.FindingID != findingID {
+			continue
+		}
+		switch comment.Status {
+		case "published":
+			if comment.URL != "" {
+				return "published at " + comment.URL
+			}
+			return "published"
+		case "skipped":
+			return "skipped: " + comment.Reason
+		case "failed":
+			return "failed: " + comment.Reason
+		}
+	}
+	return ""
 }
 
 func appendNoFindingAudit(b *strings.Builder, rc *review.Context) {

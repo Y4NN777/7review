@@ -20,10 +20,11 @@ type Source struct {
 	SkillSections  []Section
 	Memory         MemoryRecall
 
-	Model    ModelReview
-	Findings []Finding
-	Report   Report
-	Run      RunMetadata
+	Model          ModelReview
+	Findings       []Finding
+	InlineComments []InlineComment
+	Report         Report
+	Run            RunMetadata
 }
 
 type ModelReview struct {

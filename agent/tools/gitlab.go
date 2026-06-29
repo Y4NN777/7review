@@ -126,6 +126,61 @@ func (c *GitLabClient) PublishFinal(ctx context.Context, source *review.SCMConte
 	return c.upsertNote(ctx, source, report, "final")
 }
 
+func (c *GitLabClient) PublishInlineDraft(ctx context.Context, source *review.SCMContext, comment review.InlineComment) (review.InlineComment, error) {
+	if c == nil || c.BaseURL == "" || c.Token == "" || source == nil {
+		comment.Status = "skipped"
+		comment.Reason = "gitlab publisher is not configured"
+		return comment, nil
+	}
+	if source.ProjectID == "" || source.MRIID == 0 {
+		comment.Status = "failed"
+		comment.Reason = "gitlab project and merge request IID are required"
+		return comment, fmt.Errorf("%s", comment.Reason)
+	}
+	discussionsPath := fmt.Sprintf("/api/v4/projects/%s/merge_requests/%d/discussions", url.PathEscape(source.ProjectID), source.MRIID)
+	var discussions []gitLabDiscussion
+	if err := c.getAll(ctx, discussionsPath+"?per_page=100", &discussions); err != nil {
+		comment.Status = "failed"
+		comment.Reason = err.Error()
+		return comment, err
+	}
+	for _, discussion := range discussions {
+		for _, note := range discussion.Notes {
+			if hasInlineCommentMarker(note.Body, comment.FindingID) {
+				comment.Status = "published"
+				comment.ProviderID = strconv.Itoa(note.ID)
+				comment.URL = note.URL
+				return comment, nil
+			}
+		}
+	}
+	body := inlineCommentBody(comment.Body, comment.FindingID)
+	payload := map[string]any{
+		"body": body,
+		"position": map[string]any{
+			"position_type": "text",
+			"base_sha":      source.DiffRefs.BaseSHA,
+			"start_sha":     source.DiffRefs.StartSHA,
+			"head_sha":      source.DiffRefs.HeadSHA,
+			"old_path":      firstNonEmpty(comment.OldPath, comment.Path),
+			"new_path":      firstNonEmpty(comment.NewPath, comment.Path),
+			"new_line":      comment.Line,
+		},
+	}
+	var out gitLabDiscussion
+	if err := c.send(ctx, http.MethodPost, discussionsPath, payload, &out); err != nil {
+		comment.Status = "failed"
+		comment.Reason = err.Error()
+		return comment, err
+	}
+	comment.Status = "published"
+	if len(out.Notes) > 0 {
+		comment.ProviderID = strconv.Itoa(out.Notes[0].ID)
+		comment.URL = out.Notes[0].URL
+	}
+	return comment, nil
+}
+
 func (c *GitLabClient) upsertNote(ctx context.Context, source *review.SCMContext, body string, kind string) error {
 	if c == nil || c.BaseURL == "" || c.Token == "" || source == nil {
 		return nil
@@ -239,4 +294,10 @@ type gitLabCommit struct {
 type gitLabNote struct {
 	ID   int    `json:"id"`
 	Body string `json:"body"`
+	URL  string `json:"url"`
+}
+
+type gitLabDiscussion struct {
+	ID    string       `json:"id"`
+	Notes []gitLabNote `json:"notes"`
 }

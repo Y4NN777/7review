@@ -168,6 +168,63 @@ func TestGitHubClientPublishUsesProjectIDWhenRepositoryMissing(t *testing.T) {
 	}
 }
 
+func TestGitHubClientPublishInlineDraftCreatesReviewComment(t *testing.T) {
+	var posted bool
+	client := NewGitHubClient("http://agent.test", "token")
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.URL.Path == "/repos/o/r/pulls/7/comments" && r.Method == http.MethodGet:
+			return testJSON(t, []gitHubReviewComment{}), nil
+		case r.URL.Path == "/repos/o/r/pulls/7/comments" && r.Method == http.MethodPost:
+			posted = true
+			body := readBody(t, r)
+			for _, want := range []string{`"commit_id":"head"`, `"path":"new/name.go"`, `"line":12`, `"side":"RIGHT"`, "7review:inline-comment", "finding=F1"} {
+				if !strings.Contains(body, want) {
+					t.Fatalf("github inline payload missing %q: %s", want, body)
+				}
+			}
+			return testJSON(t, gitHubReviewComment{ID: 9, HTMLURL: "https://github.test/comment/9"}), nil
+		}
+		return testResponse(http.StatusNotFound, "not found"), nil
+	})}
+
+	comment, err := client.PublishInlineDraft(context.Background(), &review.SCMContext{
+		Provider:   "github",
+		Repository: "o/r",
+		MRIID:      7,
+		DiffRefs:   review.DiffRefs{HeadSHA: "head"},
+	}, review.InlineComment{FindingID: "F1", Path: "new/name.go", NewPath: "new/name.go", Line: 12, Side: "RIGHT", Body: "body"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !posted || comment.Status != "published" || comment.ProviderID != "9" {
+		t.Fatalf("expected published inline comment, posted=%v comment=%#v", posted, comment)
+	}
+}
+
+func TestGitHubClientPublishInlineDraftSkipsExistingMarker(t *testing.T) {
+	var posted bool
+	client := NewGitHubClient("http://agent.test", "token")
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.URL.Path == "/repos/o/r/pulls/7/comments" && r.Method == http.MethodGet:
+			return testJSON(t, []gitHubReviewComment{{ID: 4, Body: inlineCommentMarker("F1"), HTMLURL: "https://github.test/comment/4"}}), nil
+		case r.URL.Path == "/repos/o/r/pulls/7/comments" && r.Method == http.MethodPost:
+			posted = true
+			return testResponse(http.StatusCreated, ""), nil
+		}
+		return testResponse(http.StatusNotFound, "not found"), nil
+	})}
+
+	comment, err := client.PublishInlineDraft(context.Background(), &review.SCMContext{Provider: "github", Repository: "o/r", MRIID: 7}, review.InlineComment{FindingID: "F1", Path: "a.go", Line: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if posted || comment.ProviderID != "4" || comment.URL == "" {
+		t.Fatalf("expected existing inline marker to be reused, posted=%v comment=%#v", posted, comment)
+	}
+}
+
 func TestGitHubClientPublishDraftUpdatesLegacyMarker(t *testing.T) {
 	var patched bool
 	client := NewGitHubClient("http://agent.test", "token")
@@ -322,6 +379,63 @@ func TestGitLabClientPublishFinalDoesNotOverwriteDraftNote(t *testing.T) {
 	}
 	if updatedDraft || !postedFinal {
 		t.Fatalf("expected final post without draft update, updatedDraft=%v postedFinal=%v", updatedDraft, postedFinal)
+	}
+}
+
+func TestGitLabClientPublishInlineDraftCreatesDiscussion(t *testing.T) {
+	var posted bool
+	client := NewGitLabClient("http://agent.test", "token")
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.URL.Path == "/api/v4/projects/p/merge_requests/7/discussions" && r.Method == http.MethodGet:
+			return testJSON(t, []gitLabDiscussion{}), nil
+		case r.URL.Path == "/api/v4/projects/p/merge_requests/7/discussions" && r.Method == http.MethodPost:
+			posted = true
+			body := readBody(t, r)
+			for _, want := range []string{`"base_sha":"base"`, `"start_sha":"start"`, `"head_sha":"head"`, `"old_path":"old/name.go"`, `"new_path":"new/name.go"`, `"new_line":12`, "7review:inline-comment", "finding=F1"} {
+				if !strings.Contains(body, want) {
+					t.Fatalf("gitlab inline payload missing %q: %s", want, body)
+				}
+			}
+			return testJSON(t, gitLabDiscussion{ID: "discussion-1", Notes: []gitLabNote{{ID: 11, URL: "https://gitlab.test/note/11"}}}), nil
+		}
+		return testResponse(http.StatusNotFound, "not found"), nil
+	})}
+
+	comment, err := client.PublishInlineDraft(context.Background(), &review.SCMContext{
+		Provider:  "gitlab",
+		ProjectID: "p",
+		MRIID:     7,
+		DiffRefs:  review.DiffRefs{BaseSHA: "base", StartSHA: "start", HeadSHA: "head"},
+	}, review.InlineComment{FindingID: "F1", Path: "new/name.go", OldPath: "old/name.go", NewPath: "new/name.go", Line: 12, Side: "RIGHT", Body: "body"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !posted || comment.Status != "published" || comment.ProviderID != "11" {
+		t.Fatalf("expected published gitlab inline comment, posted=%v comment=%#v", posted, comment)
+	}
+}
+
+func TestGitLabClientPublishInlineDraftSkipsExistingMarker(t *testing.T) {
+	var posted bool
+	client := NewGitLabClient("http://agent.test", "token")
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.URL.Path == "/api/v4/projects/p/merge_requests/7/discussions" && r.Method == http.MethodGet:
+			return testJSON(t, []gitLabDiscussion{{ID: "d", Notes: []gitLabNote{{ID: 5, Body: inlineCommentMarker("F1"), URL: "https://gitlab.test/note/5"}}}}), nil
+		case r.URL.Path == "/api/v4/projects/p/merge_requests/7/discussions" && r.Method == http.MethodPost:
+			posted = true
+			return testResponse(http.StatusCreated, ""), nil
+		}
+		return testResponse(http.StatusNotFound, "not found"), nil
+	})}
+
+	comment, err := client.PublishInlineDraft(context.Background(), &review.SCMContext{Provider: "gitlab", ProjectID: "p", MRIID: 7}, review.InlineComment{FindingID: "F1", Path: "a.go", Line: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if posted || comment.ProviderID != "5" || comment.URL == "" {
+		t.Fatalf("expected existing gitlab inline marker to be reused, posted=%v comment=%#v", posted, comment)
 	}
 }
 

@@ -11,22 +11,23 @@ import (
 )
 
 type publishStatusDTO struct {
-	Run             string             `json:"run"`
-	Status          pipeline.RunStatus `json:"status"`
-	WebURL          string             `json:"web_url,omitempty"`
-	HILApproved     bool               `json:"hil_approved"`
-	HasDraftReport  bool               `json:"has_draft_report"`
-	HasFinalReport  bool               `json:"has_final_report"`
-	DraftBytes      int                `json:"draft_bytes"`
-	FinalBytes      int                `json:"final_bytes"`
-	Error           string             `json:"error,omitempty"`
-	Provider        string             `json:"provider,omitempty"`
-	ProjectID       string             `json:"project_id,omitempty"`
-	ChangeID        string             `json:"change_id,omitempty"`
-	SCMDiscussions  int                `json:"scm_discussions"`
-	SCMChecks       int                `json:"scm_checks"`
-	SCMApprovals    int                `json:"scm_approvals"`
-	UpdatedAtUnixMS int64              `json:"updated_at_unix_ms"`
+	Run             string                 `json:"run"`
+	Status          pipeline.RunStatus     `json:"status"`
+	WebURL          string                 `json:"web_url,omitempty"`
+	HILApproved     bool                   `json:"hil_approved"`
+	HasDraftReport  bool                   `json:"has_draft_report"`
+	HasFinalReport  bool                   `json:"has_final_report"`
+	DraftBytes      int                    `json:"draft_bytes"`
+	FinalBytes      int                    `json:"final_bytes"`
+	Error           string                 `json:"error,omitempty"`
+	Provider        string                 `json:"provider,omitempty"`
+	ProjectID       string                 `json:"project_id,omitempty"`
+	ChangeID        string                 `json:"change_id,omitempty"`
+	SCMDiscussions  int                    `json:"scm_discussions"`
+	SCMChecks       int                    `json:"scm_checks"`
+	SCMApprovals    int                    `json:"scm_approvals"`
+	InlineComments  []review.InlineComment `json:"inline_comments,omitempty"`
+	UpdatedAtUnixMS int64                  `json:"updated_at_unix_ms"`
 }
 
 type memoryProposalStatusDTO struct {
@@ -58,6 +59,7 @@ func (r appToolRunner) PublishStatus(ctx context.Context, id string) (any, error
 		SCMDiscussions:  len(sourceSCM(source).Discussions),
 		SCMChecks:       len(sourceSCM(source).Checks),
 		SCMApprovals:    len(sourceSCM(source).Approvals),
+		InlineComments:  append([]review.InlineComment(nil), source.InlineComments...),
 		UpdatedAtUnixMS: run.UpdatedAt.UnixMilli(),
 	}, nil
 }

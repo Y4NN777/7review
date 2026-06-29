@@ -108,6 +108,39 @@ func Catalog() []ToolSpec {
 			}),
 		},
 		{
+			Name:           "get_merge_request",
+			Description:    "Fetch normalized merge/pull request metadata for one run without exposing SCM credentials.",
+			LifecycleStage: "scm",
+			Implemented:    true,
+			Executor:       "POST /tools/execute {\"name\":\"get_merge_request\"}",
+			SideEffects:    false,
+			InputSchema: objectSchema(map[string]any{
+				"run": stringSchema("Run ID whose merge/pull request metadata should be inspected."),
+			}),
+		},
+		{
+			Name:           "get_changed_files",
+			Description:    "Fetch changed file metadata and patch availability for one run.",
+			LifecycleStage: "scm",
+			Implemented:    true,
+			Executor:       "POST /tools/execute {\"name\":\"get_changed_files\"}",
+			SideEffects:    false,
+			InputSchema: objectSchema(map[string]any{
+				"run": stringSchema("Run ID whose changed files should be inspected."),
+			}),
+		},
+		{
+			Name:           "list_discussions",
+			Description:    "Fetch normalized SCM discussions or review comments already known for one run.",
+			LifecycleStage: "scm",
+			Implemented:    true,
+			Executor:       "POST /tools/execute {\"name\":\"list_discussions\"}",
+			SideEffects:    false,
+			InputSchema: objectSchema(map[string]any{
+				"run": stringSchema("Run ID whose discussions should be inspected."),
+			}),
+		},
+		{
 			Name:           "list_provider_status",
 			Description:    "Show configured model providers, active model role chains, registered providers, and unavailable provider reasons without exposing secrets.",
 			LifecycleStage: "preflight",

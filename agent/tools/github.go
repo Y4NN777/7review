@@ -108,6 +108,54 @@ func (c *GitHubClient) PublishFinal(ctx context.Context, source *review.SCMConte
 	return c.upsertComment(ctx, source, report, "final")
 }
 
+func (c *GitHubClient) PublishInlineDraft(ctx context.Context, source *review.SCMContext, comment review.InlineComment) (review.InlineComment, error) {
+	if c == nil || c.BaseURL == "" || c.Token == "" || source == nil {
+		comment.Status = "skipped"
+		comment.Reason = "github publisher is not configured"
+		return comment, nil
+	}
+	repo := firstNonEmpty(source.Repository, source.ProjectID)
+	if repo == "" || source.MRIID == 0 {
+		comment.Status = "failed"
+		comment.Reason = "github repository and pull request number are required"
+		return comment, fmt.Errorf("%s", comment.Reason)
+	}
+	commentsPath := fmt.Sprintf("/repos/%s/pulls/%d/comments", repoPath(repo), source.MRIID)
+	var comments []gitHubReviewComment
+	if err := c.getAll(ctx, commentsPath+"?per_page=100", &comments); err != nil {
+		comment.Status = "failed"
+		comment.Reason = err.Error()
+		return comment, err
+	}
+	for _, existing := range comments {
+		if hasInlineCommentMarker(existing.Body, comment.FindingID) {
+			comment.Status = "published"
+			comment.ProviderID = strconv.FormatInt(existing.ID, 10)
+			comment.URL = existing.HTMLURL
+			return comment, nil
+		}
+	}
+	payload := map[string]any{
+		"body":      inlineCommentBody(comment.Body, comment.FindingID),
+		"commit_id": source.DiffRefs.HeadSHA,
+		"path":      firstNonEmpty(comment.NewPath, comment.Path),
+		"line":      comment.Line,
+		"side":      firstNonEmpty(comment.Side, "RIGHT"),
+	}
+	var out gitHubReviewComment
+	if err := c.send(ctx, http.MethodPost, commentsPath, payload, &out); err != nil {
+		comment.Status = "failed"
+		comment.Reason = err.Error()
+		return comment, err
+	}
+	comment.Status = "published"
+	if out.ID != 0 {
+		comment.ProviderID = strconv.FormatInt(out.ID, 10)
+	}
+	comment.URL = out.HTMLURL
+	return comment, nil
+}
+
 func (c *GitHubClient) upsertComment(ctx context.Context, source *review.SCMContext, body string, kind string) error {
 	if c == nil || c.BaseURL == "" || c.Token == "" || source == nil {
 		return nil
@@ -256,4 +304,10 @@ type gitHubCommit struct {
 type gitHubComment struct {
 	ID   int64  `json:"id"`
 	Body string `json:"body"`
+}
+
+type gitHubReviewComment struct {
+	ID      int64  `json:"id"`
+	Body    string `json:"body"`
+	HTMLURL string `json:"html_url"`
 }

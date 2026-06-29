@@ -3,6 +3,7 @@ package tools
 import "strings"
 
 const botMarkerPrefix = "<!-- 7review:bot-report"
+const inlineMarkerPrefix = "<!-- 7review:inline-comment"
 
 func reportWithBotMarker(report string, kind string) string {
 	report = strings.TrimSpace(stripBotMarkers(report))
@@ -30,4 +31,25 @@ func stripBotMarkers(report string) string {
 		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func inlineCommentMarker(findingID string) string {
+	findingID = strings.TrimSpace(findingID)
+	if findingID == "" {
+		findingID = "unknown"
+	}
+	return inlineMarkerPrefix + " finding=" + findingID + " -->"
+}
+
+func inlineCommentBody(commentBody string, findingID string) string {
+	commentBody = strings.TrimSpace(commentBody)
+	marker := inlineCommentMarker(findingID)
+	if commentBody == "" {
+		return marker
+	}
+	return marker + "\n" + commentBody
+}
+
+func hasInlineCommentMarker(body string, findingID string) bool {
+	return strings.Contains(body, inlineMarkerPrefix) && strings.Contains(body, "finding="+strings.TrimSpace(findingID))
 }

@@ -11,13 +11,14 @@ import (
 )
 
 type selectedContextStatusDTO struct {
-	Run            string              `json:"run"`
-	CorpusSections []sectionStatusDTO  `json:"corpus_sections"`
-	Evidence       []evidenceStatusDTO `json:"evidence_manifest"`
-	SkillSections  []sectionStatusDTO  `json:"skill_sections"`
-	Memory         review.MemoryRecall `json:"memory"`
-	Model          modelReviewDTO      `json:"model_review"`
-	Warnings       []string            `json:"warnings,omitempty"`
+	Run            string                 `json:"run"`
+	CorpusSections []sectionStatusDTO     `json:"corpus_sections"`
+	Evidence       []evidenceStatusDTO    `json:"evidence_manifest"`
+	SkillSections  []sectionStatusDTO     `json:"skill_sections"`
+	Memory         review.MemoryRecall    `json:"memory"`
+	Model          modelReviewDTO         `json:"model_review"`
+	InlineComments []review.InlineComment `json:"inline_comments,omitempty"`
+	Warnings       []string               `json:"warnings,omitempty"`
 }
 
 type runTimelineDTO struct {
@@ -83,6 +84,26 @@ type changedFileDTO struct {
 	HasPatch  bool   `json:"has_patch"`
 }
 
+type mergeRequestDTO struct {
+	Run         string          `json:"run"`
+	Provider    string          `json:"provider,omitempty"`
+	ProjectID   string          `json:"project_id,omitempty"`
+	Repository  string          `json:"repository,omitempty"`
+	ChangeID    string          `json:"change_id,omitempty"`
+	MRIID       int             `json:"mr_iid,omitempty"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Author      string          `json:"author,omitempty"`
+	WebURL      string          `json:"web_url,omitempty"`
+	Labels      []string        `json:"labels,omitempty"`
+	DiffRefs    review.DiffRefs `json:"diff_refs"`
+}
+
+type discussionsDTO struct {
+	Run         string              `json:"run"`
+	Discussions []review.Discussion `json:"discussions"`
+}
+
 func (r appToolRunner) SelectedContext(ctx context.Context, id string) (any, error) {
 	run, err := r.server.pipeline.Jobs.Get(ctx, id)
 	if err != nil {
@@ -96,6 +117,7 @@ func (r appToolRunner) SelectedContext(ctx context.Context, id string) (any, err
 		SkillSections:  skillSectionDTOs(source.SkillSections, source.Request),
 		Memory:         source.Memory,
 		Model:          modelReviewStatusDTO(source.Model),
+		InlineComments: append([]review.InlineComment(nil), source.InlineComments...),
 		Warnings:       append([]string(nil), source.Run.Warnings...),
 	}, nil
 }
@@ -168,6 +190,59 @@ func (r appToolRunner) DiffSummary(ctx context.Context, id string) (any, error) 
 	return out, nil
 }
 
+func (r appToolRunner) MergeRequest(ctx context.Context, id string) (any, error) {
+	run, err := r.server.pipeline.Jobs.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	source := sourceForRun(run)
+	scm := sourceSCM(source)
+	return mergeRequestDTO{
+		Run:         run.ID,
+		Provider:    sourceProvider(source, run),
+		ProjectID:   sourceProjectID(source, run),
+		Repository:  scm.Repository,
+		ChangeID:    sourceChangeID(source, run),
+		MRIID:       scm.MRIID,
+		Title:       firstNonEmptyStatus(scm.Title, run.Request.Title),
+		Description: firstNonEmptyStatus(scm.Description, run.Request.Description),
+		Author:      firstNonEmptyStatus(scm.Author, run.Request.Author),
+		WebURL:      firstNonEmptyStatus(scm.WebURL, run.WebURL),
+		Labels:      append([]string(nil), scm.Labels...),
+		DiffRefs:    scm.DiffRefs,
+	}, nil
+}
+
+func (r appToolRunner) ChangedFiles(ctx context.Context, id string) (any, error) {
+	run, err := r.server.pipeline.Jobs.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	source := sourceForRun(run)
+	files := make([]changedFileDTO, 0, len(source.ChangedFiles))
+	for _, changed := range source.ChangedFiles {
+		files = append(files, changedFileDTO{
+			Path:      changed.NewPath,
+			OldPath:   changed.OldPath,
+			Status:    changed.Status,
+			Additions: changed.Additions,
+			Deletions: changed.Deletions,
+			HasPatch:  strings.TrimSpace(changed.Patch) != "",
+		})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	return map[string]any{"run": run.ID, "files": files}, nil
+}
+
+func (r appToolRunner) Discussions(ctx context.Context, id string) (any, error) {
+	run, err := r.server.pipeline.Jobs.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	source := sourceForRun(run)
+	return discussionsDTO{Run: run.ID, Discussions: append([]review.Discussion(nil), sourceSCM(source).Discussions...)}, nil
+}
+
 func sourceForRun(run *pipeline.Run) review.Source {
 	if run == nil {
 		return review.Source{}
@@ -179,6 +254,15 @@ func sourceForRun(run *pipeline.Run) review.Source {
 		return run.Context.Source
 	}
 	return review.Source{Request: run.Request}
+}
+
+func firstNonEmptyStatus(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func sectionDTOs(sections []review.Section) []sectionStatusDTO {

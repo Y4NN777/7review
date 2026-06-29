@@ -19,6 +19,11 @@ type Publisher interface {
 	PublishFinal(context.Context, *review.SCMContext, string) error
 }
 
+// InlinePublisher writes one validated finding as an inline draft comment.
+type InlinePublisher interface {
+	PublishInlineDraft(context.Context, *review.SCMContext, review.InlineComment) (review.InlineComment, error)
+}
+
 type ProviderRouter struct {
 	SCM        map[string]SCM
 	Publishers map[string]Publisher
@@ -46,6 +51,27 @@ func (r ProviderRouter) PublishFinal(ctx context.Context, source *review.SCMCont
 		return nil
 	}
 	return tool.PublishFinal(ctx, source, report)
+}
+
+func (r ProviderRouter) PublishInlineDraft(ctx context.Context, source *review.SCMContext, comment review.InlineComment) (review.InlineComment, error) {
+	if source == nil {
+		comment.Status = "skipped"
+		comment.Reason = "SCM context is unavailable"
+		return comment, nil
+	}
+	tool, ok := r.Publishers[strings.ToLower(source.Provider)]
+	if !ok || tool == nil {
+		comment.Status = "skipped"
+		comment.Reason = "provider does not support inline draft comments"
+		return comment, nil
+	}
+	inline, ok := tool.(InlinePublisher)
+	if !ok {
+		comment.Status = "skipped"
+		comment.Reason = "provider does not support inline draft comments"
+		return comment, nil
+	}
+	return inline.PublishInlineDraft(ctx, source, comment)
 }
 
 // NoopSCM is a safe development default that uses request fields only.
@@ -84,4 +110,10 @@ func (NoopPublisher) PublishDraft(context.Context, *review.SCMContext, string) e
 
 func (NoopPublisher) PublishFinal(context.Context, *review.SCMContext, string) error {
 	return nil
+}
+
+func (NoopPublisher) PublishInlineDraft(_ context.Context, _ *review.SCMContext, comment review.InlineComment) (review.InlineComment, error) {
+	comment.Status = "skipped"
+	comment.Reason = "publisher is not configured"
+	return comment, nil
 }
