@@ -60,6 +60,9 @@ type runDTO struct {
 	EventCount       int                    `json:"event_count"`
 	Events           []pipeline.RunEvent    `json:"events,omitempty"`
 	Findings         []review.Finding       `json:"findings,omitempty"`
+	HumanCheck       []review.Finding       `json:"human_check,omitempty"`
+	Notes            []review.Finding       `json:"notes,omitempty"`
+	Questions        []review.Finding       `json:"questions,omitempty"`
 	InlineComments   []review.InlineComment `json:"inline_comments,omitempty"`
 	ToolRequests     int                    `json:"tool_requests,omitempty"`
 	ToolObservations int                    `json:"tool_observations,omitempty"`
@@ -87,6 +90,9 @@ func toRunDTO(run pipeline.Run, includeDetails bool) runDTO {
 		dto.Events = append([]pipeline.RunEvent(nil), run.Events...)
 		dto.Findings = run.Findings
 		if run.Source != nil {
+			dto.HumanCheck = append([]review.Finding(nil), run.Source.HumanCheck...)
+			dto.Notes = append([]review.Finding(nil), run.Source.Notes...)
+			dto.Questions = append([]review.Finding(nil), run.Source.Questions...)
 			dto.InlineComments = append([]review.InlineComment(nil), run.Source.InlineComments...)
 			dto.ToolRequests = len(run.Source.ToolRequests)
 			dto.ToolObservations = len(run.Source.ToolObservations)

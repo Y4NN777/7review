@@ -763,7 +763,9 @@ human-check items, notes, questions, and rejected findings. It rejects:
 
 It downgrades speculative performance/TTL/pruning concerns, weak-authority
 claims, and likely findings into draft-only sections instead of inline comments.
-Only accepted confirmed findings are sent to inline publishing by default.
+Only accepted confirmed findings are sent to inline publishing by default. The
+accepted, human-check, note, and question categories are exposed in run details,
+selected-context tool output, model audit counters, and the draft report.
 
 ## SCM Boundary
 

@@ -18,6 +18,9 @@ type RunRow struct {
 	EventCount       int       `json:"event_count"`
 	Events           []any     `json:"events"`
 	Findings         []any     `json:"findings"`
+	HumanCheck       []any     `json:"human_check"`
+	Notes            []any     `json:"notes"`
+	Questions        []any     `json:"questions"`
 	ToolRequests     int       `json:"tool_requests"`
 	ToolObservations int       `json:"tool_observations"`
 	DraftReport      string    `json:"draft_report"`
@@ -44,6 +47,9 @@ type RunDetail struct {
 	EventCount       int        `json:"event_count"`
 	Events           []RunEvent `json:"events"`
 	Findings         []any      `json:"findings"`
+	HumanCheck       []any      `json:"human_check"`
+	Notes            []any      `json:"notes"`
+	Questions        []any      `json:"questions"`
 	ToolRequests     int        `json:"tool_requests"`
 	ToolObservations int        `json:"tool_observations"`
 	DraftReport      string     `json:"draft_report"`
@@ -135,6 +141,10 @@ type SelectedContext struct {
 	CorpusSections []ContextSection  `json:"corpus_sections"`
 	SkillSections  []ContextSection  `json:"skill_sections"`
 	Evidence       []ContextEvidence `json:"evidence_manifest"`
+	Findings       []any             `json:"findings"`
+	HumanCheck     []any             `json:"human_check"`
+	Notes          []any             `json:"notes"`
+	Questions      []any             `json:"questions"`
 	Warnings       []string          `json:"warnings"`
 }
 

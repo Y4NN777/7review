@@ -136,9 +136,17 @@ func TestHandleToolExecuteSelectedContextIncludesEvidenceManifest(t *testing.T) 
 		},
 	}
 	rc.Source.SkillSections = []review.Section{{Path: "agent/skills/api-contract-review/SKILL.md", Title: "api-contract-review", Kind: review.KindRules, Content: "contract rules"}}
+	rc.Source.Findings = []review.Finding{{ID: "F1", Severity: review.SeverityHigh, Title: "confirmed", Strength: "confirmed"}}
+	rc.Source.HumanCheck = []review.Finding{{ID: "H1", Severity: review.SeverityMedium, Title: "likely", Strength: "likely", ValidationStatus: "needs_human_check"}}
+	rc.Source.Notes = []review.Finding{{ID: "N1", Severity: review.SeverityInfo, Title: "note", FindingType: "note"}}
+	rc.Source.Questions = []review.Finding{{ID: "Q1", Severity: review.SeverityInfo, Title: "question", FindingType: "question"}}
 	rc.Source.Model = review.ModelReview{
 		ParseStatus:        "empty_findings",
 		ParseWarning:       "model returned an explicit empty findings list",
+		AcceptedFindings:   1,
+		HumanCheckFindings: 1,
+		NoteFindings:       1,
+		QuestionFindings:   1,
 		RawResponseExcerpt: "[]",
 		ProviderTrace:      "step5=openrouter/openrouter/free",
 	}
@@ -174,6 +182,12 @@ func TestHandleToolExecuteSelectedContextIncludesEvidenceManifest(t *testing.T) 
 	}
 	if resp.Result.Model.ParseStatus != "empty_findings" || resp.Result.Model.RawResponseExcerpt != "[]" {
 		t.Fatalf("model audit missing from selected context: %#v", resp.Result.Model)
+	}
+	if resp.Result.Model.AcceptedFindings != 1 || resp.Result.Model.HumanCheckFindings != 1 || resp.Result.Model.NoteFindings != 1 || resp.Result.Model.QuestionFindings != 1 {
+		t.Fatalf("model quality counters missing from selected context: %#v", resp.Result.Model)
+	}
+	if len(resp.Result.Findings) != 1 || len(resp.Result.HumanCheck) != 1 || len(resp.Result.Notes) != 1 || len(resp.Result.Questions) != 1 {
+		t.Fatalf("selected context missing review quality categories: %#v", resp.Result)
 	}
 }
 

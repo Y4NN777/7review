@@ -40,6 +40,9 @@ type ModelReview struct {
 	ParseWarning       string   `json:"parse_warning,omitempty"`
 	ParsedFindings     int      `json:"parsed_findings"`
 	AcceptedFindings   int      `json:"accepted_findings"`
+	HumanCheckFindings int      `json:"human_check_findings"`
+	NoteFindings       int      `json:"note_findings"`
+	QuestionFindings   int      `json:"question_findings"`
 	RejectedFindings   int      `json:"rejected_findings"`
 	ProviderTrace      string   `json:"provider_trace,omitempty"`
 	RawResponseBytes   int      `json:"raw_response_bytes"`

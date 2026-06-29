@@ -75,6 +75,10 @@ func TestHandleRunEndpointsExposeStoredReviewContext(t *testing.T) {
 	rc := review.NewContext(req)
 	rc.DraftReport = "draft body"
 	rc.Findings = []review.Finding{{ID: "F1", Severity: review.SeverityHigh, Title: "bug"}}
+	rc.Source.Findings = rc.Findings
+	rc.Source.HumanCheck = []review.Finding{{ID: "H1", Severity: review.SeverityMedium, Title: "needs check", ValidationStatus: "needs_human_check"}}
+	rc.Source.Notes = []review.Finding{{ID: "N1", Severity: review.SeverityInfo, Title: "note", FindingType: "note"}}
+	rc.Source.Questions = []review.Finding{{ID: "Q1", Severity: review.SeverityInfo, Title: "question", FindingType: "question"}}
 	if err := store.SaveContext(context.Background(), run.ID, rc); err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +113,9 @@ func TestHandleRunEndpointsExposeStoredReviewContext(t *testing.T) {
 	}
 	if detail.DraftReport != "draft body" || len(detail.Findings) != 1 || detail.EventCount == 0 || len(detail.Events) != detail.EventCount {
 		t.Fatalf("unexpected detail response: %#v", detail)
+	}
+	if len(detail.HumanCheck) != 1 || len(detail.Notes) != 1 || len(detail.Questions) != 1 {
+		t.Fatalf("detail response missing review quality categories: %#v", detail)
 	}
 	if detail.Events[0].Type != "run_started" {
 		t.Fatalf("detail response missing run timeline: %#v", detail.Events)

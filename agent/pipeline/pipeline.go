@@ -2029,6 +2029,9 @@ func modelReviewAudit(rc *review.Context, parsed []review.Finding, validation *V
 	}
 	if validation != nil {
 		audit.AcceptedFindings = len(validation.Accepted)
+		audit.HumanCheckFindings = len(validation.HumanCheck)
+		audit.NoteFindings = len(validation.Notes)
+		audit.QuestionFindings = len(validation.Questions)
 		audit.RejectedFindings = len(validation.Rejected)
 	}
 	return audit

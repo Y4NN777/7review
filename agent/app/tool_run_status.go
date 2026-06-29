@@ -21,6 +21,10 @@ type selectedContextStatusDTO struct {
 	ToolObservations []review.ToolObservation `json:"tool_observations,omitempty"`
 	Memory           review.MemoryRecall      `json:"memory"`
 	Model            modelReviewDTO           `json:"model_review"`
+	Findings         []review.Finding         `json:"findings,omitempty"`
+	HumanCheck       []review.Finding         `json:"human_check,omitempty"`
+	Notes            []review.Finding         `json:"notes,omitempty"`
+	Questions        []review.Finding         `json:"questions,omitempty"`
 	InlineComments   []review.InlineComment   `json:"inline_comments,omitempty"`
 	Warnings         []string                 `json:"warnings,omitempty"`
 }
@@ -70,6 +74,9 @@ type modelReviewDTO struct {
 	ParseWarning       string `json:"parse_warning,omitempty"`
 	ParsedFindings     int    `json:"parsed_findings"`
 	AcceptedFindings   int    `json:"accepted_findings"`
+	HumanCheckFindings int    `json:"human_check_findings"`
+	NoteFindings       int    `json:"note_findings"`
+	QuestionFindings   int    `json:"question_findings"`
 	RejectedFindings   int    `json:"rejected_findings"`
 	ProviderTrace      string `json:"provider_trace,omitempty"`
 	RawResponseBytes   int    `json:"raw_response_bytes"`
@@ -133,6 +140,10 @@ func (r appToolRunner) SelectedContext(ctx context.Context, id string) (any, err
 		ToolObservations: append([]review.ToolObservation(nil), source.ToolObservations...),
 		Memory:           source.Memory,
 		Model:            modelReviewStatusDTO(source.Model),
+		Findings:         append([]review.Finding(nil), source.Findings...),
+		HumanCheck:       append([]review.Finding(nil), source.HumanCheck...),
+		Notes:            append([]review.Finding(nil), source.Notes...),
+		Questions:        append([]review.Finding(nil), source.Questions...),
 		InlineComments:   append([]review.InlineComment(nil), source.InlineComments...),
 		Warnings:         append([]string(nil), source.Run.Warnings...),
 	}, nil
@@ -144,6 +155,9 @@ func modelReviewStatusDTO(model review.ModelReview) modelReviewDTO {
 		ParseWarning:       model.ParseWarning,
 		ParsedFindings:     model.ParsedFindings,
 		AcceptedFindings:   model.AcceptedFindings,
+		HumanCheckFindings: model.HumanCheckFindings,
+		NoteFindings:       model.NoteFindings,
+		QuestionFindings:   model.QuestionFindings,
 		RejectedFindings:   model.RejectedFindings,
 		ProviderTrace:      model.ProviderTrace,
 		RawResponseBytes:   model.RawResponseBytes,
