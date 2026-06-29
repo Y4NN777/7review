@@ -8,7 +8,13 @@ report and writes approved memory.
 
 ## Current Status
 
-Implemented:
+7review is usable as a local-first draft review agent. It can receive real
+GitHub/GitLab review events, enrich the change, select repository knowledge,
+call a model with governed read-only tools, validate findings, publish draft
+reports, publish inline draft comments, and keep the final publication behind a
+human approval gate.
+
+Implemented and verified:
 
 - GitHub pull request and GitLab merge request webhooks
 - GitHub/GitLab enrichment and draft/final publishing adapters
@@ -16,8 +22,20 @@ Implemented:
 - Multi-provider model routing with role fallbacks
 - OpenAI, Anthropic, OpenRouter, DeepSeek, Mistral, Gemini, Ollama, and
   OpenAI-compatible providers
+- Provider-native tool calling for OpenAI-compatible/OpenRouter, Anthropic,
+  Gemini, Mistral, and Ollama style responses
+- Governed model tool loop for read-only review tools such as changed files,
+  diff summary, selected context, merge request metadata, discussions, and
+  inline position metadata
 - Required Headroom and MemPalace sidecar integrations
 - Portable `SKILL.md` review skills
+- Required core/provider skill coverage tracking, repair, and deterministic
+  fallback coverage for runtime-owned responsibilities
+- Generic document graph retrieval for repository knowledge selection
+- Finding validation for severity, confidence, changed-file location, and
+  addressable changed lines
+- Inline draft comment resolution for GitHub/GitLab, including added-file
+  fallback when provider diffs do not expose standard unified hunks
 - Operator commands for setup, status, run inspection, HIL approval, final
   publish, and streaming chat
 - Docker Compose runtime with agent, Headroom bridge, and MemPalace bridge
@@ -25,6 +43,21 @@ Implemented:
   summary, provider status, publish status, readiness, config status, HIL
   approval, draft revision, finding suppression, review rerun, final publishing,
   and memory proposal preview
+
+Latest real smoke result:
+
+- Target: GitLab MR `25!19` in the Aïobi Messenger repository
+- Provider/model: OpenRouter `openrouter/owl-alpha`
+- Context: 24 repository sections, 18 selected skills, 1 changed file
+- Agentic loop: model requested `get_changed_files`, `get_diff_summary`, and
+  `get_merge_request`
+- Result: 4 accepted findings, 0 rejected findings, 4 inline comments
+  published, 0 skipped, 0 failed
+- Skill coverage: 9 covered, 0 errors, 0 warnings
+
+Current operating recommendation: use 7review as an automated draft reviewer
+with human-in-the-loop approval. It is not yet intended to auto-publish final
+approval comments without engineer review.
 
 ## Architecture
 
@@ -68,8 +101,11 @@ flowchart LR
     Diff --> Context[skills + graph corpus + memory]
     Context --> Reduce[Headroom reduction]
     Reduce --> Review[model reasoner]
+    Review --> ToolsLoop[governed read-only tool loop]
+    ToolsLoop --> Review
     Review --> Validate[finding validation]
-    Validate --> Draft[draft publish]
+    Validate --> Inline[inline draft comments]
+    Inline --> Draft[draft publish]
     Draft --> HIL[human approval]
     HIL --> Final[final publish]
     Final --> Memory[approved memory write]
@@ -81,6 +117,12 @@ and terms, creates typed edges such as `requirement_trace`, `constraint_trace`,
 `interface_trace`, `data_trace`, `ui_trace`, `ownership_trace`, and `hierarchy`,
 then expands only from exact review signals. The selected sections are exposed
 with an `evidence_manifest` so operators can see why each section was included.
+
+During model review, the reasoner may request governed read-only tools. The
+pipeline executes only the allowlisted tools, records `tool_call_started` and
+`tool_call_completed` events, appends tool observations to review context, and
+then asks the reasoner for final JSON findings. Write actions remain outside the
+reasoner loop and stay behind deterministic validation and HIL gates.
 
 Package map:
 
@@ -100,6 +142,44 @@ Package map:
 For the detailed component model, lifecycle boundaries, state model, evidence
 graph retrieval, operator surface, and verification commands, see
 [`docs/architecture.md`](docs/architecture.md).
+
+## Review Quality And Limits
+
+7review currently optimizes for useful draft review, traceability, and bounded
+side effects. It deliberately keeps final publication under human control.
+
+What works well:
+
+- Contract/API/data-model drift detection when repository docs contain stable
+  IDs, routes, schemas, and design decisions.
+- Provider-native read-only tool use when the model needs SCM or diff metadata.
+- Inline draft publishing when findings point to changed, addressable lines.
+- Auditability through run timelines, selected context manifests, tool
+  observations, provider traces, and draft reports.
+
+Known limits:
+
+- Model quality still varies by provider. In local testing, Gemini free-tier
+  quota and malformed output were common operational issues. OpenRouter
+  `openrouter/owl-alpha` produced the strongest observed smoke result so far.
+- The validator accepts structurally valid findings, but it does not yet fully
+  classify finding strength. A model can still overstate speculative concerns
+  as findings unless the skill or validator rejects them.
+- Findings need better quality bands: confirmed issue, likely issue, review
+  note, and question. Only confirmed/high-confidence issues should become
+  inline comments by default.
+- Positive observations and weak performance speculation should be downgraded
+  to notes instead of inline findings.
+- Live smoke success proves the pipeline and publishing path, not that every
+  model finding is correct.
+
+Planned hardening:
+
+- Add finding strength classification and publish policy.
+- Require stronger citation checks for contract/design-backed findings.
+- Keep speculative findings in draft summary or human-check sections.
+- Build a small benchmark set of known MRs with expected true positives, false
+  positives, and missed findings.
 
 ## Quick Start
 
