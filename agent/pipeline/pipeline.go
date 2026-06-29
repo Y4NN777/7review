@@ -141,6 +141,14 @@ func (p *Pipeline) Run(ctx context.Context, req review.Request) error {
 		"parse":       parseStatus,
 		"providers":   formatProviderTrace(rc.StepProviders),
 	})
+	if isFatalModelParseStatus(parseStatus) {
+		rc.DraftReport = renderReport(rc)
+		rc.Source.Report.Draft = rc.DraftReport
+		_ = p.Jobs.SaveContext(ctx, run.ID, rc)
+		err := fmt.Errorf("model review output was %s: %s", parseStatus, parseWarning)
+		_ = p.Jobs.Update(ctx, run.ID, StatusFailed, err)
+		return err
+	}
 
 	validation, err := p.FindingValidator.Validate(ctx, rc, findings)
 	if err != nil {
@@ -172,6 +180,15 @@ func (p *Pipeline) Run(ctx context.Context, req review.Request) error {
 		return err
 	}
 	return nil
+}
+
+func isFatalModelParseStatus(status string) bool {
+	switch status {
+	case "empty_response", "unparseable":
+		return true
+	default:
+		return false
+	}
 }
 
 // RunPostHIL continues the pipeline after human approval.
@@ -712,6 +729,14 @@ func (p *Pipeline) runReview(ctx context.Context, rc *review.Context) ([]review.
 	}
 	raw := strings.Join(rc.AllFindings(), "\n")
 	findings, status := parseFindingsDetailed(raw)
+	if status == "unparseable" && strings.TrimSpace(raw) != "" {
+		if repaired, repairStatus, repairErr := p.repairFindingsJSON(ctx, rc, raw); repairErr == nil {
+			if repairedFindings, ok := parseRepairedFindings(repaired, repairStatus); ok {
+				rc.AddFindings(repaired)
+				return repairedFindings, repairStatus, "model returned malformed findings JSON; formatter repaired it before validation", nil
+			}
+		}
+	}
 	warning := ""
 	switch status {
 	case "empty_response":
@@ -722,6 +747,26 @@ func (p *Pipeline) runReview(ctx context.Context, rc *review.Context) ([]review.
 		warning = "model returned an explicit empty findings list; verify manually when selected evidence contains contract or rule obligations"
 	}
 	return findings, status, warning, nil
+}
+
+func (p *Pipeline) repairFindingsJSON(ctx context.Context, rc *review.Context, raw string) (string, string, error) {
+	if p.Orchestrator == nil {
+		return "", "", fmt.Errorf("pipeline: orchestrator is not configured")
+	}
+	repaired, err := p.Orchestrator.Complete(ctx, rc, orchestrator.RoleFormatter, "repair_findings", repairFindingsSystemPrompt(), repairFindingsUserMessage(raw))
+	if err != nil {
+		return "", "", err
+	}
+	_, status := parseFindingsDetailed(repaired)
+	return repaired, status, nil
+}
+
+func parseRepairedFindings(repaired, status string) ([]review.Finding, bool) {
+	if status == "empty_response" || status == "unparseable" {
+		return nil, false
+	}
+	findings, reparsed := parseFindingsDetailed(repaired)
+	return findings, reparsed == status
 }
 
 func chunkDiff(files []review.FileDiff, maxTokens int) [][]review.FileDiff {
@@ -795,6 +840,22 @@ func reviewUserMessage(rc *review.Context, batch []review.FileDiff) string {
 		fmt.Fprintf(&b, "[EVIDENCE kind=diff path=%q]\n```diff\n%s\n```\n[/EVIDENCE]\n\n", file.Path, file.Patch)
 	}
 	return b.String()
+}
+
+func repairFindingsSystemPrompt() string {
+	return strings.Join([]string{
+		"You repair 7review model output into strict findings JSON.",
+		"Return only JSON: either an array of findings or {\"findings\": [...]}.",
+		"Do not add new findings that are not clearly present in the raw model output.",
+		"If the raw output is prose with no clear finding object, return [].",
+		"If JSON is wrapped in Markdown fences, remove the fences.",
+		"If JSON is truncated but a finding is clear, close the object/array using only fields already present or directly implied by field names.",
+		"Each retained finding must include id, severity, title, description, suggestion, location, and confidence.",
+	}, "\n")
+}
+
+func repairFindingsUserMessage(raw string) string {
+	return "[RAW_MODEL_OUTPUT]\n" + raw + "\n[/RAW_MODEL_OUTPUT]"
 }
 
 func appendMemoryEvidence(b *strings.Builder, label string, values []string) {

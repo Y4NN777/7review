@@ -119,8 +119,8 @@ func applyEnvRoleOverrides(orchCfg *OrchestratorConfig, cfg *config.Config) {
 	if !smallSet {
 		smallModel = cfg.SmallModel
 	}
-	overrideRolePrimary(orchCfg, RoleReasoner, ModelSpec{Model: reviewModel, Provider: provider})
-	overrideRolePrimary(orchCfg, RoleFormatter, ModelSpec{Model: smallModel, Provider: provider})
+	overrideRolePrimary(orchCfg, RoleReasoner, ModelSpec{Model: reviewModel, Provider: provider}, true)
+	overrideRolePrimary(orchCfg, RoleFormatter, ModelSpec{Model: smallModel, Provider: provider}, true)
 }
 
 func lookupNonEmptyEnv(key string) (string, bool) {
@@ -132,7 +132,7 @@ func lookupNonEmptyEnv(key string) (string, bool) {
 	return value, true
 }
 
-func overrideRolePrimary(orchCfg *OrchestratorConfig, role ModelRole, primary ModelSpec) {
+func overrideRolePrimary(orchCfg *OrchestratorConfig, role ModelRole, primary ModelSpec, clearFallbacks bool) {
 	if strings.TrimSpace(primary.Model) == "" || strings.TrimSpace(primary.Provider) == "" {
 		return
 	}
@@ -149,6 +149,9 @@ func overrideRolePrimary(orchCfg *OrchestratorConfig, role ModelRole, primary Mo
 		} else {
 			roleCfg.MaxTokens = 2048
 		}
+	}
+	if clearFallbacks {
+		roleCfg.Fallbacks = nil
 	}
 	orchCfg.Roles[role] = roleCfg
 }

@@ -415,7 +415,7 @@ func TestDefaultFindingValidatorRejectsKnowledgeDocLocations(t *testing.T) {
 	}
 }
 
-func TestRunAuditsEmptyModelOutputWithoutPublishingRawText(t *testing.T) {
+func TestRunFailsUnparseableModelOutputWithoutPublishingRawText(t *testing.T) {
 	store := NewMemoryRunStore()
 	publisher := &draftRecordingPublisher{}
 	p := &Pipeline{
@@ -439,12 +439,15 @@ func TestRunAuditsEmptyModelOutputWithoutPublishingRawText(t *testing.T) {
 		ContextReducer: NoopContextReducer{},
 	}
 
-	if err := p.Run(context.Background(), review.Request{Provider: "gitlab", ProjectID: "42", MRIID: 7, ChangeID: "7", Title: "Profile"}); err != nil {
-		t.Fatal(err)
+	if err := p.Run(context.Background(), review.Request{Provider: "gitlab", ProjectID: "42", MRIID: 7, ChangeID: "7", Title: "Profile"}); err == nil {
+		t.Fatal("expected unparseable model output to fail the run")
 	}
 	run, err := store.Get(context.Background(), "42!7")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if run.Status != StatusFailed {
+		t.Fatalf("expected failed run, got %s", run.Status)
 	}
 	if run.Source == nil || run.Source.Model.ParseStatus != "unparseable" {
 		t.Fatalf("expected persisted model parse audit, got %#v", run.Source)
@@ -455,8 +458,63 @@ func TestRunAuditsEmptyModelOutputWithoutPublishingRawText(t *testing.T) {
 	if strings.Contains(run.DraftReport, "not json no findings") || strings.Contains(publisher.draftReport, "not json no findings") {
 		t.Fatalf("raw model output leaked into published draft:\n%s", run.DraftReport)
 	}
+	if publisher.draftReport != "" {
+		t.Fatalf("unparseable model output should not publish a draft:\n%s", publisher.draftReport)
+	}
 	if !strings.Contains(run.Source.Model.RawResponseExcerpt, "not json no findings") {
 		t.Fatalf("raw model excerpt was not retained for operator audit: %#v", run.Source.Model)
+	}
+}
+
+func TestRunRepairsMalformedModelJSONBeforeValidation(t *testing.T) {
+	store := NewMemoryRunStore()
+	publisher := &draftRecordingPublisher{}
+	provider := &sequenceLLMProvider{responses: []string{
+		"```json\n[{\"id\":\"PY3-TRANSACTION-MISSING\",\"severity\":\"high\",\"title\":\"Missing transaction\",\"description\":\"Write is not wrapped",
+		`[{"id":"PY3-TRANSACTION-MISSING","severity":"high","title":"Missing transaction","description":"The changed write path is not wrapped in an explicit transaction required by PY-3.","suggestion":"Wrap the write in an explicit transaction.","location":{"path":"api/profile.py","line":3},"confidence":0.91}]`,
+	}}
+	p := &Pipeline{
+		Config: &config.Config{MaxDiffTokens: 6000, CorpusRoot: t.TempDir()},
+		Orchestrator: orchestrator.NewOrchestrator(
+			orchestrator.DefaultOrchestratorConfig("review", "small", "fake"),
+			map[string]orchestrator.LLMProvider{"fake": provider},
+		),
+		Jobs:             store,
+		Policy:           DefaultPolicyFilter{},
+		FindingValidator: DefaultFindingValidator{},
+		Memory:           NoopMemoryStore{},
+		SCM: staticSCM{context: &review.SCMContext{
+			Provider:  "gitlab",
+			ProjectID: "42",
+			ChangeID:  "8",
+			MRIID:     8,
+			Files:     []review.ChangedFile{{NewPath: "api/profile.py", Patch: "@@ -1 +1\n+await conn.execute(query)"}},
+		}},
+		SCMPublisher:   publisher,
+		ContextReducer: NoopContextReducer{},
+	}
+
+	if err := p.Run(context.Background(), review.Request{Provider: "gitlab", ProjectID: "42", MRIID: 8, ChangeID: "8", Title: "Profile"}); err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.Get(context.Background(), "42!8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != StatusDrafted || publisher.draftReport == "" {
+		t.Fatalf("expected repaired findings to publish draft, status=%s draft=%q", run.Status, publisher.draftReport)
+	}
+	if run.Source == nil || run.Source.Model.ParseStatus != "parsed" || run.Source.Model.AcceptedFindings != 1 {
+		t.Fatalf("expected repaired finding audit, got %#v", run.Source)
+	}
+	if !strings.Contains(run.Source.Model.ProviderTrace, "repair_findings=fake/small") {
+		t.Fatalf("repair provider was not recorded: %#v", run.Source.Model)
+	}
+	if !strings.Contains(run.DraftReport, "Missing transaction") || !strings.Contains(run.DraftReport, "model returned malformed findings JSON") {
+		t.Fatalf("repaired draft missing finding or warning:\n%s", run.DraftReport)
+	}
+	if provider.calls != 2 {
+		t.Fatalf("expected reasoner and repair calls, got %d", provider.calls)
 	}
 }
 
@@ -1088,6 +1146,24 @@ func (p staticLLMProvider) Name() string {
 
 func (p staticLLMProvider) Complete(context.Context, llm.LLMRequest) (string, error) {
 	return p.response, nil
+}
+
+type sequenceLLMProvider struct {
+	responses []string
+	calls     int
+}
+
+func (p *sequenceLLMProvider) Name() string {
+	return "fake"
+}
+
+func (p *sequenceLLMProvider) Complete(context.Context, llm.LLMRequest) (string, error) {
+	if p.calls >= len(p.responses) {
+		return "", errors.New("no more fake responses")
+	}
+	response := p.responses[p.calls]
+	p.calls++
+	return response, nil
 }
 
 func (m *recordingMemory) Recall(context.Context, review.Request) (Recall, error) {

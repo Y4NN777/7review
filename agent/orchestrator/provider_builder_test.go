@@ -94,8 +94,8 @@ roles:
 	if formatter.Primary.Provider != "ollama" || formatter.Primary.Model != "qwen2.5-coder-7b-16k:latest" {
 		t.Fatalf("formatter primary was not overridden: %#v", formatter.Primary)
 	}
-	if len(reasoner.Fallbacks) != 1 || reasoner.Fallbacks[0].Provider != "openai" {
-		t.Fatalf("expected YAML fallbacks to remain available: %#v", reasoner.Fallbacks)
+	if len(reasoner.Fallbacks) != 0 || len(formatter.Fallbacks) != 0 {
+		t.Fatalf("expected env override to replace YAML fallback chain: reasoner=%#v formatter=%#v", reasoner.Fallbacks, formatter.Fallbacks)
 	}
 }
 
