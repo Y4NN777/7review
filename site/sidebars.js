@@ -13,6 +13,7 @@ const sidebars = {
         'manual-reviews',
         'webhook-policy',
         'docker',
+        'documentation-site',
         'operator-cli',
       ],
     },

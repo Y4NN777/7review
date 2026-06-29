@@ -143,7 +143,11 @@ limits, see [`docs/status.md`](docs/status.md).
 
 The web documentation site lives in [`site/`](site). It is built with
 Docusaurus, includes English and French operator docs, and is configured for
-GitHub Pages at `/7review/`.
+GitHub Pages at `/7review/`. Before the first Pages deployment, configure the
+repository once in GitHub: **Settings → Pages → Build and deployment → Source:
+GitHub Actions**. The workflow can deploy with `GITHUB_TOKEN`, but GitHub may
+block automatic Pages site creation with `Resource not accessible by
+integration`.
 
 ## Quick Start
 
