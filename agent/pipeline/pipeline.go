@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/Y4NN777/7review/agent/channel"
 	"github.com/Y4NN777/7review/agent/config"
 	"github.com/Y4NN777/7review/agent/orchestrator"
+	"github.com/Y4NN777/7review/agent/profile"
 	"github.com/Y4NN777/7review/agent/review"
 	"github.com/Y4NN777/7review/agent/skills"
 	"github.com/Y4NN777/7review/agent/tools"
@@ -20,6 +23,7 @@ import (
 // Pipeline coordinates the review workflow for one merge request.
 type Pipeline struct {
 	Config           *config.Config
+	Profile          *profile.CompiledProfile
 	SkillLoader      *skills.Loader
 	Orchestrator     *orchestrator.Orchestrator
 	Jobs             RunStore
@@ -27,6 +31,7 @@ type Pipeline struct {
 	FindingValidator FindingValidator
 	Memory           MemoryStore
 	ContextReducer   ContextReducer
+	Channels         *channel.Manager
 	SCM              tools.SCM
 	SCMPublisher     tools.Publisher
 }
@@ -83,7 +88,7 @@ func (p *Pipeline) Run(ctx context.Context, req review.Request) error {
 		"paths": joinSectionPaths(rc.SkillSections, 8),
 	})
 	p.trace(ctx, run.ID, "skill_plan_built", StatusRunning, "skill activation plan built", skillPlanMeta(rc.Source.SkillActivations))
-	rc.CorpusSections, rc.Source.Evidence, err = selectCorpus(ctx, p.corpusRoot(), rc, p.maxSupportingCorpusSections())
+	rc.CorpusSections, rc.Source.Evidence, err = selectCorpus(ctx, p.corpusRoot(), rc, p.corpusLimits())
 	if err != nil {
 		_ = p.Jobs.Update(ctx, run.ID, StatusFailed, err)
 		return err
@@ -242,6 +247,11 @@ func (p *Pipeline) Run(ctx context.Context, req review.Request) error {
 	p.trace(ctx, run.ID, "draft_published", StatusRunning, "draft report published", map[string]string{
 		"draft_bytes": strconv.Itoa(len(rc.DraftReport)),
 	})
+	if err := p.notifyDraft(ctx, run.ID, scmContext, rc); err != nil {
+		_ = p.Jobs.SaveContext(ctx, run.ID, rc)
+		_ = p.Jobs.Update(ctx, run.ID, StatusFailed, err)
+		return err
+	}
 	if err := p.Jobs.SaveContext(ctx, run.ID, rc); err != nil {
 		return err
 	}
@@ -593,6 +603,10 @@ func (p *Pipeline) ApproveRun(ctx context.Context, id string, approvedReport str
 		_ = p.Jobs.Update(ctx, id, StatusFailed, err)
 		return err
 	}
+	if err := p.NotifyFinalPublished(ctx, id, finalReport); err != nil {
+		_ = p.Jobs.Update(ctx, id, StatusFailed, err)
+		return err
+	}
 	if err := p.writeApprovedMemory(ctx, rc); err != nil {
 		_ = p.Jobs.Update(ctx, id, StatusFailed, err)
 		return err
@@ -665,6 +679,10 @@ func (p *Pipeline) PublishFinal(ctx context.Context, id string, report string) e
 		return err
 	}
 	if err := p.publishFinal(ctx, rc, finalReport); err != nil {
+		_ = p.Jobs.Update(ctx, id, StatusFailed, err)
+		return err
+	}
+	if err := p.NotifyFinalPublished(ctx, id, finalReport); err != nil {
 		_ = p.Jobs.Update(ctx, id, StatusFailed, err)
 		return err
 	}
@@ -834,6 +852,48 @@ func (p *Pipeline) writeApprovedMemory(ctx context.Context, rc *review.Context) 
 	return p.Memory.Write(ctx, proposal)
 }
 
+func (p *Pipeline) notifyDraft(ctx context.Context, runID string, scm *review.SCMContext, rc *review.Context) error {
+	if p == nil || p.Channels == nil || !p.Channels.Enabled() || rc == nil {
+		return nil
+	}
+	msg := channel.DraftMessage{
+		RunID:       runID,
+		DraftReport: rc.DraftReport,
+		Summary:     reviewSummary(rc),
+	}
+	if scm != nil {
+		msg.Provider = scm.Provider
+		msg.Repository = firstNonEmpty(scm.Repository, scm.ProjectID)
+		msg.ChangeID = firstNonEmpty(scm.ChangeID, strconv.Itoa(scm.MRIID))
+		msg.WebURL = scm.WebURL
+	}
+	receipts, err := p.Channels.SendDraft(ctx, msg)
+	meta := map[string]string{"channels": strconv.Itoa(len(receipts))}
+	if len(receipts) > 0 {
+		var names []string
+		for _, receipt := range receipts {
+			names = append(names, receipt.Channel)
+		}
+		meta["delivered_to"] = strings.Join(names, ",")
+	}
+	p.trace(ctx, runID, "approval_draft_sent", StatusRunning, "draft sent to approval channel", meta)
+	return err
+}
+
+func (p *Pipeline) NotifyFinalPublished(ctx context.Context, runID string, finalReport string) error {
+	if p == nil || p.Channels == nil || !p.Channels.Enabled() {
+		return nil
+	}
+	return p.Channels.SendFinalConfirmation(ctx, channel.FinalConfirmationMessage{RunID: runID, FinalReport: finalReport})
+}
+
+func reviewSummary(rc *review.Context) string {
+	if rc == nil {
+		return ""
+	}
+	return fmt.Sprintf("findings=%d human_check=%d notes=%d questions=%d", len(rc.Source.Findings), len(rc.Source.HumanCheck), len(rc.Source.Notes), len(rc.Source.Questions))
+}
+
 func (p *Pipeline) trace(ctx context.Context, runID string, eventType string, status RunStatus, message string, meta map[string]string) {
 	if p == nil || p.Jobs == nil || strings.TrimSpace(runID) == "" {
 		return
@@ -934,10 +994,18 @@ func (p *Pipeline) withDefaults() {
 		p.Jobs = NewMemoryRunStore()
 	}
 	if p.Policy == nil {
-		p.Policy = DefaultPolicyFilter{}
+		if p.Profile != nil && len(p.Profile.PathPolicy.Ignore) > 0 {
+			p.Policy = PathPolicyFilter{Ignore: p.Profile.PathPolicy.Ignore}
+		} else {
+			p.Policy = DefaultPolicyFilter{}
+		}
 	}
 	if p.FindingValidator == nil {
-		p.FindingValidator = DefaultFindingValidator{}
+		if p.Profile != nil && p.Profile.Validation.MinConfidence > 0 {
+			p.FindingValidator = DefaultFindingValidator{MinConfidence: p.Profile.Validation.MinConfidence}
+		} else {
+			p.FindingValidator = DefaultFindingValidator{}
+		}
 	}
 	if p.Memory == nil {
 		p.Memory = NoopMemoryStore{}
@@ -1022,6 +1090,9 @@ func isNoopPublisher(publisher tools.Publisher) bool {
 }
 
 func (p *Pipeline) corpusRoot() string {
+	if p != nil && p.Profile != nil && len(p.Profile.Corpus.Roots) > 0 && strings.TrimSpace(p.Profile.Corpus.Roots[0].Path) != "" && !envSet("CORPUS_ROOT") {
+		return p.Profile.Corpus.Roots[0].Path
+	}
 	if p != nil && p.Config != nil && strings.TrimSpace(p.Config.CorpusRoot) != "" {
 		return p.Config.CorpusRoot
 	}
@@ -1029,10 +1100,40 @@ func (p *Pipeline) corpusRoot() string {
 }
 
 func (p *Pipeline) maxSupportingCorpusSections() int {
+	if p != nil && p.Profile != nil && p.Profile.Corpus.MaxSupportingSections > 0 && !envSet("MAX_SUPPORTING_CORPUS_SECTIONS") {
+		return p.Profile.Corpus.MaxSupportingSections
+	}
 	if p != nil && p.Config != nil && p.Config.MaxSupportingCorpusSections > 0 {
 		return p.Config.MaxSupportingCorpusSections
 	}
 	return defaultMaxSupportingCorpusSections
+}
+
+func (p *Pipeline) corpusLimits() corpusLimits {
+	limits := corpusLimits{
+		MaxSelected:   maxSelectedCorpusSections,
+		MaxSupporting: p.maxSupportingCorpusSections(),
+		MaxDocument:   maxCorpusDocumentBytes,
+		MaxSection:    maxCorpusSectionBytes,
+	}
+	if p == nil || p.Profile == nil {
+		return limits
+	}
+	if p.Profile.Corpus.MaxSections > 0 {
+		limits.MaxSelected = p.Profile.Corpus.MaxSections
+	}
+	if p.Profile.Corpus.MaxDocumentBytes > 0 {
+		limits.MaxDocument = p.Profile.Corpus.MaxDocumentBytes
+	}
+	if p.Profile.Corpus.MaxSectionBytes > 0 {
+		limits.MaxSection = p.Profile.Corpus.MaxSectionBytes
+	}
+	return limits
+}
+
+func envSet(key string) bool {
+	_, ok := os.LookupEnv(key)
+	return ok
 }
 
 func joinMemory(items []string) string {

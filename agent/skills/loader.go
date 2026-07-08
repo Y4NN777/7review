@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Y4NN777/7review/agent/profile"
 	"github.com/Y4NN777/7review/agent/review"
 )
 
@@ -15,6 +16,7 @@ import (
 type Loader struct {
 	SkillsDir string
 	Skills    []Skill
+	Profile   profile.SkillProfile
 }
 
 // Skill is metadata and body loaded from a repository-local SKILL.md file.
@@ -84,7 +86,7 @@ func (s *Loader) SelectActivations(req review.Request) []review.SkillActivation 
 	}
 	var selected []review.SkillActivation
 	for _, skill := range s.Skills {
-		reason, ok := skill.activationReason(req)
+		reason, ok := skill.activationReasonWithProfile(req, s.Profile)
 		if !ok {
 			continue
 		}
@@ -249,44 +251,62 @@ func (s Skill) appliesTo(req review.Request) bool {
 }
 
 func (s Skill) activationReason(req review.Request) (string, bool) {
+	return s.activationReasonWithProfile(req, profile.SkillProfile{})
+}
+
+func (s Skill) activationReasonWithProfile(req review.Request, cfg profile.SkillProfile) (string, bool) {
 	name := strings.ToLower(s.Name)
 
-	switch name {
-	case "github-merge-api":
-		if strings.EqualFold(req.Provider, "github") {
-			return "provider github requires provider API operating rules", true
+	providerSkills := cfg.ProviderSkills
+	if len(providerSkills) == 0 {
+		providerSkills = map[string]string{
+			"github": "github-merge-api",
+			"gitlab": "gitlab-merge-api",
 		}
-		return "", false
-	case "gitlab-merge-api":
-		if strings.EqualFold(req.Provider, "gitlab") {
-			return "provider gitlab requires provider API operating rules", true
-		}
-		return "", false
 	}
-	if alwaysOnSkill(name) {
+	if expected := providerSkills[strings.ToLower(req.Provider)]; strings.EqualFold(name, expected) {
+		return "provider " + strings.ToLower(req.Provider) + " requires provider API operating rules", true
+	}
+	for provider, expected := range providerSkills {
+		if strings.EqualFold(name, expected) && !strings.EqualFold(req.Provider, provider) {
+			return "", false
+		}
+	}
+
+	if alwaysOnSkill(name, cfg) {
 		return "core baseline review skill", true
 	}
 	score := s.score(req)
-	if score >= 2 {
+	minScore := cfg.TopicalActivationMinScore
+	if minScore == 0 {
+		minScore = 2
+	}
+	if score >= minScore {
 		return fmt.Sprintf("matched request signals score=%d", score), true
 	}
 	return "", false
 }
 
-func alwaysOnSkill(name string) bool {
-	switch name {
-	case "methodology-review",
-		"project-knowledge",
-		"framework-rules-review",
-		"traceability-review",
-		"review-publisher",
-		"laws-guards-review",
-		"security-review",
-		"hil-gate-review":
-		return true
-	default:
-		return false
+func alwaysOnSkill(name string, cfg profile.SkillProfile) bool {
+	alwaysOn := cfg.AlwaysOn
+	if len(alwaysOn) == 0 {
+		alwaysOn = []string{
+			"methodology-review",
+			"project-knowledge",
+			"framework-rules-review",
+			"traceability-review",
+			"review-publisher",
+			"laws-guards-review",
+			"security-review",
+			"hil-gate-review",
+		}
 	}
+	for _, candidate := range alwaysOn {
+		if strings.EqualFold(name, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s Skill) activation(reason string) review.SkillActivation {

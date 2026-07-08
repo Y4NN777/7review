@@ -21,6 +21,13 @@ const (
 	maxCorpusDocumentBytes             = 512 * 1024
 )
 
+type corpusLimits struct {
+	MaxSelected   int
+	MaxSupporting int
+	MaxDocument   int
+	MaxSection    int
+}
+
 type reviewSignals struct {
 	Text       string
 	IDs        map[string]struct{}
@@ -70,8 +77,9 @@ type corpusIndex struct {
 	total    int
 }
 
-func selectCorpus(ctx context.Context, root string, rc *review.Context, maxSupporting int) ([]review.Section, []review.EvidenceItem, error) {
-	docs, err := discoverCorpusDocuments(ctx, root)
+func selectCorpus(ctx context.Context, root string, rc *review.Context, limits corpusLimits) ([]review.Section, []review.EvidenceItem, error) {
+	limits = normalizedCorpusLimits(limits)
+	docs, err := discoverCorpusDocuments(ctx, root, limits.MaxDocument)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -79,7 +87,7 @@ func selectCorpus(ctx context.Context, root string, rc *review.Context, maxSuppo
 	var all []corpusSection
 	var scored []scoredCorpusSection
 	for _, doc := range docs {
-		sections := splitCorpusDocument(doc)
+		sections := splitCorpusDocument(doc, limits.MaxSection)
 		all = append(all, sections...)
 	}
 	index := buildCorpusIndex(all)
@@ -97,12 +105,28 @@ func selectCorpus(ctx context.Context, root string, rc *review.Context, maxSuppo
 	scored = expandGraphEvidence(graph, scored, seeds, graphExpansionLimits{PerSeed: 2})
 	scored = expandGraphHierarchyEvidence(graph, scored, graphExpansionLimits{PerSeed: 2})
 	sortScoredCorpus(scored)
-	scored = limitSelectedCorpus(scored, maxSupporting)
+	scored = limitSelectedCorpus(scored, limits.MaxSelected, limits.MaxSupporting)
 	sections := make([]review.Section, 0, len(scored))
 	for _, item := range scored {
 		sections = append(sections, item.section.Section)
 	}
 	return sections, buildEvidenceManifest(scored), nil
+}
+
+func normalizedCorpusLimits(limits corpusLimits) corpusLimits {
+	if limits.MaxSelected <= 0 {
+		limits.MaxSelected = maxSelectedCorpusSections
+	}
+	if limits.MaxSupporting <= 0 {
+		limits.MaxSupporting = defaultMaxSupportingCorpusSections
+	}
+	if limits.MaxDocument <= 0 {
+		limits.MaxDocument = maxCorpusDocumentBytes
+	}
+	if limits.MaxSection <= 0 {
+		limits.MaxSection = maxCorpusSectionBytes
+	}
+	return limits
 }
 
 func sortScoredCorpus(scored []scoredCorpusSection) {
@@ -174,11 +198,14 @@ func ensureCodeRuleOverviews(scored []scoredCorpusSection, index corpusIndex, si
 	return scored
 }
 
-func limitSelectedCorpus(scored []scoredCorpusSection, maxSupporting int) []scoredCorpusSection {
+func limitSelectedCorpus(scored []scoredCorpusSection, maxSelected int, maxSupporting int) []scoredCorpusSection {
+	if maxSelected <= 0 {
+		maxSelected = maxSelectedCorpusSections
+	}
 	if maxSupporting <= 0 {
 		maxSupporting = defaultMaxSupportingCorpusSections
 	}
-	out := make([]scoredCorpusSection, 0, maxSelectedCorpusSections)
+	out := make([]scoredCorpusSection, 0, maxSelected)
 	supporting := 0
 	for _, item := range scored {
 		if isSupportingCorpusSection(item.section) {
@@ -188,7 +215,7 @@ func limitSelectedCorpus(scored []scoredCorpusSection, maxSupporting int) []scor
 			supporting++
 		}
 		out = append(out, item)
-		if len(out) == maxSelectedCorpusSections {
+		if len(out) == maxSelected {
 			break
 		}
 	}
@@ -541,7 +568,10 @@ func addEntitySignals(signals reviewSignals, text string) {
 	}
 }
 
-func discoverCorpusDocuments(ctx context.Context, root string) ([]corpusDocument, error) {
+func discoverCorpusDocuments(ctx context.Context, root string, maxDocumentBytes int) ([]corpusDocument, error) {
+	if maxDocumentBytes <= 0 {
+		maxDocumentBytes = maxCorpusDocumentBytes
+	}
 	var docs []corpusDocument
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -572,7 +602,7 @@ func discoverCorpusDocuments(ctx context.Context, root string) ([]corpusDocument
 		if err != nil {
 			return err
 		}
-		if info.Size() > maxCorpusDocumentBytes {
+		if info.Size() > int64(maxDocumentBytes) {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -631,25 +661,25 @@ func isTextCorpusExt(ext string) bool {
 	}
 }
 
-func splitCorpusDocument(doc corpusDocument) []corpusSection {
+func splitCorpusDocument(doc corpusDocument, maxSectionBytes int) []corpusSection {
 	ext := strings.ToLower(filepath.Ext(doc.Path))
 	lower := strings.ToLower(doc.Path)
 	switch {
 	case ext == ".md" || ext == ".markdown" || filepath.Base(lower) == "agents.md" || filepath.Base(lower) == "claude.md":
-		return splitMarkdownDocument(doc)
+		return splitMarkdownDocument(doc, maxSectionBytes)
 	case ext == ".json":
-		if sections := splitJSONAPIDocument(doc); len(sections) > 0 {
+		if sections := splitJSONAPIDocument(doc, maxSectionBytes); len(sections) > 0 {
 			return sections
 		}
 	case ext == ".yaml" || ext == ".yml":
-		if sections := splitYAMLAPIDocument(doc); len(sections) > 0 {
+		if sections := splitYAMLAPIDocument(doc, maxSectionBytes); len(sections) > 0 {
 			return sections
 		}
 	}
-	return []corpusSection{boundedCorpusSection(doc, filepath.Base(doc.Path), doc.Content)}
+	return []corpusSection{boundedCorpusSection(doc, filepath.Base(doc.Path), doc.Content, maxSectionBytes)}
 }
 
-func splitMarkdownDocument(doc corpusDocument) []corpusSection {
+func splitMarkdownDocument(doc corpusDocument, maxSectionBytes int) []corpusSection {
 	lines := strings.Split(doc.Content, "\n")
 	type mark struct {
 		idx  int
@@ -688,7 +718,7 @@ func splitMarkdownDocument(doc corpusDocument) []corpusSection {
 		}
 	}
 	if len(marks) == 0 {
-		return []corpusSection{boundedCorpusSection(doc, filepath.Base(doc.Path), doc.Content)}
+		return []corpusSection{boundedCorpusSection(doc, filepath.Base(doc.Path), doc.Content, maxSectionBytes)}
 	}
 	var sections []corpusSection
 	for i, mark := range marks {
@@ -699,7 +729,7 @@ func splitMarkdownDocument(doc corpusDocument) []corpusSection {
 		content := strings.TrimSpace(strings.Join(lines[mark.idx:end], "\n"))
 		if content != "" {
 			title := mark.path[len(mark.path)-1]
-			section := boundedCorpusSection(doc, title, content)
+			section := boundedCorpusSection(doc, title, content, maxSectionBytes)
 			section.Level = mark.lvl
 			section.HeadingPath = append([]string(nil), mark.path...)
 			section.Ordinal = len(sections)
@@ -723,20 +753,20 @@ func markdownHeadingLevel(line string) int {
 	return level
 }
 
-func splitYAMLAPIDocument(doc corpusDocument) []corpusSection {
+func splitYAMLAPIDocument(doc corpusDocument, maxSectionBytes int) []corpusSection {
 	lines := strings.Split(doc.Content, "\n")
 	var sections []corpusSection
 	for _, parent := range []string{"paths", "channels"} {
-		sections = append(sections, yamlChildSections(doc, lines, parent)...)
+		sections = append(sections, yamlChildSections(doc, lines, parent, maxSectionBytes)...)
 	}
 	if schemaLines := yamlTopLevelBlock(lines, "components"); len(schemaLines) > 0 {
-		sections = append(sections, yamlNestedChildSections(doc, schemaLines, "schemas")...)
-		sections = append(sections, yamlNestedChildSections(doc, schemaLines, "messages")...)
+		sections = append(sections, yamlNestedChildSections(doc, schemaLines, "schemas", maxSectionBytes)...)
+		sections = append(sections, yamlNestedChildSections(doc, schemaLines, "messages", maxSectionBytes)...)
 	}
 	return sections
 }
 
-func yamlChildSections(doc corpusDocument, lines []string, parent string) []corpusSection {
+func yamlChildSections(doc corpusDocument, lines []string, parent string, maxSectionBytes int) []corpusSection {
 	block := yamlTopLevelBlock(lines, parent)
 	var sections []corpusSection
 	for i, line := range block {
@@ -746,12 +776,12 @@ func yamlChildSections(doc corpusDocument, lines []string, parent string) []corp
 			continue
 		}
 		content := collectIndentedBlock(block, i, indent)
-		sections = append(sections, boundedCorpusSection(doc, parent+"."+key, strings.Join(content, "\n")))
+		sections = append(sections, boundedCorpusSection(doc, parent+"."+key, strings.Join(content, "\n"), maxSectionBytes))
 	}
 	return sections
 }
 
-func yamlNestedChildSections(doc corpusDocument, lines []string, parent string) []corpusSection {
+func yamlNestedChildSections(doc corpusDocument, lines []string, parent string, maxSectionBytes int) []corpusSection {
 	var sections []corpusSection
 	for i, line := range lines {
 		indent := countIndent(line)
@@ -767,7 +797,7 @@ func yamlNestedChildSections(doc corpusDocument, lines []string, parent string) 
 				continue
 			}
 			content := collectIndentedBlock(block, j, childIndent)
-			sections = append(sections, boundedCorpusSection(doc, parent+"."+childKey, strings.Join(content, "\n")))
+			sections = append(sections, boundedCorpusSection(doc, parent+"."+childKey, strings.Join(content, "\n"), maxSectionBytes))
 		}
 	}
 	return sections
@@ -823,7 +853,7 @@ func countIndent(line string) int {
 	return count
 }
 
-func splitJSONAPIDocument(doc corpusDocument) []corpusSection {
+func splitJSONAPIDocument(doc corpusDocument, maxSectionBytes int) []corpusSection {
 	var decoded map[string]any
 	if err := json.Unmarshal([]byte(doc.Content), &decoded); err != nil {
 		return nil
@@ -833,7 +863,7 @@ func splitJSONAPIDocument(doc corpusDocument) []corpusSection {
 		if children, ok := decoded[parent].(map[string]any); ok {
 			keys := sortedAnyKeys(children)
 			for _, key := range keys {
-				sections = append(sections, boundedCorpusSection(doc, parent+"."+key, marshalCompact(children[key])))
+				sections = append(sections, boundedCorpusSection(doc, parent+"."+key, marshalCompact(children[key]), maxSectionBytes))
 			}
 		}
 	}
@@ -842,7 +872,7 @@ func splitJSONAPIDocument(doc corpusDocument) []corpusSection {
 			if children, ok := components[parent].(map[string]any); ok {
 				keys := sortedAnyKeys(children)
 				for _, key := range keys {
-					sections = append(sections, boundedCorpusSection(doc, parent+"."+key, marshalCompact(children[key])))
+					sections = append(sections, boundedCorpusSection(doc, parent+"."+key, marshalCompact(children[key]), maxSectionBytes))
 				}
 			}
 		}
@@ -867,10 +897,13 @@ func marshalCompact(value any) string {
 	return string(data)
 }
 
-func boundedCorpusSection(doc corpusDocument, title, content string) corpusSection {
+func boundedCorpusSection(doc corpusDocument, title, content string, maxSectionBytes int) corpusSection {
 	content = strings.TrimSpace(content)
-	if len(content) > maxCorpusSectionBytes {
-		content = content[:maxCorpusSectionBytes] + "\n[truncated]"
+	if maxSectionBytes <= 0 {
+		maxSectionBytes = maxCorpusSectionBytes
+	}
+	if len(content) > maxSectionBytes {
+		content = content[:maxSectionBytes] + "\n[truncated]"
 	}
 	return corpusSection{
 		Section: review.Section{

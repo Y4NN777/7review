@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Y4NN777/7review/agent/profile"
 	"github.com/Y4NN777/7review/agent/review"
 )
 
@@ -175,6 +176,40 @@ metadata:
 	triggered := byName["api-contract-review"]
 	if triggered.Category != "triggered" || triggered.Required {
 		t.Fatalf("triggered activation not classified: %#v", triggered)
+	}
+}
+
+func TestLoaderSelectActivationsUsesInputProfile(t *testing.T) {
+	dir := t.TempDir()
+	writeSkill(t, dir, "custom-core", "custom-core")
+	writeSkill(t, dir, "custom-github", "custom-github")
+	writeCustomSkill(t, dir, "api-contract-review", skillFixture("api-contract-review", "Use for OpenAPI route and schema changes."))
+
+	loader := &Loader{
+		SkillsDir: dir,
+		Profile: profile.SkillProfile{
+			AlwaysOn:                  []string{"custom-core"},
+			ProviderSkills:            map[string]string{"github": "custom-github"},
+			TopicalActivationMinScore: 4,
+		},
+	}
+	if err := loader.Load(); err != nil {
+		t.Fatal(err)
+	}
+
+	activations := loader.SelectActivations(review.Request{
+		Provider: "github",
+		Title:    "OpenAPI route",
+	})
+	var names []string
+	for _, activation := range activations {
+		names = append(names, activation.Name)
+	}
+	if !contains(names, "custom-core") || !contains(names, "custom-github") {
+		t.Fatalf("expected profile-selected core and provider skills, got %v", names)
+	}
+	if contains(names, "api-contract-review") {
+		t.Fatalf("topical skill should require profile min score, got %v", names)
 	}
 }
 

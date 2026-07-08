@@ -131,7 +131,7 @@ func TestSplitCorpusDocument_MarkdownHeadings(t *testing.T) {
 		Content:   "# Messaging\nFR-1 send messages\n\n## Deletion\nINV-9 tombstones apply",
 	}
 
-	sections := splitCorpusDocument(doc)
+	sections := splitCorpusDocument(doc, maxCorpusSectionBytes)
 
 	if len(sections) != 2 {
 		t.Fatalf("expected 2 sections, got %#v", sections)
@@ -298,7 +298,7 @@ components:
 `,
 	}
 
-	sections := splitCorpusDocument(doc)
+	sections := splitCorpusDocument(doc, maxCorpusSectionBytes)
 
 	got := sectionTitles(sections)
 	for _, want := range []string{"paths./messages/{message_id}", "paths./threads", "schemas.Message"} {
@@ -316,7 +316,7 @@ func TestSplitCorpusDocument_AsyncAPIJSONSections(t *testing.T) {
 		Content:   `{"asyncapi":"2.6.0","channels":{"messages/deleted":{"publish":{"message":{"$ref":"#/components/messages/Deleted"}}}},"components":{"messages":{"Deleted":{"payload":{"type":"object"}}}}}`,
 	}
 
-	sections := splitCorpusDocument(doc)
+	sections := splitCorpusDocument(doc, maxCorpusSectionBytes)
 
 	got := sectionTitles(sections)
 	for _, want := range []string{"channels.messages/deleted", "messages.Deleted"} {
@@ -347,7 +347,7 @@ func TestSelectCorpus_MessengerBackendDeleteForAllEvidence(t *testing.T) {
 	rc.Request.ChangedPaths = rc.ChangedPaths()
 	rc.SkillSections = []review.Section{{Title: "api-contract-review"}, {Title: "data-migration-review"}}
 
-	sections, manifest, err := selectCorpus(context.Background(), root, rc, defaultMaxSupportingCorpusSections)
+	sections, manifest, err := selectCorpus(context.Background(), root, rc, corpusLimits{MaxSupporting: defaultMaxSupportingCorpusSections})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +406,7 @@ func TestSelectCorpus_MessengerSparseBackendSendChangeUsesRealPathSignals(t *tes
 		t.Fatalf("fixture did not produce python code-rule signal: %#v", signals.CodeRules)
 	}
 
-	sections, manifest, err := selectCorpus(context.Background(), root, rc, defaultMaxSupportingCorpusSections)
+	sections, manifest, err := selectCorpus(context.Background(), root, rc, corpusLimits{MaxSupporting: defaultMaxSupportingCorpusSections})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +464,7 @@ paths:
 	}}}
 	rc.SkillSections = []review.Section{{Title: "api-contract-review"}, {Title: "security-review"}}
 
-	sections, manifest, err := selectCorpus(context.Background(), root, rc, defaultMaxSupportingCorpusSections)
+	sections, manifest, err := selectCorpus(context.Background(), root, rc, corpusLimits{MaxSupporting: defaultMaxSupportingCorpusSections})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,7 +507,7 @@ components:
 		Description: "POST /sessions",
 	})
 
-	sections, manifest, err := selectCorpus(context.Background(), root, rc, defaultMaxSupportingCorpusSections)
+	sections, manifest, err := selectCorpus(context.Background(), root, rc, corpusLimits{MaxSupporting: defaultMaxSupportingCorpusSections})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -525,7 +525,7 @@ func TestSelectCorpus_MessengerWebAndGatewayRouting(t *testing.T) {
 	web.Request.ChangedPaths = web.ChangedPaths()
 	web.SkillSections = []review.Section{{Title: "design-contract-review"}, {Title: "frontend-accessibility-review"}}
 
-	webSections, webManifest, err := selectCorpus(context.Background(), root, web, defaultMaxSupportingCorpusSections)
+	webSections, webManifest, err := selectCorpus(context.Background(), root, web, corpusLimits{MaxSupporting: defaultMaxSupportingCorpusSections})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,7 +539,7 @@ func TestSelectCorpus_MessengerWebAndGatewayRouting(t *testing.T) {
 	gateway.Request.ChangedPaths = gateway.ChangedPaths()
 	gateway.SkillSections = []review.Section{{Title: "reliability-review"}}
 
-	gatewaySections, _, err := selectCorpus(context.Background(), root, gateway, defaultMaxSupportingCorpusSections)
+	gatewaySections, _, err := selectCorpus(context.Background(), root, gateway, corpusLimits{MaxSupporting: defaultMaxSupportingCorpusSections})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,11 +565,11 @@ func TestSelectCorpus_SupportingSectionCapIsConfigurable(t *testing.T) {
 	rc.Request.ChangedPaths = rc.ChangedPaths()
 	rc.SkillSections = []review.Section{{Title: "reliability-review"}, {Title: "traceability-review"}}
 
-	defaultSections, _, err := selectCorpus(context.Background(), root, rc, defaultMaxSupportingCorpusSections)
+	defaultSections, _, err := selectCorpus(context.Background(), root, rc, corpusLimits{MaxSupporting: defaultMaxSupportingCorpusSections})
 	if err != nil {
 		t.Fatal(err)
 	}
-	expandedSections, _, err := selectCorpus(context.Background(), root, rc, 5)
+	expandedSections, _, err := selectCorpus(context.Background(), root, rc, corpusLimits{MaxSupporting: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -600,7 +600,7 @@ func TestSelectCorpus_DocsMechanicalChangeStaysSmall(t *testing.T) {
 	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{Path: "README.md", Patch: "+typo"}}}
 	rc.Request.ChangedPaths = rc.ChangedPaths()
 
-	sections, _, err := selectCorpus(context.Background(), root, rc, defaultMaxSupportingCorpusSections)
+	sections, _, err := selectCorpus(context.Background(), root, rc, corpusLimits{MaxSupporting: defaultMaxSupportingCorpusSections})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -612,6 +612,35 @@ func TestSelectCorpus_DocsMechanicalChangeStaysSmall(t *testing.T) {
 		if strings.Contains(section.Content, "/admin/secrets") || strings.Contains(section.Content, "LAW-1") {
 			t.Fatalf("selected unrelated security/API evidence: %#v", sections)
 		}
+	}
+}
+
+func TestSelectCorpus_AppliesConfiguredLimits(t *testing.T) {
+	root := t.TempDir()
+	writeCorpusFile(t, root, "docs/requirements.md", strings.Repeat("REQ-1 account rule\n", 20))
+	writeCorpusFile(t, root, "docs/security.md", strings.Repeat("SEC-1 account security\n", 20))
+	rc := review.NewContext(review.Request{
+		Title: "account change",
+	})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "agent/app/account.go",
+		Patch: "+account",
+	}}}
+	rc.Request.ChangedPaths = rc.ChangedPaths()
+
+	sections, _, err := selectCorpus(context.Background(), root, rc, corpusLimits{
+		MaxSelected:   1,
+		MaxSupporting: defaultMaxSupportingCorpusSections,
+		MaxSection:    24,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sections) != 1 {
+		t.Fatalf("expected max selected section limit, got %d: %#v", len(sections), sections)
+	}
+	if !strings.Contains(sections[0].Content, "[truncated]") || len(sections[0].Content) > 40 {
+		t.Fatalf("expected section byte limit and truncation, got %q", sections[0].Content)
 	}
 }
 

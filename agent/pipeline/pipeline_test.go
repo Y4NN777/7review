@@ -902,6 +902,31 @@ func TestDefaultFindingValidatorRejectsMissingLocations(t *testing.T) {
 	}
 }
 
+func TestDefaultFindingValidatorUsesConfiguredMinConfidence(t *testing.T) {
+	rc := review.NewContext(review.Request{ChangedPaths: []string{"app.go"}})
+	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{
+		Path:  "app.go",
+		Patch: "@@ -1 +1 @@\n+return nil",
+	}}}
+	report, err := DefaultFindingValidator{MinConfidence: 0.8}.Validate(context.Background(), rc, []review.Finding{{
+		ID:                "F1",
+		Severity:          review.SeverityHigh,
+		Title:             "Low confidence issue",
+		Description:       "The issue is below the configured threshold.",
+		Location:          review.Location{Path: "app.go", Line: 1},
+		Confidence:        0.7,
+		FindingType:       "finding",
+		Strength:          "confirmed",
+		EvidenceAuthority: "sot",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Rejected) != 1 || report.Rejected[0].Reason != "confidence below threshold" {
+		t.Fatalf("expected confidence rejection, got %#v", report)
+	}
+}
+
 func TestDefaultFindingValidatorRejectsUnchangedLines(t *testing.T) {
 	rc := review.NewContext(review.Request{ChangedPaths: []string{"main.go"}})
 	rc.Diff = &review.StructuredDiff{Files: []review.FileDiff{{

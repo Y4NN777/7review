@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -541,19 +542,32 @@ type PolicyFilter interface {
 type DefaultPolicyFilter struct{}
 
 func (DefaultPolicyFilter) Apply(_ context.Context, rc *review.Context) (PolicyDecision, error) {
+	return PathPolicyFilter{}.Apply(context.Background(), rc)
+}
+
+type PathPolicyFilter struct {
+	Ignore []string
+}
+
+func (f PathPolicyFilter) Apply(_ context.Context, rc *review.Context) (PolicyDecision, error) {
 	var decision PolicyDecision
-	for _, path := range rc.Request.ChangedPaths {
-		if shouldSkip(path) {
-			decision.SkippedPaths = append(decision.SkippedPaths, path)
+	for _, changedPath := range rc.Request.ChangedPaths {
+		if shouldSkip(changedPath, f.Ignore) {
+			decision.SkippedPaths = append(decision.SkippedPaths, changedPath)
 			continue
 		}
-		decision.ReviewPaths = append(decision.ReviewPaths, path)
+		decision.ReviewPaths = append(decision.ReviewPaths, changedPath)
 	}
 	return decision, nil
 }
 
-func shouldSkip(path string) bool {
-	clean := filepath.ToSlash(path)
+func shouldSkip(filePath string, extraPatterns []string) bool {
+	clean := filepath.ToSlash(filePath)
+	for _, pattern := range extraPatterns {
+		if pathPatternMatch(pattern, clean) {
+			return true
+		}
+	}
 	if strings.Contains(clean, "/vendor/") || strings.Contains(clean, "/node_modules/") {
 		return true
 	}
@@ -562,6 +576,34 @@ func shouldSkip(path string) bool {
 		return true
 	}
 	return strings.HasSuffix(clean, ".generated.go") || strings.HasSuffix(clean, ".min.js")
+}
+
+func pathPatternMatch(pattern string, filePath string) bool {
+	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
+	filePath = filepath.ToSlash(strings.TrimSpace(filePath))
+	if pattern == "" || filePath == "" {
+		return false
+	}
+	if pattern == filePath || path.Base(filePath) == pattern {
+		return true
+	}
+	if strings.HasSuffix(pattern, "/**") {
+		prefix := strings.TrimSuffix(pattern, "/**")
+		return filePath == prefix || strings.HasPrefix(filePath, prefix+"/")
+	}
+	if strings.HasPrefix(pattern, "**/") {
+		suffix := strings.TrimPrefix(pattern, "**/")
+		if ok, _ := path.Match(suffix, path.Base(filePath)); ok {
+			return true
+		}
+		return strings.HasSuffix(filePath, "/"+suffix)
+	}
+	if strings.Contains(pattern, "/**/") {
+		parts := strings.SplitN(pattern, "/**/", 2)
+		return strings.HasPrefix(filePath, parts[0]+"/") && strings.HasSuffix(filePath, "/"+parts[1])
+	}
+	ok, _ := path.Match(pattern, filePath)
+	return ok
 }
 
 type ValidationReport struct {

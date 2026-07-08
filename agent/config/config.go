@@ -11,6 +11,7 @@ import (
 type Config struct {
 	// ── Pipeline ──────────────────────────────────────────────────────────
 	SkillsDir                   string
+	InputProfilePath            string
 	CorpusRoot                  string
 	MemoryDir                   string
 	InstructionsPath            string
@@ -37,6 +38,8 @@ type Config struct {
 	HeadroomTimeout             int
 	MemPalaceURL                string
 	MemPalaceTimeout            int
+	ChannelInboundToken         string
+	ChannelAuthorizedSenders    []string
 
 	// ── GitLab ────────────────────────────────────────────────────────────
 	GitLabURL     string
@@ -83,6 +86,7 @@ func LoadConfig() (*Config, error) {
 	c := &Config{
 		// Pipeline
 		SkillsDir:                   getEnv("SKILLS_DIR", "./agent/skills"),
+		InputProfilePath:            getEnv("INPUT_PROFILE", "./profiles/default.input-profile.json"),
 		CorpusRoot:                  getEnv("CORPUS_ROOT", "."),
 		MemoryDir:                   getEnv("MEMORY_DIR", "./.7review"),
 		InstructionsPath:            getEnv("INSTRUCTIONS_PATH", "./agent/instructions.md"),
@@ -109,6 +113,8 @@ func LoadConfig() (*Config, error) {
 		HeadroomTimeout:             getEnvInt("HEADROOM_TIMEOUT_MS", 5000),
 		MemPalaceURL:                os.Getenv("MEMPALACE_URL"),
 		MemPalaceTimeout:            getEnvInt("MEMPALACE_TIMEOUT_MS", 5000),
+		ChannelInboundToken:         os.Getenv("CHANNEL_INBOUND_TOKEN"),
+		ChannelAuthorizedSenders:    getEnvList("CHANNEL_AUTHORIZED_SENDERS", ""),
 
 		// GitLab
 		GitLabURL:     os.Getenv("GITLAB_URL"),

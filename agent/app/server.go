@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
+	"github.com/Y4NN777/7review/agent/channel"
 	"github.com/Y4NN777/7review/agent/config"
 	"github.com/Y4NN777/7review/agent/orchestrator"
 	"github.com/Y4NN777/7review/agent/pipeline"
+	"github.com/Y4NN777/7review/agent/profile"
 	"github.com/Y4NN777/7review/agent/skills"
 	"github.com/Y4NN777/7review/agent/tools"
 )
@@ -38,7 +41,19 @@ func NewServer() (*Server, error) {
 		return nil, fmt.Errorf("config: %w", err)
 	}
 
-	sl := &skills.Loader{SkillsDir: cfg.SkillsDir}
+	inputProfile, err := profile.Load(cfg.InputProfilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	skillsDir := cfg.SkillsDir
+	if inputProfile != nil && inputProfile.Skills.Directory != "" && !envSet("SKILLS_DIR") {
+		skillsDir = inputProfile.Skills.Directory
+	}
+	sl := &skills.Loader{SkillsDir: skillsDir}
+	if inputProfile != nil {
+		sl.Profile = inputProfile.Skills
+	}
 	if err := sl.Load(); err != nil {
 		return nil, fmt.Errorf("skills: %w", err)
 	}
@@ -53,13 +68,14 @@ func NewServer() (*Server, error) {
 		pipeline: &pipeline.Pipeline{
 			Config:           cfg,
 			SkillLoader:      sl,
+			Profile:          inputProfile,
 			Orchestrator:     modelOrchestrator,
 			Jobs:             pipeline.NewFileRunStore(cfg.MemoryDir + "/runs"),
-			Policy:           pipeline.DefaultPolicyFilter{},
-			FindingValidator: pipeline.DefaultFindingValidator{},
+			Policy:           policyFilter(inputProfile),
+			FindingValidator: findingValidator(inputProfile),
 		},
-		mux:  http.NewServeMux(),
-		seen: make(map[string]time.Time),
+		mux:    http.NewServeMux(),
+		seen:   make(map[string]time.Time),
 		active: make(map[string]bool),
 	}
 	s.work = make(chan workItem, cfg.WebhookQueueSize)
@@ -79,9 +95,65 @@ func NewServer() (*Server, error) {
 	s.pipeline.SCMPublisher = router
 	s.pipeline.ContextReducer = tools.NewHeadroomReducer(cfg.HeadroomURL, time.Duration(cfg.HeadroomTimeout)*time.Millisecond)
 	s.pipeline.Memory = reviewMemoryStore(cfg)
+	s.pipeline.Channels = channel.NewManager(channelConfigs(inputProfile, cfg))
 	s.startWorkers()
 	s.routes()
 	return s, nil
+}
+
+func findingValidator(inputProfile *profile.CompiledProfile) pipeline.FindingValidator {
+	if inputProfile == nil || inputProfile.Validation.MinConfidence == 0 {
+		return pipeline.DefaultFindingValidator{}
+	}
+	return pipeline.DefaultFindingValidator{MinConfidence: inputProfile.Validation.MinConfidence}
+}
+
+func policyFilter(inputProfile *profile.CompiledProfile) pipeline.PolicyFilter {
+	if inputProfile == nil || len(inputProfile.PathPolicy.Ignore) == 0 {
+		return pipeline.DefaultPolicyFilter{}
+	}
+	return pipeline.PathPolicyFilter{Ignore: inputProfile.PathPolicy.Ignore}
+}
+
+func channelConfigs(inputProfile *profile.CompiledProfile, cfg *config.Config) []channel.Config {
+	var configs []channel.Config
+	if inputProfile != nil {
+		for _, item := range inputProfile.Channels {
+			if !item.Enabled {
+				continue
+			}
+			configs = append(configs, channel.Config{
+				Name:              item.Name,
+				Provider:          item.Provider,
+				Enabled:           item.Enabled,
+				InboundToken:      firstNonEmptyString(item.InboundToken, cfg.ChannelInboundToken),
+				AuthorizedSenders: firstNonEmptyList(item.AuthorizedSenders, cfg.ChannelAuthorizedSenders),
+				Settings:          item.Settings,
+			})
+		}
+	}
+	if len(configs) == 0 && cfg.ChannelInboundToken != "" {
+		configs = append(configs, channel.Config{
+			Name:              "operator_log",
+			Provider:          "log",
+			Enabled:           true,
+			InboundToken:      cfg.ChannelInboundToken,
+			AuthorizedSenders: cfg.ChannelAuthorizedSenders,
+		})
+	}
+	return configs
+}
+
+func firstNonEmptyList(primary []string, fallback []string) []string {
+	if len(primary) > 0 {
+		return primary
+	}
+	return fallback
+}
+
+func envSet(key string) bool {
+	_, ok := os.LookupEnv(key)
+	return ok
 }
 
 // ListenAndServe starts the HTTP server.
