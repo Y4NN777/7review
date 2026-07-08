@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Y4NN777/7review/schemas/input-profile.schema.json",
+  "title": "7review Input Profile",
+  "type": "object",
+  "required": ["version", "name"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "inputs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/input" }
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "corpus": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_sections": { "type": "integer", "minimum": 1 },
+            "max_supporting_sections": { "type": "integer", "minimum": 1 },
+            "max_document_bytes": { "type": "integer", "minimum": 1 },
+            "max_section_bytes": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "validation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "min_confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "publishing": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "final_requires_human_approval": { "type": "boolean" },
+            "inline_strengths": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "draft_only_strengths": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "required": ["id", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": {
+          "type": "string",
+          "enum": ["corpus", "skills", "memory", "path_policy", "notification_channel"]
+        },
+        "roots": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "include": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "exclude": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "directory": { "type": "string" },
+        "always_on": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "provider_skills": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "topical_activation_min_score": { "type": "integer", "minimum": 0 },
+        "activate_test_quality_for_code_changes": { "type": "boolean" },
+        "provider": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "recall": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "ignore": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "inbound_token": {
+          "type": "string"
+        },
+        "authorized_senders": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "settings": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}

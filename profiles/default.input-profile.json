@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "name": "default_profile",
+  "inputs": [
+    {
+      "id": "repo_knowledge",
+      "type": "corpus",
+      "roots": ["."],
+      "include": [
+        "AGENTS.md",
+        "CLAUDE.md",
+        "docs/**",
+        "agent/skills/**",
+        "**/*.md",
+        "**/*.yaml",
+        "**/*.yml",
+        "**/*.json"
+      ],
+      "exclude": [
+        ".git/**",
+        ".venv/**",
+        "node_modules/**",
+        "vendor/**",
+        "dist/**",
+        "build/**",
+        ".next/**",
+        "__pycache__/**"
+      ]
+    },
+    {
+      "id": "review_skills",
+      "type": "skills",
+      "directory": "./agent/skills",
+      "always_on": [
+        "methodology-review",
+        "project-knowledge",
+        "framework-rules-review",
+        "traceability-review",
+        "review-publisher",
+        "laws-guards-review",
+        "security-review",
+        "hil-gate-review"
+      ],
+      "provider_skills": {
+        "github": "github-merge-api",
+        "gitlab": "gitlab-merge-api"
+      },
+      "topical_activation_min_score": 2,
+      "activate_test_quality_for_code_changes": true
+    },
+    {
+      "id": "default_ignore_policy",
+      "type": "path_policy",
+      "ignore": [
+        "vendor/**",
+        "node_modules/**",
+        "**/*.generated.go",
+        "**/*.min.js",
+        "go.sum",
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml"
+      ]
+    },
+    {
+      "id": "approved_memory",
+      "type": "memory",
+      "provider": "mempalace",
+      "enabled": true,
+      "recall": ["conventions", "decisions", "history"]
+    },
+    {
+      "id": "operator_log",
+      "type": "notification_channel",
+      "provider": "log",
+      "enabled": false,
+      "authorized_senders": []
+    },
+    {
+      "id": "operator_whatsapp",
+      "type": "notification_channel",
+      "provider": "twilio_whatsapp",
+      "enabled": false,
+      "authorized_senders": ["whatsapp:+33600000000"],
+      "settings": {
+        "account_sid": "${TWILIO_ACCOUNT_SID}",
+        "auth_token": "${TWILIO_AUTH_TOKEN}",
+        "from": "whatsapp:+14155238886",
+        "to": "whatsapp:+33600000000",
+        "content_sid": "${TWILIO_WHATSAPP_TEMPLATE_CONTENT_SID}",
+        "webhook_url": "https://7review.example.com/channels/twilio/whatsapp"
+      }
+    },
+    {
+      "id": "operator_email",
+      "type": "notification_channel",
+      "provider": "sendgrid_email",
+      "enabled": false,
+      "authorized_senders": ["operator@example.com"],
+      "settings": {
+        "api_key": "${SENDGRID_API_KEY}",
+        "from_email": "7review@example.com",
+        "to": "operator@example.com",
+        "oauth_token": "${SENDGRID_INBOUND_TOKEN}",
+        "public_key": "${SENDGRID_INBOUND_PUBLIC_KEY}"
+      }
+    },
+    {
+      "id": "operator_mailgun",
+      "type": "notification_channel",
+      "provider": "mailgun_email",
+      "enabled": false,
+      "authorized_senders": ["operator@example.com"],
+      "settings": {
+        "api_key": "${MAILGUN_API_KEY}",
+        "signing_key": "${MAILGUN_SIGNING_KEY}",
+        "domain": "mg.example.com",
+        "from_email": "7review@mg.example.com",
+        "to": "operator@example.com"
+      }
+    }
+  ],
+  "policies": {
+    "corpus": {
+      "max_sections": 24,
+      "max_supporting_sections": 3,
+      "max_document_bytes": 524288,
+      "max_section_bytes": 20480
+    },
+    "validation": {
+      "min_confidence": 0.45
+    },
+    "publishing": {
+      "final_requires_human_approval": true,
+      "inline_strengths": ["confirmed"],
+      "draft_only_strengths": ["likely", "speculative", "question", "note"]
+    }
+  }
+}
