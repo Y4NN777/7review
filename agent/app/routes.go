@@ -1,13 +1,20 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/Y4NN777/7review/agent/channel"
 	"github.com/Y4NN777/7review/agent/pipeline"
 	"github.com/Y4NN777/7review/agent/review"
 )
@@ -33,10 +40,267 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/chat/stream", s.requireAuth(s.handleChatStream))
 	s.mux.HandleFunc("/tools", s.requireAuth(s.handleTools))
 	s.mux.HandleFunc("/tools/execute", s.requireAuth(s.handleToolExecute))
+	s.mux.HandleFunc("/channels/", s.handleChannelInbound)
 	s.mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	s.mux.HandleFunc("/ready", s.requireAuth(s.handleReady))
+}
+
+func (s *Server) handleChannelInbound(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s == nil || s.pipeline == nil || s.pipeline.Channels == nil {
+		http.Error(w, "channels are not configured", http.StatusNotFound)
+		return
+	}
+	switch {
+	case strings.HasPrefix(r.URL.Path, "/channels/twilio/whatsapp"):
+		s.handleTwilioWhatsAppInbound(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/channels/sendgrid/inbound"):
+		s.handleSendGridInbound(w, r)
+		return
+	case strings.HasPrefix(r.URL.Path, "/channels/mailgun/inbound"):
+		s.handleMailgunInbound(w, r)
+		return
+	}
+	channelName := channelNameFromPath(r.URL.Path)
+	if channelName == "" {
+		http.Error(w, "missing channel", http.StatusBadRequest)
+		return
+	}
+	body, err := readBoundedBody(r.Body, chatMaxBodyBytes)
+	if err != nil {
+		http.Error(w, "channel message too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	var msg channel.InboundMessage
+	if err := json.Unmarshal(body, &msg); err != nil {
+		http.Error(w, "invalid channel payload", http.StatusBadRequest)
+		return
+	}
+	msg.Channel = firstNonEmptyString(msg.Channel, channelName)
+	if msg.ReceivedAt.IsZero() {
+		msg.ReceivedAt = time.Now().UTC()
+	}
+	token := firstNonEmptyString(r.Header.Get("X-7Review-Channel-Token"), bearerToken(r.Header.Get("Authorization")))
+	if _, err := s.pipeline.Channels.VerifyInbound(channelName, token, msg); err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	s.routeChannelMessage(w, r, msg)
+}
+
+func (s *Server) handleTwilioWhatsAppInbound(w http.ResponseWriter, r *http.Request) {
+	cfg, ok := s.pipeline.Channels.ConfigForProvider("twilio_whatsapp")
+	if !ok {
+		http.Error(w, "twilio_whatsapp channel is not configured", http.StatusNotFound)
+		return
+	}
+	body, err := readBoundedBody(r.Body, chatMaxBodyBytes)
+	if err != nil {
+		http.Error(w, "twilio payload too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	form, err := url.ParseQuery(string(body))
+	if err != nil {
+		http.Error(w, "invalid twilio payload", http.StatusBadRequest)
+		return
+	}
+	webhookURL := firstNonEmptyString(channel.Setting(cfg.Settings, "webhook_url"), requestWebhookURL(r))
+	if !channel.VerifyTwilioSignature(channel.Setting(cfg.Settings, "auth_token"), webhookURL, form, r.Header.Get("X-Twilio-Signature")) {
+		http.Error(w, "invalid twilio signature", http.StatusUnauthorized)
+		return
+	}
+	msg := channel.ParseTwilioWhatsAppInbound(cfg.Name, form)
+	if _, err := s.pipeline.Channels.VerifyInbound(cfg.Name, cfg.InboundToken, msg); err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	s.routeChannelMessage(w, r, msg)
+}
+
+func (s *Server) handleSendGridInbound(w http.ResponseWriter, r *http.Request) {
+	cfg, ok := s.pipeline.Channels.ConfigForProvider("sendgrid_email")
+	if !ok {
+		http.Error(w, "sendgrid_email channel is not configured", http.StatusNotFound)
+		return
+	}
+	body, err := readBoundedBody(r.Body, chatMaxBodyBytes)
+	if err != nil {
+		http.Error(w, "sendgrid payload too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	publicKey := channel.Setting(cfg.Settings, "public_key")
+	if publicKey != "" {
+		if !channel.VerifySendGridSignature(
+			publicKey,
+			r.Header.Get("X-Twilio-Email-Event-Webhook-Timestamp"),
+			body,
+			r.Header.Get("X-Twilio-Email-Event-Webhook-Signature"),
+		) {
+			http.Error(w, "invalid sendgrid signature", http.StatusUnauthorized)
+			return
+		}
+	} else {
+		token := firstNonEmptyString(channel.Setting(cfg.Settings, "oauth_token"), cfg.InboundToken)
+		if token != "" && bearerToken(r.Header.Get("Authorization")) != token {
+			http.Error(w, "invalid sendgrid inbound token", http.StatusUnauthorized)
+			return
+		}
+	}
+	form, err := parseInboundFormBytes(r.Header.Get("Content-Type"), body)
+	if err != nil {
+		http.Error(w, "invalid sendgrid payload", http.StatusBadRequest)
+		return
+	}
+	msg := channel.ParseSendGridInbound(cfg.Name, form)
+	if _, err := s.pipeline.Channels.VerifyInbound(cfg.Name, cfg.InboundToken, msg); err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	s.routeChannelMessage(w, r, msg)
+}
+
+func (s *Server) handleMailgunInbound(w http.ResponseWriter, r *http.Request) {
+	cfg, ok := s.pipeline.Channels.ConfigForProvider("mailgun_email")
+	if !ok {
+		http.Error(w, "mailgun_email channel is not configured", http.StatusNotFound)
+		return
+	}
+	form, err := parseInboundForm(r)
+	if err != nil {
+		http.Error(w, "invalid mailgun payload", http.StatusBadRequest)
+		return
+	}
+	if !channel.VerifyMailgunSignature(channel.Setting(cfg.Settings, "signing_key"), form.Get("timestamp"), form.Get("token"), form.Get("signature")) {
+		http.Error(w, "invalid mailgun signature", http.StatusUnauthorized)
+		return
+	}
+	msg := channel.ParseMailgunInbound(cfg.Name, form)
+	if _, err := s.pipeline.Channels.VerifyInbound(cfg.Name, cfg.InboundToken, msg); err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+	s.routeChannelMessage(w, r, msg)
+}
+
+func (s *Server) routeChannelMessage(w http.ResponseWriter, r *http.Request, msg channel.InboundMessage) {
+	result := channel.EvaluateInbound(msg)
+	if result.RunID == "" {
+		http.Error(w, result.Reason, http.StatusBadRequest)
+		return
+	}
+	if err := s.pipeline.Jobs.AppendEvent(r.Context(), result.RunID, pipeline.RunEvent{
+		Type:    "channel_message_received",
+		Status:  "",
+		Message: truncateEventMessage(msg.Text),
+		Meta: map[string]string{
+			"channel":  result.Channel,
+			"sender":   result.Sender,
+			"external": msg.ExternalID,
+			"approved": strconv.FormatBool(result.Approved),
+			"reason":   result.Reason,
+		},
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if result.Approved {
+		if err := s.enqueue(workItem{
+			name: fmt.Sprintf("channel/approve/%s", result.RunID),
+			run: func(ctx context.Context) error {
+				return s.pipeline.ApproveRun(ctx, result.RunID, result.FinalReport)
+			},
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+	}
+	if result.Revised {
+		if err := s.enqueue(workItem{
+			name: fmt.Sprintf("channel/revise/%s", result.RunID),
+			run: func(ctx context.Context) error {
+				return s.pipeline.ReviseDraft(ctx, result.RunID, result.Request)
+			},
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+	}
+	if result.Suppressed {
+		if err := s.enqueue(workItem{
+			name: fmt.Sprintf("channel/suppress/%s/%s", result.RunID, result.FindingID),
+			run: func(ctx context.Context) error {
+				return s.pipeline.SuppressFinding(ctx, result.RunID, result.FindingID, result.Request)
+			},
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	status := http.StatusAccepted
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(result)
+}
+
+func parseInboundForm(r *http.Request) (url.Values, error) {
+	body, err := readBoundedBody(r.Body, chatMaxBodyBytes)
+	if err != nil {
+		return nil, err
+	}
+	return parseInboundFormBytes(r.Header.Get("Content-Type"), body)
+}
+
+func parseInboundFormBytes(contentType string, body []byte) (url.Values, error) {
+	normalizedContentType := strings.ToLower(contentType)
+	if strings.Contains(normalizedContentType, "multipart/form-data") {
+		mediaType, params, err := mime.ParseMediaType(contentType)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.HasPrefix(mediaType, "multipart/") {
+			return nil, fmt.Errorf("invalid multipart content type")
+		}
+		reader := multipart.NewReader(bytes.NewReader(body), params["boundary"])
+		form, err := reader.ReadForm(chatMaxBodyBytes)
+		if err != nil {
+			return nil, err
+		}
+		defer form.RemoveAll()
+		return url.Values(form.Value), nil
+	}
+	return url.ParseQuery(string(body))
+}
+
+func requestWebhookURL(r *http.Request) string {
+	scheme := r.Header.Get("X-Forwarded-Proto")
+	if scheme == "" {
+		scheme = "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+	}
+	host := firstNonEmptyString(r.Header.Get("X-Forwarded-Host"), r.Host)
+	return scheme + "://" + host + r.URL.RequestURI()
+}
+
+func channelNameFromPath(path string) string {
+	path = strings.TrimPrefix(path, "/channels/")
+	name, _, _ := strings.Cut(path, "/")
+	return strings.TrimSpace(name)
+}
+
+func bearerToken(header string) string {
+	header = strings.TrimSpace(header)
+	if strings.HasPrefix(strings.ToLower(header), "bearer ") {
+		return strings.TrimSpace(header[len("bearer "):])
+	}
+	return ""
 }
 
 func (s *Server) gitLabWebhookConfigured() bool {
