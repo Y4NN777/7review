@@ -644,6 +644,51 @@ func TestSelectCorpus_AppliesConfiguredLimits(t *testing.T) {
 	}
 }
 
+func TestFilterTopicCompatibleCorpus_RemovesExplicitOffTopicSections(t *testing.T) {
+	sections := []scoredCorpusSection{
+		{
+			section: corpusSection{Section: review.Section{Path: "docs/calls.md", Title: "Call stack", Content: "LiveKit token handling", Kind: review.KindArchitecture}},
+			score:   200,
+		},
+		{
+			section: corpusSection{Section: review.Section{Path: "docs/delete.md", Title: "Delete flow", Content: "OPC-DELALL removes messages", Kind: review.KindPlanning}},
+			score:   200,
+		},
+		{
+			section: corpusSection{Section: review.Section{Path: "docs/send.md", Title: "Send flow", Content: "OPC-SEND preserves INV-4", Kind: review.KindPlanning}},
+			score:   200,
+		},
+	}
+	signals := reviewSignals{
+		IDs:        map[string]struct{}{"OPC-SEND": {}},
+		Terms:      map[string]struct{}{"send": {}},
+		PathParts:  map[string]struct{}{},
+		Components: map[string]struct{}{},
+		Entities:   map[string]struct{}{},
+	}
+
+	filtered := filterTopicCompatibleCorpus(sections, signals)
+	if got := scoredSectionRefs(filtered); strings.Join(got, ",") != "docs/send.md#Send flow" {
+		t.Fatalf("unexpected filtered sections: %v", got)
+	}
+
+	signals.Terms["call"] = struct{}{}
+	signals.IDs["OPC-DELALL"] = struct{}{}
+	filtered = filterTopicCompatibleCorpus(sections, signals)
+	if got := scoredSectionRefs(filtered); len(got) != 3 {
+		t.Fatalf("expected topic signals to keep all sections, got %v", got)
+	}
+}
+
+func scoredSectionRefs(sections []scoredCorpusSection) []string {
+	out := make([]string, 0, len(sections))
+	for _, section := range sections {
+		out = append(out, section.section.Path+"#"+section.section.Title)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func writeCorpusFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(rel))
