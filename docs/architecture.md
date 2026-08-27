@@ -929,22 +929,16 @@ go test ./agent/pipeline \
   -run 'TestSelectCorpus|TestCorpusGraph|TestExtractReviewSignals' -v
 ```
 
-Live local model smoke:
+Live OpenRouter model smoke:
 
 ```sh
-RUN_LIVE_SMOKE=1 \
-OLLAMA_BASE_URL=http://127.0.0.1:11434 \
-ORCHESTRATOR_CONFIG=./orchestrator.yaml \
-GOCACHE=/tmp/7review-gocache \
-go test -tags live_smoke ./agent/pipeline \
-  -run TestLiveSmokeReviewPipelineWithConfiguredOllamaModels \
-  -count=1 -v
+make live-smoke-openrouter
 ```
 
 The live smoke uses fake SCM, publisher, and memory boundaries to avoid
 external SCM side effects, but it runs the production pipeline and calls the
-configured Ollama reasoner. It asserts that the run reaches draft publication
-and records `ollama/deepseek-coder-v2:16b` in the model review trace.
+configured OpenRouter reasoner. It asserts that the run reaches draft publication
+and records `openrouter/openrouter/free` in the model review trace.
 
 Important test coverage:
 

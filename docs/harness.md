@@ -88,17 +88,11 @@ The deterministic suite does not require local models:
 GOCACHE=/tmp/7review-gocache go test ./...
 ```
 
-For a complete local review-pipeline smoke with the configured Ollama reasoner,
-run the gated live smoke test:
+For a complete review-pipeline smoke with a real OpenRouter model, run the
+gated live smoke test:
 
 ```sh
-RUN_LIVE_SMOKE=1 \
-OLLAMA_BASE_URL=http://127.0.0.1:11434 \
-ORCHESTRATOR_CONFIG=./orchestrator.yaml \
-GOCACHE=/tmp/7review-gocache \
-go test -tags live_smoke ./agent/pipeline \
-  -run TestLiveSmokeReviewPipelineWithConfiguredOllamaModels \
-  -count=1 -v
+make live-smoke-openrouter
 ```
 
 This test uses fake SCM, publisher, and memory boundaries to avoid external

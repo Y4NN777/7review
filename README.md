@@ -402,3 +402,13 @@ Additional verification:
 python3 -m py_compile docker/headroom-bridge/app.py docker/mempalace-bridge/app.py
 docker compose config
 ```
+
+Run the opt-in live model smoke through OpenRouter without starting Ollama:
+
+```sh
+make live-smoke-openrouter
+```
+
+This target reads `OPENROUTER_API_KEY` from the ignored local `.env` and forces
+the reasoner and formatter to `openrouter/free`. The normal test suite and
+`make compose-smoke` remain deterministic and do not require that secret.

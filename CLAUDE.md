@@ -27,11 +27,10 @@ go test ./agent/pipeline -run TestSelectCorpus -v
 go test ./agent/pipeline -run 'TestSelectCorpus|TestCorpusGraph|TestExtractReviewSignals' -v
 ```
 
-Live model smoke test (calls a real local Ollama model, not part of the default suite):
+Live model smoke test (calls OpenRouter and is not part of the default suite):
 
 ```sh
-RUN_LIVE_SMOKE=1 OLLAMA_BASE_URL=http://127.0.0.1:11434 ORCHESTRATOR_CONFIG=./orchestrator.yaml \
-  go test -tags live_smoke ./agent/pipeline -run TestLiveSmokeReviewPipelineWithConfiguredOllamaModels -count=1 -v
+make live-smoke-openrouter
 ```
 
 Docker runtime (agent + Headroom bridge + MemPalace bridge):

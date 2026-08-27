@@ -197,13 +197,17 @@ For a cloud override, use environment model overrides or a custom
 export WEBHOOK_WORKERS=2
 export PROVIDER=openrouter
 export OPENROUTER_API_KEY=...
-export REVIEW_MODEL=openai/gpt-4o
-export SMALL_MODEL=openai/gpt-4o-mini
+export REVIEW_MODEL=openrouter/free
+export SMALL_MODEL=openrouter/free
 make docker-up
 ```
 
 That keeps the current pipeline behavior while moving model execution to the
 configured cloud provider.
+
+For an isolated live pipeline check, keep the key in the ignored local `.env`
+and run `make live-smoke-openrouter`. This path uses fake SCM, publisher, and
+memory boundaries, calls `openrouter/free`, and does not require Ollama.
 
 ## Network Shape
 
