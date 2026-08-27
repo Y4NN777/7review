@@ -2,6 +2,7 @@ import importlib.util
 import os
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def load_app_module():
@@ -61,8 +62,11 @@ class HeadroomBridgeTests(unittest.TestCase):
     def test_compress_uses_headroom_module_when_available(self):
         class FakeHeadroom:
             @staticmethod
-            def compress(text):
-                return "compressed:" + text[:4]
+            def compress(messages, **options):
+                self.assertEqual(messages, [{"role": "user", "content": "abcdef"}])
+                self.assertTrue(options["compress_user_messages"])
+                self.assertEqual(options["protect_recent"], 0)
+                return SimpleNamespace(messages=[{"role": "user", "content": "compressed:abcd"}])
 
         self.app.headroom_module = lambda: FakeHeadroom()
         self.assertEqual(self.app.compress_text("abcdef"), "compressed:abcd")

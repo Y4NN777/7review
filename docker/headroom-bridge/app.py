@@ -1,5 +1,6 @@
 import importlib
 import os
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 import uvicorn
@@ -62,8 +63,22 @@ def compress_text(text: str) -> str:
     module = headroom_module()
     compress = getattr(module, "compress", None)
     if callable(compress):
-        out = compress(text)
-        return out if isinstance(out, str) else str(out)
+        ratio = float(os.getenv("HEADROOM_COMPRESSION_RATIO", "0.55"))
+        result = compress(
+            [{"role": "user", "content": text}],
+            compress_user_messages=True,
+            protect_recent=0,
+            target_ratio=ratio,
+        )
+        messages = getattr(result, "messages", None)
+        if is_dataclass(result):
+            messages = asdict(result).get("messages", messages)
+        if not isinstance(messages, list) or not messages:
+            raise RuntimeError("headroom compress returned no messages")
+        content = messages[0].get("content") if isinstance(messages[0], dict) else None
+        if not isinstance(content, str):
+            raise RuntimeError("headroom compress returned invalid message content")
+        return content
     ratio = float(os.getenv("HEADROOM_COMPRESSION_RATIO", "0.55"))
     limit = max(512, int(len(text) * ratio))
     return text[:limit]

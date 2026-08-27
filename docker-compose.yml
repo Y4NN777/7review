@@ -11,16 +11,38 @@ services:
       HTTP_WRITE_TIMEOUT_MS: "${HTTP_WRITE_TIMEOUT_MS:-120000}"
       HTTP_IDLE_TIMEOUT_MS: "${HTTP_IDLE_TIMEOUT_MS:-120000}"
       ORCHESTRATOR_CONFIG: /app/orchestrator.yaml
+      INPUT_PROFILE: /app/profiles/default.input-profile.json
+      SKILLS_DIR: /app/agent/skills
+      INSTRUCTIONS_PATH: /app/agent/instructions.md
       CORPUS_ROOT: /workspace
       MEMORY_DIR: /data/7review
+      MAX_DIFF_TOKENS: "${MAX_DIFF_TOKENS:-6000}"
+      MAX_SUPPORTING_CORPUS_SECTIONS: "${MAX_SUPPORTING_CORPUS_SECTIONS:-3}"
+      HIL_CHANNEL: "${HIL_CHANNEL:-scm_comment}"
       HEADROOM_URL: http://headroom:8787
-      HEADROOM_TIMEOUT_MS: "${HEADROOM_TIMEOUT_MS:-5000}"
+      HEADROOM_TIMEOUT_MS: "${HEADROOM_TIMEOUT_MS:-30000}"
       MEMPALACE_URL: http://mempalace:8788
-      MEMPALACE_TIMEOUT_MS: "${MEMPALACE_TIMEOUT_MS:-5000}"
+      MEMPALACE_TIMEOUT_MS: "${MEMPALACE_TIMEOUT_MS:-240000}"
       REVIEW_API_TOKEN: "${REVIEW_API_TOKEN:-}"
       WEBHOOK_WORKERS: "${WEBHOOK_WORKERS:-4}"
       WEBHOOK_QUEUE_SIZE: "${WEBHOOK_QUEUE_SIZE:-32}"
       WEBHOOK_JOB_TIMEOUT_MS: "${WEBHOOK_JOB_TIMEOUT_MS:-900000}"
+      WEBHOOK_REVIEW_MODE: "${WEBHOOK_REVIEW_MODE:-manual_first}"
+      REVIEW_LABEL_INCLUDE: "${REVIEW_LABEL_INCLUDE:-7review,ready-for-review}"
+      REVIEW_LABEL_EXCLUDE: "${REVIEW_LABEL_EXCLUDE:-no-review,wip,draft}"
+      REVIEW_ALLOWED_PROJECTS: "${REVIEW_ALLOWED_PROJECTS:-}"
+      REVIEW_ALLOWED_REPOS: "${REVIEW_ALLOWED_REPOS:-}"
+      REVIEW_BRANCH_INCLUDE: "${REVIEW_BRANCH_INCLUDE:-}"
+      REVIEW_BRANCH_EXCLUDE: "${REVIEW_BRANCH_EXCLUDE:-}"
+      CHANNEL_INBOUND_TOKEN: "${CHANNEL_INBOUND_TOKEN:-}"
+      CHANNEL_AUTHORIZED_SENDERS: "${CHANNEL_AUTHORIZED_SENDERS:-}"
+      TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID:-}"
+      TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN:-}"
+      TWILIO_WHATSAPP_TEMPLATE_CONTENT_SID: "${TWILIO_WHATSAPP_TEMPLATE_CONTENT_SID:-}"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      TELEGRAM_WEBHOOK_SECRET: "${TELEGRAM_WEBHOOK_SECRET:-}"
+      SIMPLEX_WS_URL: "${SIMPLEX_WS_URL:-}"
+      GITHUB_API_URL: "${GITHUB_API_URL:-https://api.github.com}"
       GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
       GITHUB_WEBHOOK_SECRET: "${GITHUB_WEBHOOK_SECRET:-}"
       GITLAB_URL: "${GITLAB_URL:-}"
@@ -43,6 +65,21 @@ services:
       EMBEDDING_MODEL: "${EMBEDDING_MODEL:-}"
     ports:
       - "${HTTP_PORT:-8080}:8080"
+    read_only: true
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -72,6 +109,23 @@ services:
       HEADROOM_COMPRESSION_RATIO: "${HEADROOM_COMPRESSION_RATIO:-0.55}"
     expose:
       - "8787"
+    read_only: true
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    volumes:
+      - headroom-cache:/home/app/.cache
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=2).read()"]
       interval: 10s
@@ -90,10 +144,27 @@ services:
       MEMPALACE_BRIDGE_PORT: "8788"
       MEMPALACE_DATA_DIR: /data
       MEMPALACE_NAMESPACE: "${MEMPALACE_NAMESPACE:-7review}"
+      MEMPALACE_CLI_TIMEOUT_SECONDS: "${MEMPALACE_CLI_TIMEOUT_SECONDS:-180}"
       MEMPALACE_EMBEDDING_MODEL: "${EMBEDDING_MODEL:-}"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-}"
+      ANONYMIZED_TELEMETRY: "False"
     volumes:
       - mempalace-data:/data
+    read_only: true
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     expose:
       - "8788"
     extra_hosts:
@@ -113,4 +184,5 @@ networks:
 
 volumes:
   review-data:
+  headroom-cache:
   mempalace-data:

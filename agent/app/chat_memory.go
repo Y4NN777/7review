@@ -55,6 +55,7 @@ func reviewMemoryStore(cfg *config.Config) *tools.MemPalaceStore {
 	if cfg.EmbeddingModel != "" && cfg.OllamaBaseURL != "" {
 		store.EmbeddingModel = cfg.EmbeddingModel
 		store.Embedder = providers.NewOllama(cfg.OllamaBaseURL)
+		store.EmbedQueries = true
 		store.EmbedWrites = true
 	}
 	return store

@@ -51,7 +51,7 @@ class MemPalaceBridgeTests(unittest.TestCase):
 
         self.assertEqual(self.app.health(), {"status": "ok"})
         self.assertEqual(self.app.health(), {"status": "ok"})
-        self.assertEqual(calls, [["init", self.tmp.name, "--yes"]])
+        self.assertEqual(calls, [["init", str(Path(self.tmp.name, "source")), "--yes", "--no-llm"]])
         self.assertEqual(Path(self.tmp.name, ".mempalace-ready").read_text(encoding="utf-8"), "ready\n")
 
     def test_run_cli_uses_configured_palace_path(self):
@@ -70,7 +70,7 @@ class MemPalaceBridgeTests(unittest.TestCase):
             captured["command"],
             ["mempalace", "--palace", str(Path(self.tmp.name, "palace")), "search", "auth"],
         )
-        self.assertEqual(captured["env"]["MEMPALACE_HOME"], str(Path(self.tmp.name, "home")))
+        self.assertEqual(captured["env"]["HOME"], str(Path(self.tmp.name, "home")))
 
     def test_recall_returns_bounded_history_from_cli(self):
         self.app.require_mempalace = lambda: None
@@ -153,8 +153,17 @@ class MemPalaceBridgeTests(unittest.TestCase):
         jsonl = Path(self.tmp.name, "testns.jsonl").read_text(encoding="utf-8").splitlines()
         records = [json.loads(line) for line in jsonl]
         self.assertEqual([record["kind"] for record in records], ["convention", "decision", "vector"])
-        self.assertIn("Headroom and MemPalace", Path(self.tmp.name, "testns-memory.md").read_text(encoding="utf-8"))
-        self.assertEqual(calls, [["init", self.tmp.name, "--yes"], ["mine", self.tmp.name]])
+        self.assertIn(
+            "Headroom and MemPalace",
+            Path(self.tmp.name, "source", "testns-memory.md").read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            calls,
+            [
+                ["init", str(Path(self.tmp.name, "source")), "--yes", "--no-llm"],
+                ["mine", str(Path(self.tmp.name, "source"))],
+            ],
+        )
 
     def test_write_persists_vector_embedding(self):
         self.app.require_mempalace = lambda: None

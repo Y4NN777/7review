@@ -175,7 +175,7 @@ func TestOperatorChatUserMessageCarriesRuntimeState(t *testing.T) {
 	}
 }
 
-func TestMemoryStoresSeparateReviewAndOperatorEmbeddingModes(t *testing.T) {
+func TestMemoryStoresEnableSemanticRecallForReviewAndOperator(t *testing.T) {
 	cfg := &config.Config{
 		MemPalaceURL:     "http://mempalace",
 		MemPalaceTimeout: 5000,
@@ -184,8 +184,8 @@ func TestMemoryStoresSeparateReviewAndOperatorEmbeddingModes(t *testing.T) {
 	}
 
 	reviewStore := reviewMemoryStore(cfg)
-	if reviewStore.EmbedQueries {
-		t.Fatal("review recall should not use query embeddings")
+	if !reviewStore.EmbedQueries {
+		t.Fatal("review recall should use query embeddings")
 	}
 	if !reviewStore.EmbedWrites {
 		t.Fatal("review memory writes should embed approved memories")

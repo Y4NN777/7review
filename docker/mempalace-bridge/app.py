@@ -3,6 +3,7 @@ import json
 import math
 import os
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -26,10 +27,17 @@ class UpdateProposal(BaseModel):
 
 
 app = FastAPI(title="7review MemPalace Bridge")
+workspace_lock = threading.RLock()
 
 
 def data_dir() -> Path:
     path = Path(os.getenv("MEMPALACE_DATA_DIR", "/data"))
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def source_dir() -> Path:
+    path = data_dir() / "source"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -48,21 +56,29 @@ def jsonl_path() -> Path:
 
 def memory_text_path() -> Path:
     namespace = os.getenv("MEMPALACE_NAMESPACE", "7review")
-    return data_dir() / f"{namespace}-memory.md"
+    return source_dir() / f"{namespace}-memory.md"
 
 
 def run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
-    env.setdefault("MEMPALACE_HOME", str(data_dir() / "home"))
+    home = data_dir() / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    env["HOME"] = str(home)
     palace = data_dir() / "palace"
-    return subprocess.run(
-        ["mempalace", "--palace", str(palace), *args],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        env=env,
-    )
+    timeout = int(os.getenv("MEMPALACE_CLI_TIMEOUT_SECONDS", "180"))
+    command = ["mempalace", "--palace", str(palace), *args]
+    try:
+        return subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"mempalace command timed out after {timeout}s: {' '.join(command)}") from exc
 
 
 def init_workspace() -> None:
@@ -70,14 +86,14 @@ def init_workspace() -> None:
     palace = data_dir() / "palace"
     if marker.exists() and palace.exists():
         return
-    result = run_cli(["init", str(data_dir()), "--yes"])
+    result = run_cli(["init", str(source_dir()), "--yes", "--no-llm"])
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "mempalace init failed")
     marker.write_text("ready\n", encoding="utf-8")
 
 
 def mine_workspace() -> None:
-    result = run_cli(["mine", str(data_dir())])
+    result = run_cli(["mine", str(source_dir())])
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "mempalace mine failed")
 
@@ -141,7 +157,8 @@ def cosine_similarity(left: list[float], right: list[float]) -> float:
 def health() -> dict[str, str]:
     try:
         require_mempalace()
-        init_workspace()
+        with workspace_lock:
+            init_workspace()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"status": "ok"}
@@ -151,9 +168,10 @@ def health() -> dict[str, str]:
 def recall(payload: RecallRequest) -> dict[str, list[str]]:
     try:
         require_mempalace()
-        init_workspace()
-        vector_history = recall_from_vectors(payload.query_embedding)
-        cli_history = recall_from_cli(payload.query)
+        with workspace_lock:
+            init_workspace()
+            vector_history = recall_from_vectors(payload.query_embedding)
+            cli_history = recall_from_cli(payload.query)
         history = [*vector_history, *[item for item in cli_history if item not in vector_history]][:12]
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -164,15 +182,16 @@ def recall(payload: RecallRequest) -> dict[str, list[str]]:
 def write(payload: UpdateProposal) -> dict[str, str]:
     try:
         require_mempalace()
-        init_workspace()
-        for item in payload.conventions:
-            write_item("convention", item)
-        for item in payload.decisions:
-            write_item("decision", item)
-        for vector in payload.vectors:
-            embedding = vector.get("Embedding") or vector.get("embedding")
-            write_item("vector", vector.get("Text") or vector.get("text") or "", embedding)
-        mine_workspace()
+        with workspace_lock:
+            init_workspace()
+            for item in payload.conventions:
+                write_item("convention", item)
+            for item in payload.decisions:
+                write_item("decision", item)
+            for vector in payload.vectors:
+                embedding = vector.get("Embedding") or vector.get("embedding")
+                write_item("vector", vector.get("Text") or vector.get("text") or "", embedding)
+            mine_workspace()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"status": "ok"}
