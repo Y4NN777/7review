@@ -75,7 +75,7 @@ compose-smoke:
 	scripts/compose_smoke.sh
 
 bridge-check:
-	python3 -m py_compile docker/headroom-bridge/app.py docker/mempalace-bridge/app.py
+	python3 -m py_compile docker/headroom-bridge/app.py docker/mempalace-bridge/app.py scripts/compose_contract_smoke.py
 	python3 docker/headroom-bridge/app_test.py
 	python3 docker/mempalace-bridge/app_test.py
 

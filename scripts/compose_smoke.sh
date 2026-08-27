@@ -17,3 +17,4 @@ trap cleanup EXIT
 
 docker compose up --wait --wait-timeout "$wait_timeout" --build
 docker compose exec -T 7review /app/7review status --plain --server http://127.0.0.1:8080
+docker compose exec -T headroom python - < scripts/compose_contract_smoke.py
