@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -97,8 +98,22 @@ func NewServer() (*Server, error) {
 	s.pipeline.Memory = reviewMemoryStore(cfg)
 	s.pipeline.Channels = channel.NewManager(channelConfigs(inputProfile, cfg))
 	s.startWorkers()
+	s.startChannelListeners(context.Background())
 	s.routes()
 	return s, nil
+}
+
+func (s *Server) startChannelListeners(ctx context.Context) {
+	if s == nil || s.pipeline == nil || s.pipeline.Channels == nil {
+		return
+	}
+	if err := s.pipeline.Channels.Start(ctx, func(msg channel.InboundMessage) {
+		if _, _, err := s.routeChannelMessageContext(ctx, msg); err != nil {
+			log.Printf("[server] channel listener message rejected: channel=%s run=%s error=%v", msg.Channel, msg.RunID, err)
+		}
+	}); err != nil {
+		log.Printf("[server] channel listeners not started: %v", err)
+	}
 }
 
 func findingValidator(inputProfile *profile.CompiledProfile) pipeline.FindingValidator {

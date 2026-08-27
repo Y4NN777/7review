@@ -4,9 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha1"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -195,7 +193,7 @@ func TestHandleTwilioWhatsAppInboundRejectsBadSignature(t *testing.T) {
 	}
 }
 
-func TestHandleSendGridInboundEnqueuesRevision(t *testing.T) {
+func TestHandleTelegramInboundEnqueuesRevision(t *testing.T) {
 	store := pipeline.NewMemoryRunStore()
 	run, err := store.Start(context.Background(), review.Request{Provider: "github", ProjectID: "owner/repo", ChangeID: "7"})
 	if err != nil {
@@ -205,21 +203,19 @@ func TestHandleSendGridInboundEnqueuesRevision(t *testing.T) {
 		pipeline: &pipeline.Pipeline{
 			Jobs: store,
 			Channels: channel.NewManager([]channel.Config{{
-				Name:              "operator_email",
-				Provider:          "sendgrid_email",
+				Name:              "operator_telegram",
+				Provider:          "telegram",
 				Enabled:           true,
-				InboundToken:      "sendgrid-oauth",
-				AuthorizedSenders: []string{"operator@example.com"},
+				AuthorizedSenders: []string{"12345"},
+				Settings:          map[string]string{"webhook_secret": "telegram-secret"},
 			}}),
 		},
 		work: make(chan workItem, 1),
 	}
-	form := url.Values{}
-	form.Set("from", "operator@example.com")
-	form.Set("text", "/revise "+run.ID+"\nFocus on auth only")
-	req := httptest.NewRequest(http.MethodPost, "/channels/sendgrid/inbound", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Authorization", "Bearer sendgrid-oauth")
+	body := `{"update_id":99,"message":{"message_id":42,"from":{"id":12345,"username":"operator"},"text":"/revise ` + run.ID + `\nFocus on auth only"}}`
+	req := httptest.NewRequest(http.MethodPost, "/channels/telegram/webhook", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "telegram-secret")
 	rec := httptest.NewRecorder()
 
 	s.handleChannelInbound(rec, req)
@@ -228,47 +224,88 @@ func TestHandleSendGridInboundEnqueuesRevision(t *testing.T) {
 		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if len(s.work) != 1 {
-		t.Fatalf("sendgrid revision should enqueue work, queued=%d", len(s.work))
+		t.Fatalf("telegram revision should enqueue work, queued=%d", len(s.work))
 	}
 }
 
-func TestHandleMailgunInboundEnqueuesSuppression(t *testing.T) {
+func TestHandleTelegramInboundRejectsBadSecret(t *testing.T) {
+	s := &Server{
+		pipeline: &pipeline.Pipeline{
+			Jobs: pipeline.NewMemoryRunStore(),
+			Channels: channel.NewManager([]channel.Config{{
+				Name:              "operator_telegram",
+				Provider:          "telegram",
+				Enabled:           true,
+				AuthorizedSenders: []string{"12345"},
+				Settings:          map[string]string{"webhook_secret": "telegram-secret"},
+			}}),
+		},
+		work: make(chan workItem, 1),
+	}
+	req := httptest.NewRequest(http.MethodPost, "/channels/telegram/webhook", strings.NewReader(`{"update_id":99}`))
+	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "bad")
+	rec := httptest.NewRecorder()
+
+	s.handleChannelInbound(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleTelegramInboundRejectsUnauthorizedSender(t *testing.T) {
+	s := &Server{
+		pipeline: &pipeline.Pipeline{
+			Jobs: pipeline.NewMemoryRunStore(),
+			Channels: channel.NewManager([]channel.Config{{
+				Name:              "operator_telegram",
+				Provider:          "telegram",
+				Enabled:           true,
+				AuthorizedSenders: []string{"12345"},
+				Settings:          map[string]string{"webhook_secret": "telegram-secret"},
+			}}),
+		},
+		work: make(chan workItem, 1),
+	}
+	req := httptest.NewRequest(http.MethodPost, "/channels/telegram/webhook", strings.NewReader(`{"update_id":99,"message":{"from":{"id":999},"text":"/approve owner/repo!7"}}`))
+	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "telegram-secret")
+	rec := httptest.NewRecorder()
+
+	s.handleChannelInbound(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSimpleXInboundMessageEnqueuesRevision(t *testing.T) {
 	store := pipeline.NewMemoryRunStore()
 	run, err := store.Start(context.Background(), review.Request{Provider: "github", ProjectID: "owner/repo", ChangeID: "7"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	signingKey := "mailgun-secret"
 	s := &Server{
 		pipeline: &pipeline.Pipeline{
 			Jobs: store,
 			Channels: channel.NewManager([]channel.Config{{
-				Name:              "operator_email",
-				Provider:          "mailgun_email",
+				Name:              "operator_simplex",
+				Provider:          "simplex",
 				Enabled:           true,
-				AuthorizedSenders: []string{"operator@example.com"},
-				Settings:          map[string]string{"signing_key": signingKey},
+				AuthorizedSenders: []string{"contact-1"},
 			}}),
 		},
 		work: make(chan workItem, 1),
 	}
-	form := url.Values{}
-	form.Set("sender", "operator@example.com")
-	form.Set("stripped-text", "/suppress "+run.ID+" F1\nfalse positive")
-	form.Set("timestamp", "1700000000")
-	form.Set("token", "random-token")
-	form.Set("signature", signMailgun(signingKey, form.Get("timestamp"), form.Get("token")))
-	req := httptest.NewRequest(http.MethodPost, "/channels/mailgun/inbound", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-
-	s.handleChannelInbound(rec, req)
-
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	msg := channel.InboundMessage{Channel: "operator_simplex", RunID: run.ID, SenderID: "contact-1", Text: "/revise " + run.ID + "\nFocus on auth only"}
+	if _, err := s.pipeline.Channels.VerifyInbound("operator_simplex", "", msg); err != nil {
+		t.Fatal(err)
+	}
+	_, status, err := s.routeChannelMessageContext(context.Background(), msg)
+	if err != nil || status != http.StatusAccepted {
+		t.Fatalf("expected accepted simplex message, status=%d err=%v", status, err)
 	}
 	if len(s.work) != 1 {
-		t.Fatalf("mailgun suppression should enqueue work, queued=%d", len(s.work))
+		t.Fatalf("simplex revision should enqueue work, queued=%d", len(s.work))
 	}
 }
 
@@ -291,12 +328,6 @@ func signTwilio(authToken string, webhookURL string, form url.Values) string {
 	mac := hmac.New(sha1.New, []byte(authToken))
 	mac.Write([]byte(base))
 	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
-}
-
-func signMailgun(signingKey string, timestamp string, token string) string {
-	mac := hmac.New(sha256.New, []byte(signingKey))
-	mac.Write([]byte(timestamp + token))
-	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func eventTypeSeen(events []pipeline.RunEvent, eventType string) bool {
