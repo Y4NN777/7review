@@ -4,8 +4,8 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,23 +15,27 @@ import (
 	"github.com/Y4NN777/7review/agent/review"
 )
 
-func TestLiveSmokeReviewPipelineWithConfiguredOllamaModels(t *testing.T) {
+func TestLiveSmokeReviewPipelineWithOpenRouter(t *testing.T) {
 	if os.Getenv("RUN_LIVE_SMOKE") != "1" {
-		t.Skip("set RUN_LIVE_SMOKE=1 to run the live Ollama review pipeline smoke test")
+		t.Skip("set RUN_LIVE_SMOKE=1 to run the live OpenRouter review pipeline smoke test")
 	}
 
-	ollamaURL := firstNonEmpty(os.Getenv("OLLAMA_BASE_URL"), "http://127.0.0.1:11434")
-	orchestratorConfig := resolveLiveSmokePath(t, firstNonEmpty(os.Getenv("ORCHESTRATOR_CONFIG"), filepath.Join("..", "..", "orchestrator.yaml")))
+	apiKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+	if apiKey == "" {
+		t.Fatal("OPENROUTER_API_KEY is required when RUN_LIVE_SMOKE=1")
+	}
+	reviewModel := firstNonEmpty(os.Getenv("REVIEW_MODEL"), "openrouter/free")
+	smallModel := firstNonEmpty(os.Getenv("SMALL_MODEL"), "openrouter/free")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	orch, err := orchestrator.BuildOrchestrator(&config.Config{
-		Provider:               "ollama",
-		OllamaBaseURL:          ollamaURL,
-		ReviewModel:            "deepseek-coder-v2:16b",
-		SmallModel:             "qwen2.5-coder-7b-16k:latest",
-		OrchestratorConfigPath: orchestratorConfig,
+		Provider:          "openrouter",
+		OpenRouterAPIKey:  apiKey,
+		OpenRouterBaseURL: firstNonEmpty(os.Getenv("OPENROUTER_BASE_URL"), "https://openrouter.ai/api"),
+		ReviewModel:       reviewModel,
+		SmallModel:        smallModel,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -108,24 +112,8 @@ func TestLiveSmokeReviewPipelineWithConfiguredOllamaModels(t *testing.T) {
 			t.Fatalf("run missing trace event %q: %#v", eventType, run.Events)
 		}
 	}
-	if !eventMetaContains(run.Events, "model_review_completed", "providers", "ollama/deepseek-coder-v2:16b") {
-		t.Fatalf("model review did not use configured Ollama reasoner route: %#v", run.Events)
+	expectedProvider := fmt.Sprintf("openrouter/%s", reviewModel)
+	if !eventMetaContains(run.Events, "model_review_completed", "providers", expectedProvider) {
+		t.Fatalf("model review did not use configured OpenRouter reasoner route %q: %#v", expectedProvider, run.Events)
 	}
-}
-
-func resolveLiveSmokePath(t *testing.T, path string) string {
-	t.Helper()
-	if filepath.IsAbs(path) {
-		return path
-	}
-	if _, err := os.Stat(path); err == nil {
-		return path
-	}
-	for _, prefix := range []string{filepath.Join("..", ".."), filepath.Join("..", "..", "..")} {
-		candidate := filepath.Join(prefix, path)
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-	}
-	return path
 }

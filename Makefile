@@ -3,7 +3,7 @@ GOCACHE ?= /tmp/7review-go-build
 HTTP_PORT ?= 8080
 SERVER_URL ?= http://localhost:$(HTTP_PORT)
 
-.PHONY: setup setup-force fmt test site-install site-dev site-build site-serve docker-config docker-build docker-up docker-down docker-restart docker-logs docker-status docker-ready docker-review-gitlab docker-review-github docker-tui docker-smoke compose-smoke bridge-check verify
+.PHONY: setup setup-force fmt test live-smoke-openrouter site-install site-dev site-build site-serve docker-config docker-build docker-up docker-down docker-restart docker-logs docker-status docker-ready docker-review-gitlab docker-review-github docker-tui docker-smoke compose-smoke bridge-check verify
 
 setup:
 	go run ./cmd/7review setup
@@ -16,6 +16,15 @@ fmt:
 
 test:
 	GOCACHE=$(GOCACHE) go test ./...
+
+live-smoke-openrouter:
+	@set -a; . ./.env; set +a; \
+		RUN_LIVE_SMOKE=1 \
+		REVIEW_MODEL=openrouter/free \
+		SMALL_MODEL=openrouter/free \
+		GOCACHE=$(GOCACHE) \
+		go test -tags=live_smoke ./agent/pipeline \
+			-run '^TestLiveSmokeReviewPipelineWithOpenRouter$$' -count=1 -v
 
 site-install:
 	cd site && npm install
