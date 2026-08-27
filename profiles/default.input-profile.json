@@ -92,31 +92,28 @@
       }
     },
     {
-      "id": "operator_email",
+      "id": "operator_telegram",
       "type": "notification_channel",
-      "provider": "sendgrid_email",
+      "provider": "telegram",
       "enabled": false,
-      "authorized_senders": ["operator@example.com"],
+      "authorized_senders": ["123456789"],
       "settings": {
-        "api_key": "${SENDGRID_API_KEY}",
-        "from_email": "7review@example.com",
-        "to": "operator@example.com",
-        "oauth_token": "${SENDGRID_INBOUND_TOKEN}",
-        "public_key": "${SENDGRID_INBOUND_PUBLIC_KEY}"
+        "bot_token": "${TELEGRAM_BOT_TOKEN}",
+        "chat_id": "123456789",
+        "webhook_secret": "${TELEGRAM_WEBHOOK_SECRET}",
+        "api_base_url": "https://api.telegram.org"
       }
     },
     {
-      "id": "operator_mailgun",
+      "id": "operator_simplex",
       "type": "notification_channel",
-      "provider": "mailgun_email",
+      "provider": "simplex",
       "enabled": false,
-      "authorized_senders": ["operator@example.com"],
+      "authorized_senders": ["operator"],
       "settings": {
-        "api_key": "${MAILGUN_API_KEY}",
-        "signing_key": "${MAILGUN_SIGNING_KEY}",
-        "domain": "mg.example.com",
-        "from_email": "7review@mg.example.com",
-        "to": "operator@example.com"
+        "ws_url": "ws://127.0.0.1:5225",
+        "contact_name": "operator",
+        "profile_name": "7review"
       }
     }
   ],

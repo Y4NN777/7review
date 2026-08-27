@@ -2,11 +2,12 @@
 
 ## Current State
 
-The current work has been committed in three atomic commits:
+The baseline work before the channel recentering was committed in three atomic commits:
 
 - `609d318 Add configurable input profiles`
 - `57d239d Wire profiles and approval channels into runtime`
-- `19afee1 Add WhatsApp and email approval webhooks`
+- `19afee1 Add initial async approval webhooks`
+- the current channel recentering keeps Axis 2 focused on WhatsApp, Telegram, and SimpleX
 
 Validation after these commits:
 
@@ -49,15 +50,14 @@ Implemented:
   - inbound webhook at `POST /channels/twilio/whatsapp`
   - `X-Twilio-Signature` verification
   - optional Twilio Content Template support through `content_sid`
-- SendGrid email provider:
-  - outbound draft through SendGrid Mail Send API
-  - inbound webhook at `POST /channels/sendgrid/inbound`
-  - OAuth bearer token support
-  - signed webhook support through SendGrid ECDSA public key
-- Mailgun email provider:
-  - outbound draft through Mailgun Messages API
-  - inbound webhook at `POST /channels/mailgun/inbound`
-  - timestamp/token/signature verification
+- Telegram provider:
+  - outbound draft through Telegram Bot API `sendMessage`
+  - inbound webhook at `POST /channels/telegram/webhook`
+  - `X-Telegram-Bot-Api-Secret-Token` verification
+- SimpleX provider:
+  - outbound draft through local `simplex-chat` WebSocket API
+  - inbound event loop for `NewChatItems`
+  - authorized sender checks by SimpleX contact id/name
 - Authorized sender enforcement before any action is queued.
 - Tests for provider parsing, signatures, sender authorization, and webhook routing.
 
@@ -66,14 +66,15 @@ Still pending before calling Axis 2 production-complete:
 - Configure and test a real Twilio WhatsApp sender.
 - Create and approve the WhatsApp template used for business-initiated drafts outside the 24-hour reply window.
 - Expose the local 7review server through a stable HTTPS URL for provider webhooks.
-- Configure real SendGrid Inbound Parse or Mailgun Routes.
-- Configure DNS/MX records for the selected email provider.
+- Configure Telegram `setWebhook` with a stable HTTPS URL and secret token.
+- Run `simplex-chat -p 5225` on localhost, or place a secured proxy in front of it if remote.
 - Run end-to-end tests with real provider callbacks:
   - draft sent to WhatsApp
   - `/approve <run_id>` from WhatsApp publishes final review
-  - draft sent by email
-  - `/revise <run_id>` from email revises the draft
-  - `/suppress <run_id> <finding_id>` from email suppresses a finding
+  - draft sent to Telegram
+  - `/revise <run_id>` from Telegram revises the draft
+  - draft sent to SimpleX
+  - `/suppress <run_id> <finding_id>` from SimpleX suppresses a finding
 - Add operator documentation for provider setup and troubleshooting.
 
 ## Next Axis
@@ -86,4 +87,3 @@ Before implementation, decide between:
 
 - local WebSocket/SSE session between CLI and agent runtime
 - polling over a shared state store consistent with the Headroom/MemPalace deployment model
-
