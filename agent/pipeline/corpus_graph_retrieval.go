@@ -60,37 +60,6 @@ func matchGraphSeeds(graph CorpusGraph, signals reviewSignals) []graphSeed {
 			})
 		}
 	}
-	for entity := range signals.Entities {
-		for _, idx := range graph.DataIndex[entity] {
-			if graphSeedNodeExcluded(graph.Nodes[idx].Section) {
-				continue
-			}
-			seeds = append(seeds, graphSeed{
-				Node:   idx,
-				Kind:   "entity",
-				Value:  entity,
-				Score:  120 + authorityScore(graph.Nodes[idx].Section),
-				Reason: "seed: entity " + entity,
-			})
-		}
-	}
-	for component := range signals.Components {
-		if !componentNameToken(component) {
-			continue
-		}
-		for _, idx := range graph.ComponentIndex[component] {
-			if graphSeedNodeExcluded(graph.Nodes[idx].Section) {
-				continue
-			}
-			seeds = append(seeds, graphSeed{
-				Node:   idx,
-				Kind:   "component",
-				Value:  component,
-				Score:  110 + authorityScore(graph.Nodes[idx].Section),
-				Reason: "seed: component " + component,
-			})
-		}
-	}
 	sort.SliceStable(seeds, func(i, j int) bool {
 		if seeds[i].Score == seeds[j].Score {
 			if seeds[i].Node == seeds[j].Node {

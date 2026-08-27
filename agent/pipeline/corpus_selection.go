@@ -104,6 +104,7 @@ func selectCorpus(ctx context.Context, root string, rc *review.Context, limits c
 	sortScoredCorpus(scored)
 	scored = expandGraphEvidence(graph, scored, seeds, graphExpansionLimits{PerSeed: 2})
 	scored = expandGraphHierarchyEvidence(graph, scored, graphExpansionLimits{PerSeed: 2})
+	scored = filterTopicCompatibleCorpus(scored, signals)
 	sortScoredCorpus(scored)
 	scored = limitSelectedCorpus(scored, limits.MaxSelected, limits.MaxSupporting)
 	sections := make([]review.Section, 0, len(scored))
@@ -220,6 +221,55 @@ func limitSelectedCorpus(scored []scoredCorpusSection, maxSelected int, maxSuppo
 		}
 	}
 	return out
+}
+
+func filterTopicCompatibleCorpus(scored []scoredCorpusSection, signals reviewSignals) []scoredCorpusSection {
+	out := make([]scoredCorpusSection, 0, len(scored))
+	for _, item := range scored {
+		if offTopicCorpusSection(item.section, signals) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func offTopicCorpusSection(section corpusSection, signals reviewSignals) bool {
+	text := strings.ToLower(section.Title + "\n" + section.Content)
+	if strings.Contains(text, "livekit") && !hasAnySignal(signals, "livekit", "call", "calls", "media", "webrtc", "sfu") {
+		return true
+	}
+	if strings.Contains(text, "opc-delall") && !signalID(signals, "OPC-DELALL") && !hasAnySignal(signals, "delall", "delete", "deleted", "suppression") {
+		return true
+	}
+	return false
+}
+
+func hasAnySignal(signals reviewSignals, values ...string) bool {
+	for _, value := range values {
+		value = normalizeTerm(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := signals.Terms[value]; ok {
+			return true
+		}
+		if _, ok := signals.PathParts[value]; ok {
+			return true
+		}
+		if _, ok := signals.Components[value]; ok {
+			return true
+		}
+		if _, ok := signals.Entities[value]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func signalID(signals reviewSignals, id string) bool {
+	_, ok := signals.IDs[strings.ToUpper(strings.TrimSpace(id))]
+	return ok
 }
 
 func expandRelatedCorpus(scored []scoredCorpusSection, all []corpusSection) []scoredCorpusSection {
@@ -963,9 +1013,18 @@ func scoreCorpusFeature(feature corpusFeature, signals reviewSignals, index corp
 
 	for id := range signals.IDs {
 		if _, ok := feature.ids[id]; ok {
-			score += 180
-			if strings.EqualFold(strings.TrimSpace(section.Title), id) || strings.HasPrefix(strings.ToUpper(section.Title), id+" ") {
-				score += 80
+			title := strings.ToUpper(strings.TrimSpace(section.Title))
+			switch {
+			case strings.EqualFold(strings.TrimSpace(section.Title), id), strings.HasPrefix(title, id+" "):
+				score += 500
+			case strings.Contains(title, id):
+				score += 260
+			default:
+				if section.Authority == "requirements" || section.Authority == "contract" {
+					score += 170
+				} else {
+					score += 55
+				}
 			}
 			if section.Authority == "contract" || strings.Contains(strings.ToLower(section.Path), "contract") {
 				score += 40
