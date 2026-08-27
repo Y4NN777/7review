@@ -1,4 +1,4 @@
-GO_FILES := $(shell rg --files -g '*.go' cmd agent)
+GO_FILES := $(shell find cmd agent -type f -name '*.go' -print)
 GOCACHE ?= /tmp/7review-go-build
 HTTP_PORT ?= 8080
 SERVER_URL ?= http://localhost:$(HTTP_PORT)
