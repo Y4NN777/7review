@@ -1,17 +1,14 @@
 package channel
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha1"
-	"crypto/sha256"
-	"crypto/x509"
 	"encoding/base64"
-	"encoding/hex"
-	"encoding/pem"
+	"encoding/json"
+	"io"
+	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -104,60 +101,66 @@ func TestParseTwilioWhatsAppInbound(t *testing.T) {
 	}
 }
 
-func TestVerifyMailgunSignature(t *testing.T) {
-	signingKey := "mailgun-secret"
-	timestamp := "1700000000"
-	token := "random-token"
-	mac := hmac.New(sha256.New, []byte(signingKey))
-	mac.Write([]byte(timestamp + token))
-	signature := hex.EncodeToString(mac.Sum(nil))
-	if !VerifyMailgunSignature(signingKey, timestamp, token, signature) {
-		t.Fatal("expected valid mailgun signature")
+func TestTelegramSendDraftCallsSendMessage(t *testing.T) {
+	var gotPath string
+	var gotPayload map[string]string
+	ch := NewTelegramChannel(Config{
+		Name:              "operator_telegram",
+		AuthorizedSenders: []string{"12345"},
+		Settings:          map[string]string{"bot_token": "bot-token", "chat_id": "12345", "api_base_url": "https://telegram.test"},
+	})
+	ch.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		gotPath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Fatal(err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true,"result":{"message_id":42}}`)),
+		}, nil
+	})}
+
+	receipt, err := ch.SendDraft(t.Context(), DraftMessage{RunID: "owner/repo!7", Repository: "owner/repo", ChangeID: "7", Summary: "summary"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if VerifyMailgunSignature(signingKey, timestamp, token, "bad") {
-		t.Fatal("expected invalid mailgun signature")
+	if gotPath != "/botbot-token/sendMessage" || gotPayload["chat_id"] != "12345" || !strings.Contains(gotPayload["text"], "/approve owner/repo!7") || receipt.ExternalID != "42" {
+		t.Fatalf("telegram send mismatch path=%q payload=%#v receipt=%#v", gotPath, gotPayload, receipt)
 	}
 }
 
-func TestVerifySendGridSignature(t *testing.T) {
-	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func TestParseTelegramInboundAndSecret(t *testing.T) {
+	update := TelegramUpdate{
+		UpdateID: 99,
+		Message:  &TelegramMessage{MessageID: 42, From: TelegramUser{ID: 12345, Username: "operator"}, Text: "/approve owner/repo!7"},
 	}
-	publicDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
-	if err != nil {
-		t.Fatal(err)
+	msg := ParseTelegramInbound("operator_telegram", update)
+	if msg.RunID != "owner/repo!7" || msg.SenderID != "12345" || msg.SenderAddress != "operator" || msg.ExternalID != "42" {
+		t.Fatalf("telegram inbound not parsed: %#v", msg)
 	}
-	publicPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER}))
-	timestamp := "1700000000"
-	body := []byte("from=operator%40example.com&text=%2Fapprove+owner%2Frepo%217")
-	sum := sha256.Sum256(append([]byte(timestamp), body...))
-	signature, err := ecdsa.SignASN1(rand.Reader, privateKey, sum[:])
-	if err != nil {
-		t.Fatal(err)
+	if !VerifyTelegramWebhookSecret("secret", "secret") {
+		t.Fatal("expected telegram secret to verify")
 	}
-	encodedSignature := base64.StdEncoding.EncodeToString(signature)
-	if !VerifySendGridSignature(publicPEM, timestamp, body, encodedSignature) {
-		t.Fatal("expected valid sendgrid signature")
-	}
-	if VerifySendGridSignature(publicPEM, timestamp, body, "bad") {
-		t.Fatal("expected invalid sendgrid signature")
+	if VerifyTelegramWebhookSecret("secret", "bad") {
+		t.Fatal("expected bad telegram secret to fail")
 	}
 }
 
-func TestParseEmailInbound(t *testing.T) {
-	sendgrid := url.Values{}
-	sendgrid.Set("from", "Operator <operator@example.com>")
-	sendgrid.Set("text", "/approve owner/repo!7")
-	msg := ParseSendGridInbound("operator_email", sendgrid)
-	if msg.RunID != "owner/repo!7" || msg.SenderAddress != "operator@example.com" {
-		t.Fatalf("sendgrid inbound not parsed: %#v", msg)
+func TestParseSimpleXInbound(t *testing.T) {
+	data := []byte(`{"type":"NewChatItems","chatItems":[{"id":"ci1","text":"/revise owner/repo!7\nFocus on auth","chat":{"contactId":"contact-1","contactName":"Operator"}}]}`)
+	messages := ParseSimpleXInbound("operator_simplex", data)
+	if len(messages) != 1 {
+		t.Fatalf("expected one message: %#v", messages)
 	}
-	mailgun := url.Values{}
-	mailgun.Set("sender", "operator@example.com")
-	mailgun.Set("stripped-text", "/suppress owner/repo!7 F1\nfalse positive")
-	msg = ParseMailgunInbound("operator_email", mailgun)
-	if msg.RunID != "owner/repo!7" || msg.SenderAddress != "operator@example.com" {
-		t.Fatalf("mailgun inbound not parsed: %#v", msg)
+	msg := messages[0]
+	if msg.RunID != "owner/repo!7" || msg.SenderID != "contact-1" || msg.SenderAddress != "Operator" || msg.ExternalID != "ci1" {
+		t.Fatalf("simplex inbound not parsed: %#v", msg)
 	}
 }
