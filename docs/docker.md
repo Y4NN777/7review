@@ -1,6 +1,6 @@
 # Docker Deployment
 
-The production stack runs three containers on one private Compose network:
+The runtime stack runs three containers on one private Compose network:
 
 - `7review`: Go webhook server and review pipeline.
 - `headroom`: HTTP bridge around Headroom context compression.
@@ -12,6 +12,10 @@ Only `7review` publishes a host port. Headroom and MemPalace stay private on the
 HEADROOM_URL=http://headroom:8787
 MEMPALACE_URL=http://mempalace:8788
 ```
+
+The agent image embeds the default input profile, review skills, instructions,
+and orchestrator configuration under `/app`. The repository corpus remains an
+external read-only mount at `/workspace`.
 
 ## Run
 
@@ -113,8 +117,9 @@ targets execute the authenticated `7review review` command inside the agent
 container and send work through the same bounded worker queue as webhooks.
 
 For a repeatable local deployment smoke test that builds the images, waits for
-all three services to become healthy, checks `/ready` from inside the agent
-container, and then removes the smoke stack:
+all three services to become healthy, checks `/ready`, exercises Headroom
+`/reduce`, writes and recalls a MemPalace vector through `/write` and `/recall`,
+and then removes the isolated smoke stack and volumes:
 
 ```sh
 make compose-smoke
@@ -140,6 +145,15 @@ The HTTP server uses bounded production defaults: `HTTP_READ_HEADER_TIMEOUT_MS`,
 `HTTP_READ_TIMEOUT_MS`, `HTTP_WRITE_TIMEOUT_MS`, and `HTTP_IDLE_TIMEOUT_MS`.
 The defaults are suitable for webhook/API traffic while allowing long enough
 streaming responses for chat.
+
+Headroom and MemPalace calls use separate defaults because compression and
+memory indexing can exceed ordinary HTTP request latency:
+
+```sh
+HEADROOM_TIMEOUT_MS=30000
+MEMPALACE_TIMEOUT_MS=240000
+MEMPALACE_CLI_TIMEOUT_SECONDS=180
+```
 
 Readiness is available at `/ready`. The response includes dependency status and
 worker queue counters so operators can see backlog and failed worker executions.
@@ -205,12 +219,19 @@ Add separate networks later only if deployment policy requires stricter isolatio
 
 Python is not embedded in the Go process. It exists only in sidecar images:
 
-- `docker/headroom-bridge` installs `headroom-ai`. The `all` extra is avoided
+- `docker/headroom-bridge` pins `headroom-ai==0.36.5`. The `all` extra is avoided
   because it pulls GPU, benchmark, OCR, and local embedding dependencies that
   are not required by this agent's context-reduction contract.
-- `docker/mempalace-bridge` installs `mempalace`.
+- `docker/mempalace-bridge` pins `mempalace==3.8.0` and initializes with
+  `--no-llm` plus closed stdin, so startup cannot probe an external model or
+  block on an interactive prompt.
 
 The Go service depends only on the strict HTTP contracts documented in `docs/integrations.md`.
+
+Both Python sidecars run as UID `10001`; the Go image uses Distroless `nonroot`.
+Compose drops Linux capabilities, enables `no-new-privileges`, and mounts root
+filesystems read-only. Writable state is limited to named volumes and bounded
+temporary filesystems. JSON logs rotate at 10 MB with three retained files.
 
 ## Durable State
 
@@ -218,3 +239,15 @@ The agent persists run state, draft reports, HIL approval state, and final
 reports under `MEMORY_DIR/runs`. In Docker this is mounted as the `review-data`
 volume at `/data/7review`, so review iteration survives container restarts.
 MemPalace keeps its own durable memory in the separate `mempalace-data` volume.
+Raw approved memory is written under `/data/source`; MemPalace indexes it into
+`/data/palace`. Keeping source and index separate prevents recursive mining of
+the database itself.
+Headroom model/cache artifacts use `headroom-cache`; they are operational cache,
+not approved review memory, and can be recreated.
+
+## Continuous Verification
+
+`.github/workflows/runtime.yml` runs `make verify` and then `make compose-smoke`
+for pull requests and pushes to `main`. The second job validates the installed
+upstream packages inside their built images, so API drift cannot be hidden by
+the bridge unit-test doubles.

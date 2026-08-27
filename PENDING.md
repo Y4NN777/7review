@@ -5,20 +5,15 @@
 Detailed phase tracking now lives in `ROADMAP.md`. Keep this
 file focused on the immediate queue only.
 
-The baseline work before the channel recentering was committed in three atomic commits:
-
-- `609d318 Add configurable input profiles`
-- `57d239d Wire profiles and approval channels into runtime`
-- `19afee1 Add initial async approval webhooks`
-- the current channel recentering keeps Axis 2 focused on WhatsApp, Telegram, and SimpleX
-
-Validation after these commits:
+The runtime packaging phase is complete. Current validation gates are:
 
 ```sh
-GOCACHE=/tmp/7review-go-build go test ./...
+make verify
+make compose-smoke
 ```
 
-All tests pass.
+Both gates pass, including real Headroom reduction and MemPalace semantic
+write/recall inside the Compose stack.
 
 ## Axis 5 - Generalized Input Profile
 
@@ -80,13 +75,10 @@ Still pending before calling Axis 2 production-complete:
   - `/suppress <run_id> <finding_id>` from SimpleX suppresses a finding
 - Add operator documentation for provider setup and troubleshooting.
 
-## Next Axis
+## Immediate Queue
 
-Next planned work after runtime packaging and Axis 2 provider setup:
+Next: controlled real-provider E2E, starting with one GitHub or GitLab review
+and one approval provider. Do not add a new channel during this phase.
 
-Axis 1 - Stateful agent session and streaming CLI.
-
-Before implementation, decide between:
-
-- local WebSocket/SSE session between CLI and agent runtime
-- polling over a shared state store consistent with the Headroom/MemPalace deployment model
+After provider E2E, decide and document the single-instance durability boundary
+before starting stateful session or streaming CLI work.

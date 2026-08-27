@@ -7,7 +7,7 @@ features.
 
 ## Current Baseline
 
-Status: stable local baseline.
+Status: runtime-packaged development baseline.
 
 - `main` is green with `go test ./...`.
 - GitHub and GitLab review flows are implemented behind provider adapters.
@@ -42,6 +42,8 @@ payloads, and it would be harder to know what actually broke.
 
 ## Phase 1 - Runtime Packaging
 
+Status: complete (2026-08-27).
+
 Goal: make local and Docker startup reproducible before provider E2E work.
 
 - Validate `docker-compose config` and the existing agent, Headroom bridge, and
@@ -55,9 +57,12 @@ Goal: make local and Docker startup reproducible before provider E2E work.
 
 Exit criteria:
 
-- `make docker-config` passes.
-- Docker stack starts from a fresh checkout using documented env setup.
-- Agent readiness reports configured SCM, model, Headroom, and MemPalace status.
+- [x] `make docker-config` passes.
+- [x] Docker stack starts from the documented environment contract.
+- [x] Agent readiness reports orchestrator, pipeline, queue, run store,
+  Headroom, and MemPalace status.
+- [x] The smoke gate exercises Headroom reduction plus MemPalace write and
+  semantic recall against the installed upstream packages.
 
 Detailed tasks:
 
@@ -77,6 +82,17 @@ Risks:
 - Sidecars may pass build but fail at runtime if Python dependencies drift.
 - A smoke test that only checks container start is not enough; it must verify
   agent-to-sidecar connectivity.
+
+Delivered controls:
+
+- `headroom-ai==0.36.5` and `mempalace==3.8.0` are pinned explicitly.
+- Agent profile, skills, instructions, and orchestrator config are embedded in
+  the agent image with stable `/app` paths.
+- Containers run non-root with read-only root filesystems, dropped Linux
+  capabilities, bounded temporary filesystems, restart policy, and log rotation.
+- MemPalace keeps raw source, generated index, and runtime home in separate
+  paths inside its durable volume.
+- GitHub Actions runs source verification before the Compose contract smoke.
 
 ## Phase 2 - Real Provider E2E
 
