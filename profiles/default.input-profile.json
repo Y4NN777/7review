@@ -111,7 +111,7 @@
       "enabled": false,
       "authorized_senders": ["operator"],
       "settings": {
-        "ws_url": "ws://127.0.0.1:5225",
+        "ws_url": "${SIMPLEX_WS_URL}",
         "contact_name": "operator",
         "profile_name": "7review"
       }

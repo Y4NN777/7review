@@ -110,9 +110,9 @@ func LoadConfig() (*Config, error) {
 		ReviewBranchInclude:         getEnvList("REVIEW_BRANCH_INCLUDE", ""),
 		ReviewBranchExclude:         getEnvList("REVIEW_BRANCH_EXCLUDE", ""),
 		HeadroomURL:                 os.Getenv("HEADROOM_URL"),
-		HeadroomTimeout:             getEnvInt("HEADROOM_TIMEOUT_MS", 5000),
+		HeadroomTimeout:             getEnvInt("HEADROOM_TIMEOUT_MS", 30000),
 		MemPalaceURL:                os.Getenv("MEMPALACE_URL"),
-		MemPalaceTimeout:            getEnvInt("MEMPALACE_TIMEOUT_MS", 5000),
+		MemPalaceTimeout:            getEnvInt("MEMPALACE_TIMEOUT_MS", 240000),
 		ChannelInboundToken:         os.Getenv("CHANNEL_INBOUND_TOKEN"),
 		ChannelAuthorizedSenders:    getEnvList("CHANNEL_AUTHORIZED_SENDERS", ""),
 

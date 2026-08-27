@@ -33,7 +33,7 @@ func TestLoadConfig_SidecarTimeoutDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.HeadroomTimeout != 5000 || cfg.MemPalaceTimeout != 5000 {
+	if cfg.HeadroomTimeout != 30000 || cfg.MemPalaceTimeout != 240000 {
 		t.Fatalf("unexpected timeouts: headroom=%d mempalace=%d", cfg.HeadroomTimeout, cfg.MemPalaceTimeout)
 	}
 	if cfg.WebhookJobTimeout != 15*60*1000 {

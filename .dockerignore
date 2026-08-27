@@ -9,6 +9,7 @@ dist
 coverage.out
 *.cover
 node_modules
+site
 docker-compose.override.yml
 __pycache__
 *.pyc
