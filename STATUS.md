@@ -28,6 +28,62 @@ private URLs, and other deployment-specific details.
 - Operator CLI/TUI/chat workflows for setup, status, run inspection, reruns,
   approval, final publishing, and memory review.
 
+## Stability Analysis
+
+The current baseline is stable for local development and deterministic tests.
+It is not yet production-complete. The main reason is not missing code in the
+review pipeline; it is the lack of proven runtime behavior under real provider
+callbacks, Docker startup, sidecar availability, and restart scenarios.
+
+Strong areas:
+
+- The review lifecycle is coherent and test-covered from request normalization
+  through draft/final publication gates.
+- GitHub and GitLab are modeled through provider-neutral interfaces, so the
+  agent is not locked to one SCM.
+- `review.Source` is now the central context contract for request, SCM, diff,
+  corpus, skills, memory, findings, HIL state, inline comments, report, and run
+  metadata.
+- Corpus selection has been tightened to prefer source-of-truth anchors and
+  avoid explicit off-topic sections such as unrelated LiveKit or deletion
+  contract blocks.
+- Approval channels are implemented behind a manager abstraction, with sender
+  authorization and command parsing tested.
+
+Weak areas:
+
+- Webhook work is still accepted into a bounded in-process queue. This is fine
+  for local/single-instance operation, but restart durability is not guaranteed
+  unless the run has already been persisted at the right point.
+- Real Twilio, Telegram, and SimpleX callback flows are not yet proven against
+  live provider payloads, network failures, retries, and operator mistakes.
+- Docker has sidecar structure, but the complete fresh-checkout startup path
+  still needs a reproducible smoke gate.
+- Review quality is structurally safer than before, but still needs a benchmark
+  set of known reviews to measure false positives and missed findings.
+- Operational recovery paths are not fully documented: failed provider sends,
+  sidecar outages, model fallback exhaustion, and manual retry flow.
+
+## Readiness Level
+
+Current readiness: **stabilized development baseline**.
+
+Meaning:
+
+- Safe to continue implementation.
+- Safe to start Docker/runtime packaging work.
+- Safe to run controlled review experiments.
+- Not yet safe to call production-ready or multi-instance-ready.
+
+Do not treat it as production-ready until:
+
+- Docker startup is reproducible from documented steps.
+- At least one real GitHub or GitLab review completes through draft,
+  authorized approval, final publish, and memory writeback.
+- At least one real approval provider callback path is verified end-to-end.
+- Restart behavior is either durable or explicitly documented as single-process
+  v1 behavior.
+
 ## Latest Smoke Coverage
 
 A live GitLab merge request smoke run completed end-to-end with:

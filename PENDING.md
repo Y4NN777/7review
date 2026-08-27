@@ -2,7 +2,7 @@
 
 ## Current State
 
-Detailed phase tracking now lives in `docs/stabilization-roadmap.md`. Keep this
+Detailed phase tracking now lives in `ROADMAP.md`. Keep this
 file focused on the immediate queue only.
 
 The baseline work before the channel recentering was committed in three atomic commits:

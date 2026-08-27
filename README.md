@@ -139,7 +139,7 @@ graph retrieval, operator surface, and verification commands, see
 [`docs/architecture.md`](docs/architecture.md).
 
 For current verification state, live smoke coverage, and known review-quality
-limits, see [`docs/status.md`](docs/status.md).
+limits, see [`STATUS.md`](STATUS.md).
 
 The web documentation site lives in [`site/`](site). It is built with
 Docusaurus, includes English and French operator docs, and is configured for

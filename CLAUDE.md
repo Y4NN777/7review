@@ -80,7 +80,7 @@ Package responsibilities — keep new code aligned to these boundaries:
 Full component diagrams, the review lifecycle sequence, the state machine, and the corpus graph
 retrieval design are in `docs/architecture.md` — read it before making non-trivial pipeline or context-
 selection changes. Current implementation state, known review-quality limits, and the finding-strength
-gate design are in `docs/status.md`.
+gate design are in `STATUS.md`.
 
 ### Review lifecycle (high level)
 
@@ -97,7 +97,7 @@ confirmed/likely/speculative/note/question and rejects duplicates, invalid sever
 findings, and anything outside a changed-file location. Only `confirmed` findings with verifiable
 source-of-truth citations become inline draft comments; everything else stays in draft-only sections.
 Do not weaken this gate to make findings "look better" — it exists specifically to keep model output
-from being treated as autonomous judgment (see `docs/status.md`).
+from being treated as autonomous judgment (see `STATUS.md`).
 
 ### Config and required env
 
