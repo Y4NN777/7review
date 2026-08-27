@@ -2,6 +2,9 @@
 
 ## Current State
 
+Detailed phase tracking now lives in `docs/stabilization-roadmap.md`. Keep this
+file focused on the immediate queue only.
+
 The baseline work before the channel recentering was committed in three atomic commits:
 
 - `609d318 Add configurable input profiles`
@@ -79,7 +82,7 @@ Still pending before calling Axis 2 production-complete:
 
 ## Next Axis
 
-Next planned work after Axis 2 provider setup:
+Next planned work after runtime packaging and Axis 2 provider setup:
 
 Axis 1 - Stateful agent session and streaming CLI.
 
