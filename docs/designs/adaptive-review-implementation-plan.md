@@ -66,7 +66,28 @@ Goal: make the effective strategy explicit without changing outcomes.
 
 Exit: baseline scenarios produce behavior-equivalent results plus a stable plan.
 
-## Phase 4: Declarative Repository Policy
+## Phase 4: Governed Memory Foundation
+
+Goal: replace untyped report recall with scoped, explainable review memory.
+
+- Add `agent/memory` records, queries, recall items, proposals, lifecycle states,
+  and a provider-neutral `MemoryEngine`.
+- Separate append-only run history from curated memory; stop storing complete
+  final reports as conventions.
+- Adapt MemPalace behind storage/search capabilities with stable idempotent IDs.
+- Compile recall from repository identity, trusted revision, `ReviewPlan`,
+  domains, modules, features, and changed paths.
+- Add exact-plus-semantic fusion, scope/status filtering, authority and freshness
+  ranking, budgets, deduplication, and retrieval explanations.
+- Derive feedback-aware proposals after HIL, but require separate memory approval
+  and validate redaction, evidence lineage, contradiction, and supersession.
+- Add memory-on/off scenario metrics before allowing procedural promotion.
+
+Exit: typed recall is behaviorally integrated, MemPalace is replaceable, backend
+failure degrades safely, and no memory can independently confirm a finding or
+silently change review policy.
+
+## Phase 5: Declarative Repository Policy
 
 Goal: let repositories define scoped review behavior safely.
 
@@ -81,7 +102,7 @@ Goal: let repositories define scoped review behavior safely.
 Exit: unit fixtures cover every predicate, merge rule, conflict, provenance
 path, unsafe override, and fingerprint stability case.
 
-## Phase 5: Staged Engine Extraction
+## Phase 6: Staged Engine Extraction
 
 Goal: split the monolithic pipeline along tested lifecycle boundaries.
 
@@ -103,7 +124,7 @@ fakes; loop tests prove completion, no-progress, budget exhaustion, superseded
 head, escalation, deduplication, and verifier boundaries; current app E2E tests
 remain unchanged and green.
 
-## Phase 6: Capability Registry
+## Phase 7: Capability Registry
 
 Goal: make tools auditable and prevent catalog/executor drift.
 
@@ -116,7 +137,7 @@ Goal: make tools auditable and prevent catalog/executor drift.
 Exit: duplicate names, missing handlers, schema drift, unauthorized actors, and
 unapproved side effects fail deterministically.
 
-## Phase 7: Scenario And Evaluation Harness
+## Phase 8: Scenario And Evaluation Harness
 
 Goal: turn review strategy and quality into measurable product behavior.
 
@@ -124,6 +145,8 @@ Goal: turn review strategy and quality into measurable product behavior.
   normalized finding scoring, repetition, and machine-readable reports.
 - Add trajectory graders for hypothesis yield, evidence gain, coverage, stop
   reason, escalation correctness, and cost.
+- Add paired memory-off/on grading for useful recall, harmful/stale recall,
+  false-positive recurrence, citation validity, and quality delta.
 - Land at least 24 deterministic logical scenarios.
 - Add a small tagged live-model subset using `openrouter/free` by default.
 - Add budgets and statistical tolerance for non-deterministic models.
@@ -131,7 +154,7 @@ Goal: turn review strategy and quality into measurable product behavior.
 Exit: local and CI deterministic suites report strategy accuracy and lifecycle
 correctness; opt-in live eval reports finding metrics without gating on prose.
 
-## Phase 8: GitHub/GitLab Parity And Product Surface
+## Phase 9: GitHub/GitLab Parity And Product Surface
 
 Goal: prove the architecture against real SCM behavior and make it usable.
 
@@ -152,20 +175,24 @@ at least one complete controlled E2E passes on each provider.
 3. `feat(repository): add trusted snapshot contract`
 4. `feat(scm): load base snapshots through github and gitlab`
 5. `feat(review): compile legacy behavior into review plans`
-6. `feat(policy): add review pack schema and resolver`
-7. `feat(cli): explain and validate repository policy`
-8. `refactor(engine): extract explicit review stages`
-9. `feat(engine): add bounded hypothesis review loop`
-10. `refactor(tools): register governed capabilities`
-11. `test(eval): add adaptive review scenario harness`
-12. `test(scm): verify github and gitlab scenario parity`
-13. `docs(review): publish adaptive review operating model`
+6. `feat(memory): add governed memory domain and lifecycle`
+7. `refactor(memory): adapt mempalace as semantic backend`
+8. `test(memory): evaluate recall and feedback learning`
+9. `feat(policy): add review pack schema and resolver`
+10. `feat(cli): explain and validate repository policy`
+11. `refactor(engine): extract explicit review stages`
+12. `feat(engine): add bounded hypothesis review loop`
+13. `refactor(tools): register governed capabilities`
+14. `test(eval): add adaptive review scenario harness`
+15. `test(scm): verify github and gitlab scenario parity`
+16. `docs(review): publish adaptive review operating model`
 
 ## Verification Gates
 
 ```bash
 GOCACHE=/tmp/7review-go-cache go test ./agent/review ./agent/profile
 GOCACHE=/tmp/7review-go-cache go test ./agent/policy ./agent/repository
+GOCACHE=/tmp/7review-go-cache go test ./agent/memory
 GOCACHE=/tmp/7review-go-cache go test ./agent/skills ./agent/tools
 GOCACHE=/tmp/7review-go-cache go test ./agent/pipeline ./agent/app
 GOCACHE=/tmp/7review-go-cache go test ./...
@@ -204,8 +231,9 @@ The policy engine alone is insufficient. The accepted scope is the adaptive
 review platform: canonical run state, trusted repository snapshots, compiled
 plans, staged execution, a bounded hypothesis loop, governed capabilities,
 evaluation scenarios, and provider parity. Existing channels, Docker packaging,
-model adapters, HIL, evidence graph, and memory are preserved and frozen unless
-a compatibility change is required.
+model adapters, HIL, and evidence graph are preserved. Memory is redesigned as
+a governed layer before agent-loop extraction; MemPalace remains its replaceable
+backend.
 
 ### Architecture Review
 
@@ -253,6 +281,8 @@ identity cannot be verified.
 - The effective allowlist is policy permissions intersected with runtime
   permissions; repository policy can never grant a forbidden capability.
 - Final publication and memory remain explicitly human-authorized.
+- Memory activation is a distinct authorization from final review approval;
+  recalled memory remains advisory and repository truth always wins.
 
 ### Readiness Dashboard
 
@@ -263,6 +293,7 @@ identity cannot be verified.
 | Repository trust | Designed | Snapshot contract tests |
 | Policy composition | Designed | Legacy plan equivalence |
 | Agent loop | Designed | Typed trajectory tests |
+| Memory | Designed | Typed lifecycle, retrieval ablation, safe degradation |
 | Tools | Existing, fragmented | Registry migration after engine |
 | Evals | Planned | 24 deterministic scenarios |
 | GitHub/GitLab | Existing adapters | Snapshot and parity E2E |

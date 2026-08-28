@@ -79,7 +79,8 @@ around the plan instead of being replaced.
 - Existing behavior migrates through compatibility adapters; no big-bang
   rewrite.
 - Headroom is a context optimization and MemPalace is approved historical
-  memory. Neither may redefine repository truth.
+  memory storage. A provider-neutral 7review memory engine owns semantics,
+  governance, and evaluation. Neither sidecar may redefine repository truth.
 - Channels are control-plane transports. They do not influence review strategy.
 
 ## Target Architecture
@@ -184,7 +185,23 @@ Budgets use explicit replacement. Conflicting scalar decisions without a schema
 winner fail planning. Arbitrary scripts, remote downloads, model-selected
 policy, native plugins, CEL/Rego, and WASM are excluded from V2.
 
-### 5. Staged Review Engine
+### 5. Governed Memory Engine
+
+Memory is a typed, evaluated learning subsystem, not a report archive. The
+append-only run ledger preserves complete review outcomes; `agent/memory`
+derives compact semantic, episodic, feedback, procedural-candidate, and
+operational records with scope, provenance, authority, confidence, lifecycle,
+and supersession links.
+
+Recall is compiled from the effective plan and trusted repository identity,
+combines exact and semantic retrieval, and explains every selected item.
+Repository truth always outranks recalled knowledge. Writes are separately
+approved after HIL, idempotent, redacted, and contradiction-aware. Learned
+procedures can only be promoted into repository policy or `SKILL.md` through a
+normal PR/MR. MemPalace remains the initial replaceable semantic backend. See
+`memory-engineering.md` for the full contract.
+
+### 6. Staged Review Engine
 
 The existing pipeline migrates to an engine with explicit stage contracts:
 
@@ -200,7 +217,7 @@ cancellation, persistence, and transition guards. This keeps one obvious
 workflow while allowing deterministic stages to be tested without models or
 networks.
 
-### 6. Skills, Evidence, Tools, And Models
+### 7. Skills, Evidence, Tools, And Models
 
 - Skills become plan-selected review methods, not an independent keyword-only
   decision system. The current loader and metadata parser are retained.
@@ -213,7 +230,7 @@ networks.
 - The orchestrator remains role-based. Plans select a semantic role or bounded
   quality tier, never credentials or unrestricted provider details.
 
-### 7. Bounded Review Agent Loop
+### 8. Bounded Review Agent Loop
 
 7review uses a deterministic workflow with one bounded review agent inside it.
 It does not use an open-ended autonomous loop or a multi-agent swarm. The agent
@@ -284,7 +301,7 @@ hypothesis state changes, required-check coverage, budgets, stop reason, and
 verifier decisions. It excludes hidden chain-of-thought. This makes behavior
 replayable and evaluable without storing private model reasoning.
 
-### 8. Control Plane And Integrations
+### 9. Control Plane And Integrations
 
 `agent/app` continues to own HTTP authentication, webhooks, bounded work intake,
 and composition. `agent/channel` remains transport-specific HIL messaging.
@@ -326,7 +343,8 @@ Metrics include strategy precision/recall, finding precision/recall and false
 positive rate, citation validity, downgrade correctness, parity, fingerprint
 stability, parse repair, latency, model calls, duplicate publication count,
 hypothesis yield, evidence gain per tool call, required-check coverage, no-progress
-stops, escalation correctness, and trajectory cost.
+stops, escalation correctness, trajectory cost, useful/harmful memory recall,
+false-positive recurrence, stale-memory rate, and memory-on/off quality delta.
 
 ## Research Basis
 
@@ -397,3 +415,5 @@ external durable queue, multi-instance scheduling, and WASM/CEL/Rego.
 - The same logical change compiles equivalently on GitHub and GitLab.
 - Scenario and live-model reports measure quality instead of comparing prose.
 - Existing Docker, CI, HIL, publication, and memory gates remain green.
+- Memory improves measured review quality without becoming evidence authority,
+  and its semantic provider can fail without disabling mandatory review checks.
