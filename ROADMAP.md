@@ -19,6 +19,22 @@ Status: runtime-packaged development baseline.
   and the generic internal JSON bridge.
 - Headroom and MemPalace are external sidecars reached through HTTP clients.
 
+## Current Direction - Adaptive Review Platform
+
+The next product milestone is no longer channel expansion. 7review will compile
+repository-owned review methods, rules, evidence, tools, validation, and
+publishing policy into an explainable `ReviewPlan`, then execute it through a
+bounded evidence-seeking agent loop.
+
+The approved system design and phase gates are:
+
+- `docs/designs/adaptive-review-platform.md`
+- `docs/designs/adaptive-review-implementation-plan.md`
+
+Implementation begins with behavior characterization and canonical run state.
+Repository policy parsing starts only after existing behavior can be expressed
+as a compatibility plan. New channels remain frozen during this migration.
+
 ## Priority Rationale
 
 The next work should stabilize runtime and observability before expanding
@@ -30,10 +46,11 @@ runtime packaging would increase uncertainty instead of reducing it.
 Ordering principle:
 
 1. Make the stack start reliably.
-2. Prove one complete review path end-to-end.
-3. Prove the implemented approval channels with real callbacks.
-4. Decide durability boundaries.
-5. Only then expand channels or interactive session features.
+2. Characterize and preserve one complete review path end-to-end.
+3. Introduce canonical source, trusted snapshots, and compatibility plans.
+4. Add repository-owned policy and the bounded review loop.
+5. Prove strategy quality and GitHub/GitLab parity with scenarios.
+6. Resume real approval-channel validation after platform gates are green.
 
 The critical path is Docker/runtime packaging first because it gives a stable
 environment for every later E2E test. Provider E2E before Docker would be noisy:

@@ -71,6 +71,12 @@ Weak areas:
 
 Current readiness: **runtime-packaged development baseline**.
 
+Current engineering direction: **adaptive review platform migration**. The
+runtime remains usable while the architecture migrates through compatibility
+phases. The approved design is in
+`docs/designs/adaptive-review-platform.md`; the executable phase plan is in
+`docs/designs/adaptive-review-implementation-plan.md`.
+
 Meaning:
 
 - Safe to continue implementation.

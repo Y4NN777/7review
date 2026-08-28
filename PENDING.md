@@ -77,8 +77,13 @@ Still pending before calling Axis 2 production-complete:
 
 ## Immediate Queue
 
-Next: controlled real-provider E2E, starting with one GitHub or GitLab review
-and one approval provider. Do not add a new channel during this phase.
+Next: Phase 0 of the adaptive review platform plan. Characterize current
+GitHub/GitLab lifecycle artifacts, skill selection, corpus evidence, validation,
+publishing, HIL, and memory behavior before changing runtime composition.
 
-After provider E2E, decide and document the single-instance durability boundary
-before starting stateful session or streaming CLI work.
+Then migrate duplicated `review.Context`/`review.Source` state to one canonical
+source. Do not add repository policy parsing, a new channel, or another
+deployment service until compatibility tests are green.
+
+Real approval-provider E2E remains required, but follows the adaptive platform
+compatibility and scenario gates so it validates the intended architecture.
