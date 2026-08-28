@@ -1,0 +1,157 @@
+{
+  "status": "drafted",
+  "request": {
+    "Provider": "github",
+    "DeliveryID": "e2e-github",
+    "EventAction": "opened",
+    "ProjectID": "owner/repo",
+    "MRIID": 7,
+    "Repository": "owner/repo",
+    "ChangeID": "7",
+    "Title": "Fix auth",
+    "Description": "body",
+    "WebURL": "https://github.example.com/owner/repo/pull/7",
+    "SourceSHA": "abc",
+    "TargetSHA": "def",
+    "SourceBranch": "feature",
+    "TargetBranch": "main",
+    "Author": "alice",
+    "Labels": [
+      "security"
+    ],
+    "ChangedPaths": [
+      "main.go"
+    ]
+  },
+  "scm": {
+    "Provider": "github",
+    "ProjectID": "owner/repo",
+    "Repository": "owner/repo",
+    "ChangeID": "7",
+    "MRIID": 7,
+    "Title": "Fix auth",
+    "Description": "body",
+    "Author": "alice",
+    "WebURL": "https://github.example.com/owner/repo/pull/7",
+    "Labels": [
+      "security"
+    ],
+    "DiffRefs": {
+      "BaseSHA": "def",
+      "HeadSHA": "abc",
+      "StartSHA": ""
+    },
+    "Commits": null,
+    "Files": [
+      {
+        "OldPath": "main.go",
+        "NewPath": "main.go",
+        "Patch": "@@ -10,3 +10,4 @@\n+handleWithoutAuth(userInput)",
+        "Status": "modified",
+        "Additions": 1,
+        "Deletions": 0
+      }
+    ],
+    "Discussions": [
+      {
+        "ID": "d1",
+        "Author": "reviewer",
+        "Body": "please check auth",
+        "URL": ""
+      }
+    ],
+    "Checks": [
+      {
+        "Name": "ci",
+        "Status": "completed",
+        "Conclusion": "success",
+        "URL": ""
+      }
+    ],
+    "Approvals": null
+  },
+  "changed_files": [
+    {
+      "OldPath": "main.go",
+      "NewPath": "main.go",
+      "Patch": "@@ -10,3 +10,4 @@\n+handleWithoutAuth(userInput)",
+      "Status": "modified",
+      "Additions": 1,
+      "Deletions": 0
+    }
+  ],
+  "diff": {
+    "Files": [
+      {
+        "Path": "main.go",
+        "Patch": "@@ -10,3 +10,4 @@\n+handleWithoutAuth(userInput)",
+        "TokenCount": 11
+      }
+    ]
+  },
+  "memory": {
+    "Conventions": [
+      "durable convention: require auth guards"
+    ],
+    "Decisions": null,
+    "History": null
+  },
+  "findings": [
+    {
+      "ID": "F1",
+      "Severity": "high",
+      "Title": "Missing auth guard",
+      "Description": "The changed handler trusts user input without verifying authorization.",
+      "Suggestion": "Check authorization before processing the request.",
+      "Location": {
+        "Path": "main.go",
+        "Line": 10
+      },
+      "Confidence": 0.94,
+      "finding_type": "finding",
+      "strength": "confirmed",
+      "evidence_authority": "sot",
+      "validation_status": "accepted",
+      "validation_reason": "confirmed source-of-truth-backed finding"
+    }
+  ],
+  "human_check": null,
+  "notes": null,
+  "questions": null,
+  "inline_comments": [
+    {
+      "finding_id": "F1",
+      "path": "main.go",
+      "old_path": "main.go",
+      "new_path": "main.go",
+      "line": 10,
+      "side": "RIGHT",
+      "body": "**Missing auth guard**\n\nThe changed handler trusts user input without verifying authorization.\n\n**Suggestion:** Check authorization before processing the request.",
+      "status": "skipped",
+      "reason": "publisher does not support inline draft comments"
+    }
+  ],
+  "model_status": "parsed",
+  "parsed_findings": 1,
+  "accepted_findings": 1,
+  "has_draft_report": true,
+  "has_final_report": false,
+  "hil_approved": false,
+  "event_types": [
+    "run_started",
+    "webhook_received",
+    "scm_enriched",
+    "skills_selected",
+    "skill_plan_built",
+    "repository_knowledge_selected",
+    "memory_recalled",
+    "context_assembled",
+    "model_review_completed",
+    "skill_coverage_validated",
+    "findings_validated",
+    "inline_comments_processed",
+    "draft_published",
+    "context_saved",
+    "status_changed"
+  ]
+}

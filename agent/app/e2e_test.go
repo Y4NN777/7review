@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -181,6 +183,7 @@ func assertE2ERunLifecycle(t *testing.T, s *Server, publisher *e2ePublisher, mem
 	if !strings.Contains(publisher.draftReport, "Missing auth guard") || publisher.draftSource == nil || publisher.draftSource.Provider != provider {
 		t.Fatalf("draft was not published through provider source: %#v", publisher)
 	}
+	assertCharacterizedDraftArtifacts(t, s, runID, provider)
 
 	selected := toolExecute(t, s, `{"name":"get_selected_context","input":{"run":`+quote(runID)+`}}`)
 	if !strings.Contains(selected, `"memory"`) || !strings.Contains(selected, "durable convention") {
@@ -242,6 +245,81 @@ func assertE2ERunLifecycle(t *testing.T, s *Server, publisher *e2ePublisher, mem
 	rerunStatus := toolExecute(t, s, `{"name":"get_publish_status","input":{"run":`+quote(runID)+`}}`)
 	if !strings.Contains(rerunStatus, `"status":"drafted"`) {
 		t.Fatalf("rerun did not return to drafted state:\n%s", rerunStatus)
+	}
+}
+
+type characterizedDraftArtifacts struct {
+	Status           pipeline.RunStatus     `json:"status"`
+	Request          review.Request         `json:"request"`
+	SCM              *review.SCMContext     `json:"scm"`
+	ChangedFiles     []review.ChangedFile   `json:"changed_files"`
+	Diff             *review.StructuredDiff `json:"diff"`
+	Memory           review.MemoryRecall    `json:"memory"`
+	Findings         []review.Finding       `json:"findings"`
+	HumanCheck       []review.Finding       `json:"human_check"`
+	Notes            []review.Finding       `json:"notes"`
+	Questions        []review.Finding       `json:"questions"`
+	InlineComments   []review.InlineComment `json:"inline_comments"`
+	ModelStatus      string                 `json:"model_status"`
+	ParsedFindings   int                    `json:"parsed_findings"`
+	AcceptedFindings int                    `json:"accepted_findings"`
+	HasDraftReport   bool                   `json:"has_draft_report"`
+	HasFinalReport   bool                   `json:"has_final_report"`
+	HILApproved      bool                   `json:"hil_approved"`
+	EventTypes       []string               `json:"event_types"`
+}
+
+func assertCharacterizedDraftArtifacts(t *testing.T, s *Server, runID string, provider string) {
+	t.Helper()
+	run, err := s.pipeline.Jobs.Get(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Source == nil {
+		t.Fatal("characterization requires persisted review source")
+	}
+	snapshot := characterizedDraftArtifacts{
+		Status:           run.Status,
+		Request:          run.Request,
+		SCM:              run.Source.SCM,
+		ChangedFiles:     run.Source.ChangedFiles,
+		Diff:             run.Source.Diff,
+		Memory:           run.Source.Memory,
+		Findings:         run.Source.Findings,
+		HumanCheck:       run.Source.HumanCheck,
+		Notes:            run.Source.Notes,
+		Questions:        run.Source.Questions,
+		InlineComments:   run.Source.InlineComments,
+		ModelStatus:      run.Source.Model.ParseStatus,
+		ParsedFindings:   run.Source.Model.ParsedFindings,
+		AcceptedFindings: run.Source.Model.AcceptedFindings,
+		HasDraftReport:   strings.TrimSpace(run.DraftReport) != "",
+		HasFinalReport:   strings.TrimSpace(run.FinalReport) != "",
+		HILApproved:      run.HILApproved,
+	}
+	for _, event := range run.Events {
+		snapshot.EventTypes = append(snapshot.EventTypes, event.Type)
+	}
+	data, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, '\n')
+	path := filepath.Join("testdata", "lifecycle_"+provider+".json")
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(want) {
+		t.Fatalf("%s lifecycle artifacts changed; run UPDATE_GOLDEN=1 go test ./agent/app after verifying the behavior\n--- got ---\n%s\n--- want ---\n%s", provider, data, want)
 	}
 }
 
