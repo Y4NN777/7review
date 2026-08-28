@@ -24,16 +24,21 @@ Status: runtime-packaged development baseline.
 The next product milestone is no longer channel expansion. 7review will compile
 repository-owned review methods, rules, evidence, tools, validation, and
 publishing policy into an explainable `ReviewPlan`, then execute it through a
-bounded evidence-seeking agent loop.
+bounded evidence-seeking agent loop. A run-scoped Review Evidence Graph connects
+the change, selected methodology, evidence, hypotheses, findings, human outcomes,
+and governed memory without becoming a general code knowledge platform.
 
 The approved system design and phase gates are:
 
 - `docs/designs/adaptive-review-platform.md`
 - `docs/designs/adaptive-review-implementation-plan.md`
+- `docs/designs/review-evidence-graph.md`
+- `docs/designs/memory-engineering.md`
 
-Implementation begins with behavior characterization and canonical run state.
-Repository policy parsing starts only after existing behavior can be expressed
-as a compatibility plan. New channels remain frozen during this migration.
+Behavior characterization and the first canonical-state slice are complete.
+Implementation continues by removing the remaining duplicated run state.
+Snapshots, plans, the evidence graph, memory redesign, and repository policy
+follow in that order. New channels remain frozen during this migration.
 
 ## Priority Rationale
 
@@ -48,9 +53,10 @@ Ordering principle:
 1. Make the stack start reliably.
 2. Characterize and preserve one complete review path end-to-end.
 3. Introduce canonical source, trusted snapshots, and compatibility plans.
-4. Add repository-owned policy and the bounded review loop.
-5. Prove strategy quality and GitHub/GitLab parity with scenarios.
-6. Resume real approval-channel validation after platform gates are green.
+4. Add the run-scoped evidence graph and governed memory.
+5. Add repository-owned policy and the bounded review loop.
+6. Prove strategy quality and GitHub/GitLab parity with scenarios.
+7. Resume real approval-channel validation after platform gates are green.
 
 The critical path is Docker/runtime packaging first because it gives a stable
 environment for every later E2E test. Provider E2E before Docker would be noisy:
@@ -204,6 +210,8 @@ Detailed tasks:
 Do not start these before Phases 1-2 are stable:
 
 - New approval channels.
+- A universal knowledge graph or mandatory whole-repository symbol index.
+- Bundled SCIP, CodeQL, or Joern services; these remain future opt-in tools.
 - Major Docker/deployment abstractions beyond the current compose stack.
 - Stateful streaming CLI/session work.
 - Multi-instance horizontal scaling.

@@ -16,10 +16,11 @@ questions explicitly:
 3. Which evidence, tools, models, and deterministic checks should execute?
 4. Which outputs may be drafted, published, approved, or remembered?
 
-The answer is a compiled, immutable, explainable `ReviewPlan`. The existing
-pipeline, skills, evidence graph, tools, model orchestrator, HIL flow, channels,
-run store, Headroom, and MemPalace remain useful primitives. They are recomposed
-around the plan instead of being replaced.
+The answer is a compiled, immutable, explainable `ReviewPlan`, executed through
+a run-scoped `ReviewEvidenceGraph`. The existing pipeline, corpus graph,
+skills, tools, model orchestrator, HIL flow, channels, run store, Headroom, and
+MemPalace remain useful primitives. They are recomposed around the plan and
+evidence graph instead of being replaced.
 
 ## Current System Assessment
 
@@ -65,6 +66,10 @@ around the plan instead of being replaced.
 7. **Quality is not yet measurable as a product.** Unit and integration coverage
    is substantial, but there is no first-class scenario/evaluation contract for
    strategy accuracy, finding quality, provider parity, or repeated model runs.
+8. **Review reasoning is not connected.** Corpus selection reasons, skills,
+   observations, citations, findings, HIL outcomes, and memory are neighboring
+   artifacts rather than one bounded explanation of why a finding exists and
+   what the system learned from it.
 
 ## Architecture Principles
 
@@ -78,6 +83,10 @@ around the plan instead of being replaced.
   snapshot.
 - Existing behavior migrates through compatibility adapters; no big-bang
   rewrite.
+- The evidence graph models one review, not the entire software world. It links
+  changes, applicable methodology, evidence, findings, and outcomes.
+- Graph relations are derived explanations with provenance. They never replace
+  repository artifacts, the effective plan, or the append-only run ledger.
 - Headroom is a context optimization and MemPalace is approved historical
   memory storage. A provider-neutral 7review memory engine owns semantics,
   governance, and evaluation. Neither sidecar may redefine repository truth.
@@ -90,18 +99,20 @@ around the plan instead of being replaced.
  webhooks / CLI / TUI / chat / channels / operator tools
                          |
                          v
-  +----------------------------------------------------+
-  |                  REVIEW ENGINE                     |
-  | acquire -> plan -> gather -> review -> validate    |
-  |              -> draft -> approve -> publish        |
-  +----------------------------------------------------+
-       |             |              |             |
-       v             v              v             v
- Repository      Decision       Execution       Run ledger
- snapshots       engine         capabilities   + artifacts
-       |             |              |
- GitHub/GitLab   policy packs   skills, tools, models,
- or mounted FS   + classifier   Headroom, MemPalace
+  +--------------------------------------------------------+
+  |                     REVIEW ENGINE                      |
+  | acquire -> plan -> evidence graph -> bounded review    |
+  |          -> validate -> draft -> approve -> publish    |
+  +--------------------------------------------------------+
+       |              |               |              |
+       v              v               v              v
+ Repository       Decision      Review Evidence    Run ledger
+ snapshots        engine            Graph         + artifacts
+       |              |               |
+ GitHub/GitLab    policy packs   corpus, skills, memory,
+ or mounted FS    + classifier   tools, hypotheses, findings
+                                      |
+                         Headroom + MemPalace indexes
 ```
 
 ### 1. Domain And Run Ledger
@@ -185,7 +196,38 @@ Budgets use explicit replacement. Conflicting scalar decisions without a schema
 winner fail planning. Arbitrary scripts, remote downloads, model-selected
 policy, native plugins, CEL/Rego, and WASM are excluded from V2.
 
-### 5. Governed Memory Engine
+### 5. Review Evidence Graph
+
+The graph is the bounded, explainable context for one review run. It is not a
+general knowledge graph, a complete code property graph, or a new database
+service. It starts from the existing `CorpusGraph` and connects:
+
+- change, file, domain, module, feature, and risk classification;
+- active pack, method, skill, rule, contract, and required check;
+- selected corpus section, memory recall, tool request, and observation;
+- hypothesis, citation, candidate finding, validation result, HIL decision, and
+  final outcome.
+
+Typed relations include `applies_to`, `selected_because`, `requires`,
+`investigates`, `supports`, `refutes`, `cites`, `accepted`,
+`rejected`, `learned_from`, `contradicts`, and `supersedes`. Each
+relation carries source artifact references, repository and revision identity,
+authority, confidence, and a deterministic explanation.
+
+`review.Source` persists selected graph nodes, relations, and proof paths as
+run artifacts. The append-only run ledger remains authoritative; graph views
+are rebuildable. A confirmed finding needs a path from changed code through an
+applicable rule or contract to concrete violation evidence. Memory and
+model-inferred relations may support or refute a hypothesis but cannot complete
+that authoritative path alone.
+
+The initial graph remains document- and review-centric. SCIP, CodeQL, Joern, or
+language-specific indexes may later enrich a run as optional read-only tools.
+Setup can detect and offer these capabilities explicitly, but absence or stale
+revision identity falls back to the generic path/diff/corpus flow. See
+`review-evidence-graph.md`.
+
+### 6. Governed Memory Engine
 
 Memory is a typed, evaluated learning subsystem, not a report archive. The
 append-only run ledger preserves complete review outcomes; `agent/memory`
@@ -194,19 +236,21 @@ operational records with scope, provenance, authority, confidence, lifecycle,
 and supersession links.
 
 Recall is compiled from the effective plan and trusted repository identity,
-combines exact and semantic retrieval, and explains every selected item.
+combines exact and semantic retrieval, and enters the evidence graph with its
+scope and provenance. Human outcomes add `learned_from`, `contradicts`, or
+`supersedes` links to governed memory proposals.
 Repository truth always outranks recalled knowledge. Writes are separately
 approved after HIL, idempotent, redacted, and contradiction-aware. Learned
 procedures can only be promoted into repository policy or `SKILL.md` through a
 normal PR/MR. MemPalace remains the initial replaceable semantic backend. See
 `memory-engineering.md` for the full contract.
 
-### 6. Staged Review Engine
+### 7. Staged Review Engine
 
 The existing pipeline migrates to an engine with explicit stage contracts:
 
 ```text
-Acquire -> CompilePlan -> GatherEvidence -> PrepareContext
+Acquire -> CompilePlan -> GatherEvidence -> BuildEvidenceGraph -> PrepareContext
         -> ExecuteReview -> Validate -> ComposeDraft
         -> AwaitApproval -> PublishFinal -> WriteMemory
 ```
@@ -217,20 +261,25 @@ cancellation, persistence, and transition guards. This keeps one obvious
 workflow while allowing deterministic stages to be tested without models or
 networks.
 
-### 7. Skills, Evidence, Tools, And Models
+### 8. Skills, Evidence, Tools, And Models
 
 - Skills become plan-selected review methods, not an independent keyword-only
   decision system. The current loader and metadata parser are retained.
-- Corpus graph selection becomes `knowledge.Select(plan, snapshot, change)` and
-  keeps authority, citations, graph traces, and anti-noise controls.
+- Corpus graph selection becomes the first evidence-graph projector and keeps
+  current authority, citation, trace, scoring, and anti-noise behavior.
+- Skills, tools, memory, hypotheses, and findings append typed graph relations
+  instead of inventing a second selection model.
 - Tool descriptors and handlers are registered together. Capabilities declare
   stage, side effects, approval requirement, input schema, and actor scope.
 - Model-accessible tools are read-only and intersect the plan allowlist with the
   hard runtime allowlist. Operator mutations remain on a separate actor surface.
+- Optional code-intelligence tools are capability adapters, not mandatory
+  infrastructure. Their outputs must attest repository, revision, tool version,
+  and configuration before entering the graph.
 - The orchestrator remains role-based. Plans select a semantic role or bounded
   quality tier, never credentials or unrestricted provider details.
 
-### 8. Bounded Review Agent Loop
+### 9. Bounded Review Agent Loop
 
 7review uses a deterministic workflow with one bounded review agent inside it.
 It does not use an open-ended autonomous loop or a multi-agent swarm. The agent
@@ -242,7 +291,7 @@ The current three-round tool loop is retained as a compatibility seed, then
 upgraded to an explicit trajectory:
 
 ```text
-compiled plan + diff + evidence
+compiled plan + diff + initial evidence graph
               |
               v
        propose hypotheses
@@ -251,12 +300,12 @@ compiled plan + diff + evidence
      map required checks/gaps <-------------------+
               |                                   |
               v                                   |
- request bounded read tools -> observe -> update hypotheses
+ request bounded read tools -> observe -> append evidence relations
               |                                   |
               +---- progress and budget check ----+
               |
               v
- synthesize supported candidates
+ synthesize candidates with bounded proof paths
               |
               v
  deterministic validation -> selective verifier -> draft/HIL
@@ -267,6 +316,11 @@ required evidence, current support state, confidence, and outcome. States are
 `open`, `supported`, `refuted`, `insufficient`, or `duplicate`. Tool requests
 must reference an open hypothesis or an uncovered required check. A model may
 not turn an unlinked observation directly into a publishable finding.
+
+The controller owns graph expansion. Initial seeds and mandatory paths are
+compiled from the plan and diff. The agent can request an allowlisted, budgeted
+expansion only for an open hypothesis; it cannot issue arbitrary graph queries
+or promote a weak relation.
 
 The controller, not the model, enforces:
 
@@ -301,7 +355,7 @@ hypothesis state changes, required-check coverage, budgets, stop reason, and
 verifier decisions. It excludes hidden chain-of-thought. This makes behavior
 replayable and evaluable without storing private model reasoning.
 
-### 9. Control Plane And Integrations
+### 10. Control Plane And Integrations
 
 `agent/app` continues to own HTTP authentication, webhooks, bounded work intake,
 and composition. `agent/channel` remains transport-specific HIL messaging.
@@ -323,8 +377,8 @@ Five gates are distinct:
 
 1. Resolver tests: exact classification, matches, merge laws, provenance, and
    fingerprint, with no model or network.
-2. Engine contract tests: stage transitions, evidence, tools, validation, HIL,
-   publication, and memory using fakes.
+2. Engine contract tests: stage transitions, evidence graph, tools, validation,
+   HIL, publication, and memory using fakes.
 3. Quality evaluations: repeated real-model runs scored by normalized findings,
    rules, locations, strength, citations, and forbidden topics.
 4. SCM parity: the same logical scenario yields equivalent normalized inputs
@@ -337,14 +391,16 @@ changes, contracts, auth, secrets, migrations, retries, frontend accessibility,
 infra, tests, docs/generated files, mixed domains, feature rules, architecture
 boundaries, policy conflicts, cycles, missing rules, self-weakening policy,
 duplicate delivery, weak evidence, corpus noise, malformed model output, and
-GitHub/GitLab parity.
+GitHub/GitLab parity. Each fixture also declares expected and forbidden graph
+relations or proof paths where they affect review behavior.
 
 Metrics include strategy precision/recall, finding precision/recall and false
 positive rate, citation validity, downgrade correctness, parity, fingerprint
 stability, parse repair, latency, model calls, duplicate publication count,
 hypothesis yield, evidence gain per tool call, required-check coverage, no-progress
 stops, escalation correctness, trajectory cost, useful/harmful memory recall,
-false-positive recurrence, stale-memory rate, and memory-on/off quality delta.
+false-positive recurrence, stale-memory rate, memory-on/off quality delta,
+evidence-path precision, unsupported-path rejection, and graph context cost.
 
 ## Research Basis
 
@@ -366,6 +422,9 @@ practice:
   require granular scoring against real PR feedback.
 - Defect-focused review research favors multi-stage filtering and validation to
   suppress unsupported or low-value comments.
+- W3C PROV supports provenance-centered trust decisions; SCIP, CodeQL, Joern,
+  and SARIF show that precise code relations and result paths belong in
+  specialized, optional capabilities rather than a universal graph.
 
 References:
 
@@ -379,6 +438,11 @@ References:
 - https://arxiv.org/abs/2603.26130
 - https://arxiv.org/abs/2603.11078
 - https://openreview.net/pdf?id=mEV0nvHcK3
+- https://www.w3.org/TR/prov-dm/
+- https://github.com/scip-code/scip
+- https://codeql.github.com/docs/writing-codeql-queries/creating-path-queries/
+- https://docs.joern.io/code-property-graph/
+- https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/sarif-v2.1.0-os.html
 
 ## Non-Negotiable Invariants
 
@@ -388,6 +452,8 @@ References:
 - filesystem confinement and bounded input sizes;
 - changed-file and changed-line validation;
 - authority-aware citations for confirmed findings;
+- bounded, revision-scoped evidence relations and proof paths;
+- no inferred or memory-only path may confirm a finding;
 - idempotent provider publication and memory write authorization;
 - deterministic policy validation before any model call;
 - no secrets in plans, run artifacts, logs, prompts, or memory.
@@ -395,18 +461,23 @@ References:
 ## Scope Decisions
 
 Build now: canonical source, repository snapshots, legacy plan compilation,
-declarative packs, deterministic resolver, staged engine migration, explain and
-validate commands, scenario harness, and provider parity.
+the review evidence graph, governed memory, declarative packs, deterministic
+resolver, staged engine migration, explain and validate commands, scenario
+harness, and provider parity.
 
-Defer: organization-wide remote pack registries, executable validators,
-multi-tenant policy distribution, autonomous final approval, new channels,
-external durable queue, multi-instance scheduling, and WASM/CEL/Rego.
+Defer: a universal knowledge graph, mandatory whole-repository symbol indexing,
+bundled SCIP/CodeQL/Joern execution, organization-wide remote pack registries,
+executable validators, multi-tenant policy distribution, autonomous final
+approval, new channels, external durable queue, multi-instance scheduling, and
+WASM/CEL/Rego.
 
 ## Success Criteria
 
 - Existing profile-driven behavior remains equivalent during migration.
 - One trusted snapshot supplies policy, repository methods, rules, and corpus.
 - Every run persists an effective plan and stable fingerprint before model use.
+- Every accepted finding has an explainable, bounded evidence path persisted in
+  the run; rejected findings retain feedback without becoming repository truth.
 - Engineers can define global, domain, module, feature, and path-specific review
   behavior without changing Go code.
 - `7review explain` shows why every pack, method, rule, tool, evidence root,

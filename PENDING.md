@@ -77,13 +77,14 @@ Still pending before calling Axis 2 production-complete:
 
 ## Immediate Queue
 
-Next: Phase 0 of the adaptive review platform plan. Characterize current
-GitHub/GitLab lifecycle artifacts, skill selection, corpus evidence, validation,
-publishing, HIL, and memory behavior before changing runtime composition.
+Phase 0 is complete. Request and diff authority have moved to `review.Source`;
+continue Phase 1 by migrating corpus/skills, findings, reports, and run metadata
+until `review.Context` contains only transient synchronization helpers.
 
-Then migrate duplicated `review.Context`/`review.Source` state to one canonical
-source. Do not add repository policy parsing, a new channel, or another
-deployment service until compatibility tests are green.
+Then implement the trusted repository snapshot, compatibility `ReviewPlan`,
+run-scoped Review Evidence Graph, and governed memory in the documented order.
+Do not add repository policy parsing, a general knowledge graph, mandatory code
+indexers, a new channel, or another deployment service before their phase gates.
 
 Real approval-provider E2E remains required, but follows the adaptive platform
 compatibility and scenario gates so it validates the intended architecture.

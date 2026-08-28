@@ -5,9 +5,10 @@ Date: 2026-08-28
 
 ## Decision
 
-Keep MemPalace as the first semantic archive and retrieval backend, but move all
-review semantics into a provider-neutral 7review memory layer. MemPalace is not
-the source of truth and may be replaced without changing review behavior.
+Keep MemPalace as the first semantic retrieval index, but move all review
+semantics into a provider-neutral 7review memory layer. Governed records are
+linked to the run-scoped Review Evidence Graph. MemPalace is not the source of
+truth and may be replaced or rebuilt without changing review behavior.
 
 Do not copy Hermes' compact `MEMORY.md` model as the primary store. Adopt its
 useful separation between always-on curated facts, searchable history, and
@@ -48,34 +49,41 @@ The immutable run ledger remains the audit source for complete trajectories.
 Curated memory stores compact derived knowledge and references the ledger; it
 does not duplicate full reports or hidden chain-of-thought.
 
+Memory does not create a global software knowledge graph. Its relations connect
+governed records to review entities such as repository, domain, module, feature,
+rule, finding, HIL decision, and source run.
+
 ## Architecture
 
 ```text
-ReviewPlan + diff + trusted snapshot
-               |
-               v
-        MemoryEngine (7review)
- capture -> validate -> retrieve -> rank -> explain -> propose -> consolidate
-       |                         |                         |
-       v                         v                         v
- append-only run ledger   in-run recall view       approval/promotion
-                                 |
-                    +------------+------------+
-                    |                         |
-              lexical index          semantic provider
-              exact IDs/paths       MemPalace adapter
+ReviewPlan + diff + Review Evidence Graph
+                    |
+                    v
+             MemoryEngine (7review)
+ capture -> validate -> retrieve -> rank -> propose -> consolidate
+       |                    |                    |
+       v                    v                    v
+ run ledger + records   evidence-graph       approval/promotion
+                         recall nodes
+                              |
+                 +------------+------------+
+                 |                         |
+           exact scoped index       MemPalace semantic index
+           authoritative records    stable record references
 ```
 
-`agent/memory` owns domain types, policy, ranking, lifecycle, and metrics. Its
-backend interface exposes only storage capabilities such as `Search`, `Get`,
-`Upsert`, `Link`, `UpdateStatus`, and `Health`. `agent/tools` keeps the
-MemPalace HTTP adapter and embedding integration.
+`agent/memory` owns domain types, policy, ranking, lifecycle, and metrics.
+Governed records and links are authoritative; MemPalace stores embeddings and
+stable record references as a rebuildable secondary index. `agent/tools`
+keeps the MemPalace HTTP adapter and embedding integration.
 
 Recall is compiled from `ReviewPlan`, changed paths, repository identity, and
 trusted revision. Exact path/rule/module matches run first; semantic search runs
 second. The engine then deduplicates, filters by scope and lifecycle, applies
 authority/freshness limits, enforces a token budget, and records why every item
 was selected. Repository files and base-revision policy always outrank memory.
+Selected records become evidence-graph nodes with `recalled_because`,
+`applies_to`, and source-run links. They remain supporting evidence.
 
 ## Learning And Governance
 
@@ -85,6 +93,11 @@ redacts secrets, scans untrusted instructions, validates evidence references,
 uses idempotent stable IDs, and detects duplicates, contradictions, and
 supersession. Activation requires explicit human approval or a narrowly scoped
 operator policy; final review approval alone is not blanket memory approval.
+
+Accepted, rejected, revised, and duplicate outcomes are taken from persisted
+evidence paths. Rejected findings create feedback relations and suppression
+signals, never repository conventions. Contradictions preserve both records and
+their evidence until an authorized supersession decision is recorded.
 
 Memory may tune retrieval priority and propose review-method changes, but it may
 not silently mutate repository policy, tool permissions, severity, or
@@ -108,6 +121,10 @@ Release gates require deterministic tests for isolation, ranking, lifecycle,
 idempotency, redaction, approval, and provider failure. MemPalace outage must
 degrade to a review without semantic history, not fail repository acquisition or
 weaken mandatory checks.
+
+Graph-specific gates verify that a memory-only path cannot confirm a finding,
+recalled records point to existing governed records, and stale or contradicted
+records are removed before prompt construction.
 
 ## Research Basis
 
@@ -142,5 +159,8 @@ References:
 - Untrusted PR/MR text never becomes active memory without validation.
 - Secrets and hidden reasoning are never stored.
 - Rejected findings are learning signals, not conventions.
+- MemPalace results are rehydrated and revalidated against governed records.
+- Memory relations enrich the Review Evidence Graph; they do not create a
+  parallel graph authority.
 - Provider failure cannot weaken repository-owned review requirements.
 - Policy and procedural promotion always remain reviewable repository changes.

@@ -75,7 +75,9 @@ Current engineering direction: **adaptive review platform migration**. The
 runtime remains usable while the architecture migrates through compatibility
 phases. The approved design is in
 `docs/designs/adaptive-review-platform.md`; the executable phase plan is in
-`docs/designs/adaptive-review-implementation-plan.md`.
+`docs/designs/adaptive-review-implementation-plan.md`. The target includes a
+run-scoped Review Evidence Graph and governed memory; neither is implemented in
+the runtime yet.
 
 Meaning:
 
@@ -161,6 +163,11 @@ explicit.
 
 The document graph exposes authority as a first-class signal, not only as
 section kind or selection score.
+
+The target architecture evolves this existing selector into a Review Evidence
+Graph that also links applicable methods, tool observations, hypotheses,
+findings, HIL outcomes, and memory feedback. It explicitly does not attempt to
+index the complete codebase as a universal knowledge graph.
 
 Authority levels:
 
