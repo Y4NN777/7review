@@ -64,7 +64,6 @@ func (r *HeadroomReducer) Reduce(ctx context.Context, rc *review.Context) error 
 	}
 	if out.Diff != nil {
 		rc.Diff = out.Diff
-		rc.Source.Diff = out.Diff
 	}
 	for _, warning := range out.Warnings {
 		rc.AddWarning("headroom: " + warning)

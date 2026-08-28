@@ -9,15 +9,14 @@ import (
 
 func TestPathPolicyFilterUsesProfileIgnorePatterns(t *testing.T) {
 	filter := PathPolicyFilter{Ignore: []string{"generated/**", "**/*.snap"}}
-	decision, err := filter.Apply(context.Background(), &review.Context{
-		Request: review.Request{
-			ChangedPaths: []string{
-				"generated/client.go",
-				"ui/button.snap",
-				"agent/app/server.go",
-			},
+	rc := review.NewContext(review.Request{
+		ChangedPaths: []string{
+			"generated/client.go",
+			"ui/button.snap",
+			"agent/app/server.go",
 		},
 	})
+	decision, err := filter.Apply(context.Background(), rc)
 	if err != nil {
 		t.Fatal(err)
 	}

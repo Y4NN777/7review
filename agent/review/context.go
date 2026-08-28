@@ -68,12 +68,12 @@ type RunMetadata struct {
 	Warnings       []string
 }
 
-// Context is kept as a compatibility alias for older package interfaces.
+// Context wraps the canonical Source with transient execution helpers retained
+// for compatibility while the pipeline migrates to Source-only stage inputs.
 type Context struct {
 	mu sync.Mutex
 
 	Source
-	Request Request
 
 	// ── Inputs (populated by Step 1) ─────────────────────────────────────
 	ProjectID string
@@ -82,9 +82,6 @@ type Context struct {
 	MRAuthor  string
 	WebURL    string
 	DiffRefs  DiffRefs
-
-	// ── Structured diff (populated by Step 2) ────────────────────────────
-	Diff *StructuredDiff
 
 	// ── Retrieved context (populated by Step 3) ──────────────────────────
 	Conventions string // formatted content of conventions.json
@@ -120,20 +117,20 @@ type Context struct {
 	AvailableTools []string
 }
 
-// NewReviewContext initialises a context for one MR review run.
+// NewContext initialises the canonical source and transient helpers for one run.
 func NewContext(req Request) *Context {
+	stepProviders := make(map[string]string)
 	rc := &Context{
-		Request:       req,
+		Source: Source{
+			Request: req,
+			Run: RunMetadata{
+				StartedAt:     time.Now().UTC(),
+				StepProviders: stepProviders,
+			},
+		},
 		ProjectID:     req.ProjectID,
 		MRIID:         req.MRIID,
-		StepProviders: make(map[string]string),
-	}
-	rc.Source = Source{
-		Request: req,
-		Run: RunMetadata{
-			StartedAt:     time.Now().UTC(),
-			StepProviders: rc.StepProviders,
-		},
+		StepProviders: stepProviders,
 	}
 	return rc
 }
@@ -172,10 +169,7 @@ func (rc *Context) AddWarning(warning string) {
 // ChangedPaths returns the list of file paths in the structured diff.
 // Convenience method used by Steps 3 and 4.
 func (rc *Context) ChangedPaths() []string {
-	diff := rc.Diff
-	if diff == nil {
-		diff = rc.Source.Diff
-	}
+	diff := rc.Source.Diff
 	if diff == nil {
 		return nil
 	}

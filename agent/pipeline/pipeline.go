@@ -76,7 +76,6 @@ func (p *Pipeline) Run(ctx context.Context, req review.Request) error {
 	})
 
 	rc.Diff = normalizeDiff(scmContext.Files)
-	rc.Source.Diff = rc.Diff
 	rc.Request.ChangedPaths = rc.ChangedPaths()
 	if p.SkillLoader != nil {
 		rc.Source.SkillActivations = p.SkillLoader.SelectActivations(rc.Request)

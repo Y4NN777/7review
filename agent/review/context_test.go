@@ -24,6 +24,10 @@ func TestNewContextInitializesSourceAndRunMetadata(t *testing.T) {
 	if rc.Source.Request.Provider != req.Provider || rc.Source.Request.ProjectID != req.ProjectID || rc.Source.Request.ChangeID != req.ChangeID {
 		t.Fatalf("source request was not initialized consistently: %#v", rc.Source.Request)
 	}
+	rc.Request.Title = "canonical mutation"
+	if rc.Source.Request.Title != "canonical mutation" {
+		t.Fatalf("context request is not backed by source request: %#v", rc.Source.Request)
+	}
 	if rc.ProjectID != req.ProjectID || rc.MRIID != req.MRIID {
 		t.Fatalf("legacy fields were not initialized: project=%q mr=%d", rc.ProjectID, rc.MRIID)
 	}
@@ -77,12 +81,15 @@ func TestRecordProviderAndWarningsUpdateSourceRunMetadata(t *testing.T) {
 	}
 }
 
-func TestChangedPathsUsesSourceDiffFallback(t *testing.T) {
+func TestChangedPathsUsesCanonicalSourceDiff(t *testing.T) {
 	rc := NewContext(Request{ProjectID: "p", ChangeID: "1"})
-	rc.Source.Diff = &StructuredDiff{Files: []FileDiff{
+	rc.Diff = &StructuredDiff{Files: []FileDiff{
 		{Path: "agent/app/server.go"},
 		{Path: "cmd/7review/main.go"},
 	}}
+	if rc.Source.Diff != rc.Diff {
+		t.Fatal("context diff is not backed by source diff")
+	}
 
 	got := rc.ChangedPaths()
 	want := []string{"agent/app/server.go", "cmd/7review/main.go"}
